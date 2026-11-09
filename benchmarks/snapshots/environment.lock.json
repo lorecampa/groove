@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "environment_id": "snapshots-linux-amd64-v1",
+  "platform": "linux/amd64",
+  "base_image": "rust:1.89.0-bookworm@sha256:c9ac3fa8945b61dede1e4500d25028aa8fd8a8fe46365fcf9c0422f8d999b9b0",
+  "debian_snapshot": "20250901T000000Z",
+  "rust": "1.89.0",
+  "git": "2.40.0",
+  "git_source_sha256": "b17a598fbf58729ef13b577465eb93b2d484df1201518b708b5044ff623bf46d",
+  "python": "3.11.2",
+  "gnu_time": "1.9",
+  "cpus": 4,
+  "memory_bytes": 8589934592,
+  "pids_limit": 512,
+  "cache_policy": "first-save then warm saves; no host cache eviction",
+  "storage_policy": "host bind-mounted local disk; reject tmpfs/overlay; record filesystem and free inodes"
+}

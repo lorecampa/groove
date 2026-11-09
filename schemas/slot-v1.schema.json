@@ -137,13 +137,42 @@
         "lease_transport": {
           "enum": [
             "scm_rights",
-            "in_process"
+            "in_process",
+            "durable_protection"
           ]
         },
         "descriptor_count": {
-          "const": 1
+          "enum": [
+            0,
+            1
+          ]
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "lease_transport": {
+                "const": "durable_protection"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "descriptor_count": {
+                "const": 0
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "descriptor_count": {
+                "const": 1
+              }
+            }
+          }
+        }
+      ]
     },
     "release": {
       "type": "object",

@@ -1,4 +1,7 @@
-# MCP agent setup
+# Optional MCP agent setup
+
+The [CLI and agent skill](agents.md) are the default setup. Use this adapter when
+your client prefers structured MCP tools. CLI users do not need to register a server.
 
 Groove provides a local stdio MCP server built with the official Rust MCP SDK.
 It holds leases between tool calls so agents can use their ordinary file and
@@ -7,12 +10,54 @@ filesystem are required; the server and editing tools must see the same paths.
 
 ## Install and connect
 
-From this checkout:
+From the Groove source checkout, install the server:
 
 ```sh
-cargo install --path crates/groove-cli --locked
 cargo install --path crates/groove-mcp --locked
 ```
+
+Ensure `~/.cargo/bin` is on your `PATH` and `command -v groove-mcp` returns an
+executable before registering it. The CLI is optional; install it separately with
+`cargo install --path crates/groove-cli --locked` if you need it.
+
+### Claude Code
+
+From the repository to manage:
+
+```sh
+claude mcp add --scope local groove -- "$(command -v groove-mcp)" --repo "$(git rev-parse --show-toplevel)"
+```
+
+Local scope keeps this registration private to you and specific to this project.
+Use `claude mcp get groove` to inspect it and `/mcp` in a new session to check
+connection status. See the [official Claude Code MCP guide](https://code.claude.com/docs/en/mcp).
+
+### Codex
+
+From the repository to manage:
+
+```sh
+codex mcp add groove -- "$(command -v groove-mcp)" --repo "$(git rev-parse --show-toplevel)"
+```
+
+This writes to your Codex user configuration. Use a distinct name such as
+`groove-myproject` for each repository to avoid replacing another repository’s
+registration. Inspect it with `codex mcp get groove`; start a new session and
+check `/mcp` for connection status.
+
+For project-scoped setup instead, add this to the target repository’s
+`.codex/config.toml`, replacing both paths:
+
+```toml
+[mcp_servers.groove]
+command = "/home/YOUR_USER/.cargo/bin/groove-mcp"
+args = ["--repo", "/absolute/path/to/your/repository"]
+```
+
+Codex loads project configuration only for trusted projects. See the
+[official Codex MCP guide](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
+
+### Other clients
 
 Configure a **local stdio MCP server** in your agent application, including
 Omnigent if it supports custom MCP servers. Set the executable to the absolute
@@ -36,14 +81,22 @@ For clients that accept the common `mcpServers` JSON configuration shape:
 ```
 
 The client launches and maintains the server process. Configuration interfaces
-vary between applications; this is not a command to paste into an agent prompt.
+vary between applications. The JSON block is configuration, not an agent prompt.
 Use one server configuration per repository. The server cannot be redirected to
 another repository through tool arguments. It exposes no HTTP port or shell tool.
 `--git-timeout-ms` bounds each Git operation (default 30000; maximum 120000).
 
 ## Agent instructions
 
-Add this to the session's instructions after connecting the server:
+The server already advertises lifecycle instructions at MCP initialization and
+in its tool descriptions. For a first task, a short prompt is sufficient:
+
+> Use Groove for this task. Initialize a pool with capacity 4 if needed, acquire a
+> workspace at HEAD, and follow Groove’s workspace and release instructions.
+
+Use your existing pool settings if already initialized; configuration is immutable.
+Registration does not initialize a pool or ensure that an agent chooses to use it.
+For persistent project instructions, use the fuller rules below:
 
 > Use Groove for disposable task workspaces. Initialize the pool with our chosen
 > capacity and cleanup policy if needed. Before editing, call groove_acquire with

@@ -101,23 +101,25 @@ are needed. Do not hold the administrative lock while waiting for capacity.
 The Rust library returns a non-Clone `Lease` with a private owned descriptor.
 Dropping it closes the descriptor without running Git. Explicit release borrows
 the lease mutably and invalidates it only on success; errors retain the handle.
-Sanitation happens on the next acquisition. Closing the last descriptor is also
+Sanitation happens on the next acquisition. For an unprotected lease, closing the last descriptor is also
 valid implicit release; release metadata is advisory.
 
-A one-shot `acquire` command cannot keep a lock alive after exiting by returning
-JSON alone. The proposed CLI uses an inherited Unix `SOCK_SEQPACKET` socket and
-`SCM_RIGHTS` to send the locked descriptor to its caller. The caller retains it
-for the task lifetime. The sender closes its copy without explicitly unlocking.
-Rust integrations use the core library's `Pool` and `Lease` directly. CLI callers
-use the descriptor transport. Agents using ordinary tool calls can instead
-connect the local [MCP adapter](mcp.md).
-The CLI targets descriptor-aware supervisors rather than plain shell JSON capture.
-The [Rust reference client](../crates/groove-cli/examples/client.rs) demonstrates
-channel creation, descriptor receipt, ownership retention and explicit release.
+The default CLI calls `Lease::into_protected`: persist durable reuse protection,
+then close the kernel descriptor before returning JSON. Ordinary shell callers
+can edit across independent calls without a daemon. `groove leases` lists these
+reservations; explicit `release --writers-stopped` takes the slot lock and checks
+the generation before removing protection. No command-exit or time-based expiry
+permits reuse. Lost acquire responses require inspection; request IDs are not
+idempotency keys. Completed release receipts allow same-generation retry only.
 
-The received JSON-plus-descriptor message is the authoritative acquisition
-result. A stdout receipt alone is not ownership. A client that abandons a request
-must close the channel and any received descriptors.
+Descriptor-aware supervisors may opt into `--lease-channel-fd`, using an inherited
+Unix `SOCK_SEQPACKET` socket and `SCM_RIGHTS`. That transport retains its original
+last-descriptor-close lifetime for unprotected leases. The
+[Rust reference client](../crates/groove-cli/examples/client.rs) demonstrates it.
+In descriptor mode, the JSON-plus-descriptor message is authoritative; stdout
+alone is not ownership. Abandoning callers close the channel and received descriptors.
+The optional [MCP adapter](mcp.md) holds descriptors and durable protections for
+clients that prefer structured tools.
 
 The caller must stop all writers before explicit release. Surviving workers must
 either retain duplicate lease descriptors or be terminated by their supervisor
@@ -229,10 +231,12 @@ groove --repo <PATH> [--request-id <ID>] init --capacity <N>
   [--cleanup pristine|warm] [--worktree-root <PATH>]
 
 groove --repo <PATH> [--request-id <ID>] acquire
-  --base <REV> --lease-channel-fd <FD> [--wait-ms <MS>]
+  [--base <REV>] [--wait-ms <MS>] [--lease-channel-fd <FD>]
+
+groove --repo <PATH> leases
 
 groove --repo <PATH> [--request-id <ID>] release
-  --slot <SLOT_ID> --lease-id <UUID> --lease-fd <FD>
+  --slot <SLOT_ID> --lease-id <UUID> (--writers-stopped | --lease-fd <FD>)
 ```
 
 `init` is idempotent for identical configuration. A capacity, root or policy mismatch is an error;
@@ -240,20 +244,21 @@ resizing is outside the initial command surface. Interrupted initialization is
 resumable, and the ready configuration is published only after durable setup.
 
 `acquire` defaults to a zero-millisecond capacity wait. Git operation timeouts are
-separate. Success transfers exactly one descriptor with its JSON record and
+separate. Default success returns durable reservation metadata on stdout.
+Opt-in descriptor mode transfers exactly one descriptor with its JSON record and
 repeats the JSON on stdout. The payload identifies the slot, lease UUID, absolute
 path, base OID, detached HEAD mode, and recovery outcome.
 
-`release` requires the inherited lease descriptor and matching slot and lease
-identities. It records release and explicitly unlocks. It neither commits nor
+`release` requires matching slot and lease identities plus stopped-writer
+confirmation for durable reservations, or the inherited descriptor in transport mode. It records release and explicitly unlocks. It neither commits nor
 exports task results; clients must preserve those before release. The caller
 invalidates its local handle following success.
 
 Every normal command produces one newline-terminated JSON response on stdout.
-Stderr is empty by default, or JSON Lines diagnostics when enabled. Help,
+Stderr is empty by default; `-v` mirrors debug events and `-vv` includes trace detail. Help,
 argument errors, version output, and Git failures also use JSON.
 Captured Git subprocess output must never leak directly into stdout; include
-relevant failure details in the error response or stderr diagnostics.
+relevant failure details in the error response. Logging omits raw subprocess output.
 
 ```typescript
 type Response<T> =
@@ -293,7 +298,7 @@ acquisitions, but do not replace descriptors or fence arbitrary filesystem I/O.
 - `thiserror` for typed errors with stable external codes.
 - `uuid` v4 for lease identities.
 - `tempfile` for temporary metadata created inside the repository.
-- Explicit JSON Lines error diagnostics on stderr; no global logging configuration.
+- Bounded per-invocation JSONL logs and optional verbose stderr output; the CLI configures tracing, while the core only emits events.
 
 `git2-rs` binds libgit2 and remains a possible later backend, subject to recovery
 conformance tests. Direct libc is used for the small ownership/wire boundary so
@@ -340,3 +345,13 @@ their original last-descriptor-close behavior.
 
 Older binaries reject the upgraded manifest. Stop older already-running processes
 before enabling MCP. See [MCP setup](mcp.md) for transport and request semantics.
+
+
+## CLI-first durable reservations
+
+The default CLI uses the same durable protections as MCP but does not retain a
+server process. `Lease::into_protected` marks the exported transport as
+`durable_protection` with zero descriptors, persists protection while owning the
+slot lock, then drops the handle. Other CLI, MCP and core acquisitions all check
+the protection before mutating that slot. Explicit release can replay an existing
+released receipt but cannot unlock an active descriptor owner or successor lease.

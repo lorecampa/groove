@@ -83,8 +83,28 @@ impl Lease {
                 schema_version: 1,
                 lease: self.info.clone(),
             },
-        )
+        )?;
+        state::checkpoint("reuse-protected");
+        Ok(())
     }
+    /// Consume this handle into a durable reservation usable across shell calls.
+    ///
+    /// Persists protection before returning any path and closes the kernel lease
+    /// descriptor. The checkout remains unavailable to other acquisitions until
+    /// [`Pool::release_protected`] is called after saving results and stopping ALL
+    /// writers. Process exit, timeout or age never releases this reservation.
+    /// If a response is lost, inspect [`Pool::protected_leases`] before retrying.
+    ///
+    /// # Errors
+    /// Reports inactive handles or persistence failures. A failed call may have
+    /// partially persisted protection; inspect protected leases before recovery.
+    pub fn into_protected(mut self) -> Result<LeaseInfo> {
+        self.info.lease_transport = crate::LeaseTransport::DurableProtection;
+        self.info.descriptor_count = 0;
+        self.protect_from_reuse()?;
+        Ok(self.info.clone())
+    }
+
     /// Explicit release invalidates this handle on success and retains it on failure.
     /// All writers must already have stopped; unlock also affects duplicate descriptors.
     ///

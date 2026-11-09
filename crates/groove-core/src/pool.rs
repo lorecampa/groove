@@ -282,6 +282,7 @@ impl Pool {
                 let guard = match SlotGuard::try_lock(&self.repo.lock_path(slot), Some(*expected)) {
                     Ok(Some(g)) => g,
                     Ok(None) => {
+                        tracing::trace!(event = "slot.busy", slot = %slot, "Slot busy");
                         busy += 1;
                         continue;
                     }
@@ -296,6 +297,7 @@ impl Pool {
                 match fs::symlink_metadata(self.repo.protection_path(slot)) {
                     Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
                     _ => {
+                        tracing::debug!(event = "slot.protected", slot = %slot, "Slot protected; skipping");
                         failed.insert(slot.clone(), "Reuse protected; stop writers and explicitly release the protected lease".into());
                         continue;
                     }
@@ -384,7 +386,7 @@ impl Pool {
         crate::lease::release(self, slot, lease_id, fd)
     }
 
-    /// List durable reuse protections, including those left by a crashed MCP server.
+    /// List durable reuse protections from CLI reservations and MCP servers.
     /// This is diagnostic metadata; it does not establish current lock ownership.
     ///
     /// # Errors
@@ -419,13 +421,14 @@ impl Pool {
         Ok(leases)
     }
 
-    /// Release a protected lease abandoned by its owner, after stopping ALL writers.
+    /// Release a durable reservation or abandoned protected lease after stopping ALL writers.
     ///
     /// This intentionally does not return a usable checkout. The next acquisition
     /// normalizes and verifies it. A live lock owner must release its own lease.
     ///
     /// # Errors
-    /// Rejects busy locks, missing protections, stale generations and I/O failures.
+    /// Rejects busy locks, missing active protections, stale generations and I/O failures.
+    /// Repeating a completed release succeeds while its generation remains current.
     pub fn release_protected(
         &self,
         slot: &crate::SlotId,
@@ -443,15 +446,37 @@ impl Pool {
                     "Protected lease still has a live lock owner",
                 )
             })?;
-        let record: state::ReuseProtection = state::read(&self.repo.protection_path(slot))?;
-        if record.schema_version != 1
-            || &record.lease.slot_id != slot
-            || record.lease.lease_id != lease_id
-        {
-            return Err(Error::new(
-                crate::ErrorCode::LeaseMismatch,
-                "Protected lease generation mismatch",
-            ));
+        match fs::symlink_metadata(self.repo.protection_path(slot)) {
+            Ok(_) => {
+                let record: state::ReuseProtection = state::read(&self.repo.protection_path(slot))?;
+                if record.schema_version != 1
+                    || &record.lease.slot_id != slot
+                    || record.lease.lease_id != lease_id
+                {
+                    return Err(Error::new(
+                        crate::ErrorCode::LeaseMismatch,
+                        "Protected lease generation mismatch",
+                    ));
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // A lost release response may leave only the same generation's
+                // released receipt. Never release an ordinary unprotected lease.
+                let record: state::SlotRecord = state::read(&self.repo.record_path(slot))?;
+                if record.schema_version != 1
+                    || record.phase != state::SlotPhase::Released
+                    || !record
+                        .lease
+                        .as_ref()
+                        .is_some_and(|l| &l.slot_id == slot && l.lease_id == lease_id)
+                {
+                    return Err(Error::new(
+                        crate::ErrorCode::LeaseMismatch,
+                        "No matching released generation or active protection",
+                    ));
+                }
+            }
+            Err(e) => return Err(e.into()),
         }
         use std::os::fd::AsFd;
         crate::lease::release(self, slot, lease_id, guard.file.as_fd())

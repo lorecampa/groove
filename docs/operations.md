@@ -27,7 +27,7 @@ Git attributes and line-ending conversions; it does not promise raw blob bytes.
 ```sh
 cargo build --release --locked
 cargo install --path crates/groove-cli --locked
-cargo install --path crates/groove-mcp --locked
+cargo install --path crates/groove-mcp --locked  # Optional MCP adapter
 
 groove --repo /path/to/repo init --capacity 4
 # Opt-in alternatives on a new pool:
@@ -35,8 +35,11 @@ groove --repo /other/repo init --capacity 4 --cleanup warm \
   --worktree-root /absolute/dedicated/groove-worktrees
 ```
 
-The CLI is a protocol endpoint for descriptor-aware supervisors. Shell JSON
-capture alone does not retain ownership. Agents using separate tool calls can connect the [local MCP server](mcp.md).
+The CLI defaults to durable reservations: `groove acquire` persists protection
+before returning a checkout, `groove leases` lists reservations, and
+`groove release --slot SLOT --lease-id UUID --writers-stopped` explicitly releases
+after results are saved and all writers stop. Use the [agent guide](agents.md).
+MCP is optional. Descriptor-aware supervisors may opt into descriptor transport.
 See [protocol](protocol.md) and its Rust
 reference client. Rust programs can use `Pool` and `Lease` directly; the
 [agent example](../crates/groove-core/examples/agent.rs) supervises one worker.
@@ -62,7 +65,7 @@ known writers before explicit release. Process groups help supervision but are
 not containment: descendants can create new sessions or close inherited FDs.
 Use an external supervisor with stronger lifecycle control when required.
 
-Do not explicitly unlock while any writer remains. Normal descriptor closure
+Do not explicitly unlock while any writer remains. For unprotected leases, normal descriptor closure
 preserves locks retained by participating children. A daemon retaining the last
 copy produces genuine occupancy, not a lease that can safely be expired.
 
@@ -121,9 +124,11 @@ Process-kill tests establish recovery after SIGKILL, not behavior under actual
 power loss, broken storage, hostile same-user writers or every editor/build tool.
 See [testing](testing.md) for coverage, commands and remaining validation work.
 
-## MCP protected workspaces
+## Durable CLI and MCP workspaces
 
-An MCP lease is protected against reuse even after its owner exits. Use
+Default CLI reservations and MCP leases remain protected after their owner exits.
+CLI callers inspect `groove leases` and release with the exact IDs and
+`--writers-stopped` after saving results and stopping every writer. Use
 `groove_leases` after restart and `groove_release` only after stopping all writers
 and saving results. A pool of abandoned protected slots reports `POOL_UNHEALTHY`;
 it does not automatically expire or clean them. Never remove protection files to

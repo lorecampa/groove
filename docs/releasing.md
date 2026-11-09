@@ -68,8 +68,9 @@ performed by the local readiness work.
 
 ## Agent interfaces
 
-The Rust API, descriptor-aware CLI and repository-scoped stdio MCP server are
-implemented. MCP holds leases between tool calls and protects exposed workspaces
+The Rust API, CLI-first durable reservations, optional descriptor transport and
+repository-scoped stdio MCP server are implemented. The portable agent skill and
+[CLI setup guide](agents.md) do not require MCP registration. MCP holds leases between tool calls and protects exposed workspaces
 from automatic reuse after a server disconnect or crash. See [MCP setup](mcp.md)
 for installation, configuration, request retry scope and explicit recovery.
 Both CLI and MCP registry packages depend on the core package; publish/verify

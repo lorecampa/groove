@@ -10,7 +10,7 @@
     "ok": {"type": "boolean"}
   },
   "oneOf": [
-    {"properties": {"ok": {"const": true}, "result": {"oneOf": [{"$ref": "#/$defs/init"}, {"$ref": "#/$defs/lease"}, {"$ref": "#/$defs/release"}, {"$ref": "#/$defs/text"}]}}, "required": ["result"], "not": {"required": ["error"]}},
+    {"properties": {"ok": {"const": true}, "result": {"oneOf": [{"$ref": "#/$defs/init"}, {"$ref": "#/$defs/lease"}, {"$ref": "#/$defs/release"}, {"$ref": "#/$defs/text"}, {"$ref": "#/$defs/leases"}, {"$ref": "#/$defs/user_config"}, {"$ref": "#/$defs/snapshot_result"}]}}, "required": ["result"], "not": {"required": ["error"]}},
     {"properties": {"ok": {"const": false}, "error": {"$ref": "#/$defs/error"}}, "required": ["error"], "not": {"required": ["result"]}}
   ],
   "$defs": {
@@ -34,14 +34,22 @@
         "slot_id": {"$ref": "#/$defs/slot"}, "lease_id": {"$ref": "#/$defs/uuid"},
         "worktree_path": {"type": "string"}, "base_oid": {"type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"},
         "head_mode": {"const": "detached"}, "recovery": {"enum": ["created", "sanitized", "rebuilt"]},
-        "cleanup_policy": {"$ref": "#/$defs/policy"}, "lease_transport": {"enum": ["scm_rights", "in_process"]},
-        "descriptor_count": {"const": 1}
-      }
+        "cleanup_policy": {"$ref": "#/$defs/policy"}, "lease_transport": {"enum": ["scm_rights", "in_process", "durable_protection"]},
+        "descriptor_count": {"enum": [0, 1]}
+      },
+      "allOf": [{"if": {"properties": {"lease_transport": {"const": "durable_protection"}}}, "then": {"properties": {"descriptor_count": {"const": 0}}}, "else": {"properties": {"descriptor_count": {"const": 1}}}}]
+    },
+    "leases": {
+      "type": "object", "required": ["leases"],
+      "properties": {"leases": {"type": "array", "items": {"$ref": "#/$defs/lease"}}}
     },
     "release": {
       "type": "object", "required": ["slot_id", "lease_id", "released", "cleanup"],
       "properties": {"slot_id": {"$ref": "#/$defs/slot"}, "lease_id": {"$ref": "#/$defs/uuid"}, "released": {"const": true}, "cleanup": {"const": "deferred"}}
     },
+    "user_config": {"type": "object", "required": ["config_path"], "properties": {"config_path": {"type": "string"}, "updated": {"const": true}, "config": {"type": "object"}, "environment_overrides": {"type": "object"}}},
+    "snapshot": {"type": "object", "additionalProperties": false, "required": ["version", "id", "created_at", "created_at_ns", "description", "workspace", "branch", "head", "index_tree", "work_tree", "untracked_blob", "session", "pinned"], "properties": {"version": {"const": 1}, "id": {"$ref": "#/$defs/uuid"}, "created_at": {"type": "integer", "minimum": 0}, "created_at_ns": {"type": "integer", "minimum": 0}, "description": {"type": "string"}, "workspace": {"type": "string"}, "branch": {"type": ["string", "null"]}, "head": {"type": ["string", "null"]}, "index_tree": {"type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"}, "work_tree": {"type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"}, "untracked_blob": {"type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"}, "session": {"type": ["string", "null"]}, "pinned": {"type": "boolean"}}},
+    "snapshot_result": {"type": "object", "required": ["snapshot_result", "elapsed_ms"], "properties": {"snapshot_result": {"oneOf": [{"type": "object", "required": ["snapshot"], "properties": {"snapshot": {"$ref": "#/$defs/snapshot"}}}, {"type": "object", "required": ["snapshots"], "properties": {"snapshots": {"type": "array", "items": {"$ref": "#/$defs/snapshot"}}}}, {"type": "object", "required": ["patch"], "properties": {"patch": {"type": "string"}}}, {"type": "object", "required": ["path"], "properties": {"path": {"type": "string"}}}, {"type": "object", "required": ["deleted"], "properties": {"deleted": {"type": "array", "items": {"$ref": "#/$defs/uuid"}}}}, {"type": "object", "required": ["selected"], "properties": {"selected": {"type": "array", "items": {"$ref": "#/$defs/uuid"}}}}, {"type": "object", "required": ["retention"], "properties": {"retention": {"type": "object"}}}, {"type": "object", "required": ["compacted"], "properties": {"compacted": {"const": true}}}]}, "elapsed_ms": {"type": "integer", "minimum": 0}}},
     "text": {"type": "object", "required": ["text"], "properties": {"text": {"type": "string"}}},
     "error": {
       "type": "object", "required": ["code", "message", "retryable", "details"],

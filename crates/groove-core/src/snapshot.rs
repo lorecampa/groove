@@ -1,0 +1,974 @@
+//! Local checkpoints stored as reachable Git objects, independent of pool initialization.
+use crate::{git::Git, locking, repository, Error, ErrorCode, Result};
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::BTreeSet,
+    ffi::OsStr,
+    fs,
+    io::{Seek, Write},
+    os::{
+        fd::{AsFd, AsRawFd},
+        unix::ffi::OsStrExt,
+    },
+    path::{Path, PathBuf},
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+use uuid::Uuid;
+
+const PREFIX: &str = "refs/groove/snapshots/";
+const PINS: &str = "refs/groove/snapshot-pins/";
+fn invalid(message: impl Into<String>) -> Error {
+    Error::new(ErrorCode::InvalidArgument, message)
+}
+fn unsupported(message: impl Into<String>) -> Error {
+    Error::new(ErrorCode::UnsupportedConfiguration, message)
+}
+fn text(bytes: Vec<u8>) -> Result<String> {
+    String::from_utf8(bytes)
+        .map(|s| s.trim_end_matches('\n').to_owned())
+        .map_err(|_| unsupported("Git metadata must be UTF-8"))
+}
+fn now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+fn paths(bytes: &[u8]) -> impl Iterator<Item = &[u8]> {
+    bytes.split(|b| *b == 0).filter(|p| !p.is_empty())
+}
+fn checked_id(id: &str) -> Result<String> {
+    let uuid = Uuid::parse_str(id).map_err(|_| invalid("Snapshot ID must be a UUID"))?;
+    Ok(uuid.to_string())
+}
+
+/// A saved checkpoint. File paths in Git trees retain their original bytes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Snapshot {
+    /// Manifest version; unknown versions are rejected.
+    pub version: u32,
+    /// Globally unique snapshot identifier.
+    pub id: String,
+    /// Creation time in Unix seconds.
+    pub created_at: u64,
+    /// Nanosecond creation order, used when multiple saves occur within a second.
+    pub created_at_ns: u128,
+    /// User description.
+    pub description: String,
+    /// Original worktree Git directory.
+    pub workspace: String,
+    /// Original branch, or null for detached HEAD.
+    pub branch: Option<String>,
+    /// Original commit, or null before the first commit.
+    pub head: Option<String>,
+    /// Saved staging tree.
+    pub index_tree: String,
+    /// Saved working files including eligible untracked files.
+    pub work_tree: String,
+    /// Blob containing NUL-delimited untracked paths.
+    pub untracked_blob: String,
+    /// Optional caller task or session identifier.
+    pub session: Option<String>,
+    /// Whether retention must preserve this snapshot.
+    #[serde(default)]
+    pub pinned: bool,
+}
+/// Capture settings. A zero size limit explicitly permits arbitrary file sizes.
+#[derive(Debug, Clone)]
+pub struct SaveOptions {
+    /// Description shown by list/show.
+    pub description: String,
+    /// Optional session association.
+    pub session: Option<String>,
+    /// Maximum size of each changed file; defaults to 100 MiB.
+    pub max_file_bytes: u64,
+}
+impl Default for SaveOptions {
+    fn default() -> Self {
+        Self {
+            description: String::new(),
+            session: None,
+            max_file_bytes: 100 * 1024 * 1024,
+        }
+    }
+}
+/// Opt-in retention; when combined, age and count predicates must both match.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Retention {
+    /// Delete unpinned snapshots older than this many seconds.
+    pub older_than_seconds: Option<u64>,
+    /// Preserve at least this many newest snapshots per workspace.
+    pub keep_last: Option<usize>,
+}
+impl Retention {
+    fn selected(&self, snapshot: &Snapshot, rank: usize, timestamp: u64) -> bool {
+        !snapshot.pinned
+            && (self.older_than_seconds.is_some() || self.keep_last.is_some())
+            && self.keep_last.is_none_or(|n| rank >= n)
+            && self
+                .older_than_seconds
+                .is_none_or(|age| timestamp.saturating_sub(snapshot.created_at) > age)
+    }
+}
+/// Repository-scoped service. Operations serialize through an advisory lock.
+/// External writers must be quiescent for reliable capture/restore.
+#[derive(Debug)]
+pub struct Snapshots {
+    root: PathBuf,
+    common: PathBuf,
+    git_dir: PathBuf,
+    state: PathBuf,
+    timeout: Duration,
+}
+impl Snapshots {
+    /// Discover a non-bare Git worktree, without initializing a Groove pool.
+    pub fn open(path: impl AsRef<Path>, timeout: Duration) -> Result<Self> {
+        let git = Git::new(timeout);
+        let repo = repository::Repository::discover(path.as_ref(), timeout)?;
+        let root = PathBuf::from(text(git.run(
+            path.as_ref(),
+            &["rev-parse", "--show-toplevel"],
+            &[],
+        )?)?);
+        let git_dir = PathBuf::from(text(git.run(
+            &root,
+            &["rev-parse", "--absolute-git-dir"],
+            &[],
+        )?)?);
+        let state = repo.common.join("groove-snapshots");
+        repository::mkdir(&state)?;
+        let _ = locking::open(&state.join("lock"), true)?;
+        Ok(Self {
+            root,
+            common: repo.common,
+            git_dir,
+            state,
+            timeout,
+        })
+    }
+    fn lock(&self) -> Result<fs::File> {
+        let file = locking::open(&self.state.join("lock"), false)?;
+        let deadline = std::time::Instant::now() + self.timeout.min(Duration::from_millis(100));
+        while !locking::flock(file.as_fd(), libc::LOCK_EX | libc::LOCK_NB)? {
+            if std::time::Instant::now() >= deadline {
+                let mut error =
+                    invalid("Another snapshot operation is running; retry when it finishes");
+                error.retryable = true;
+                return Err(error);
+            }
+            // A concurrent fork may briefly retain a CLOEXEC descriptor until exec.
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        // Only the lock owner can have active scratch data. Mutation children retain it.
+        for entry in fs::read_dir(&self.state)? {
+            let entry = entry?;
+            if entry.file_name().as_bytes().starts_with(b"scratch-") {
+                if entry.file_type()?.is_dir() {
+                    fs::remove_dir_all(entry.path())?;
+                } else {
+                    fs::remove_file(entry.path())?;
+                }
+            }
+        }
+        Ok(file)
+    }
+    fn run(
+        &self,
+        args: &[&str],
+        index: Option<&Path>,
+        input: Option<&[u8]>,
+        lock: Option<&fs::File>,
+    ) -> Result<Vec<u8>> {
+        let mut env = vec![
+            ("GIT_AUTHOR_NAME", OsStr::new("Groove Snapshot")),
+            ("GIT_AUTHOR_EMAIL", OsStr::new("snapshot@groove.invalid")),
+            ("GIT_COMMITTER_NAME", OsStr::new("Groove Snapshot")),
+            ("GIT_COMMITTER_EMAIL", OsStr::new("snapshot@groove.invalid")),
+            ("GIT_LITERAL_PATHSPECS", OsStr::new("1")),
+        ];
+        if let Some(index) = index {
+            env.push(("GIT_INDEX_FILE", index.as_os_str()));
+        }
+        let input = input
+            .map(|bytes| -> Result<fs::File> {
+                let mut f = tempfile::tempfile()?;
+                f.write_all(bytes)?;
+                f.rewind()?;
+                Ok(f)
+            })
+            .transpose()?;
+        let fds = lock.map(|f| vec![f.as_raw_fd()]).unwrap_or_default();
+        let mut durable_args = vec![
+            "-c",
+            "core.fsync=loose-object,reference",
+            "-c",
+            "core.fsyncMethod=fsync",
+        ];
+        durable_args.extend_from_slice(args);
+        Git::new(self.timeout).snapshot(&self.root, &durable_args, &env, input, &fds)
+    }
+    fn string(&self, args: &[&str]) -> Result<String> {
+        text(self.run(args, None, None, None)?)
+    }
+    fn head(&self) -> Result<Option<String>> {
+        let value = self.string(&["rev-parse", "--verify", "--quiet", "HEAD"]);
+        match value {
+            Ok(s) => Ok(Some(s)),
+            Err(e) if e.details["exit_code"] == 1 => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+    fn reference(&self, id: &str) -> Result<String> {
+        Ok(format!("{PREFIX}{}", checked_id(id)?))
+    }
+    fn load(&self, id: &str) -> Result<Snapshot> {
+        let reference = self.reference(id)?;
+        let commit = self.run(&["cat-file", "commit", &reference], None, None, None)?;
+        let message = commit
+            .windows(2)
+            .position(|w| w == b"\n\n")
+            .ok_or_else(|| invalid("Malformed snapshot commit"))?
+            + 2;
+        let mut snapshot: Snapshot = serde_json::from_slice(&commit[message..])?;
+        if snapshot.version != 1 || snapshot.id != checked_id(id)? {
+            return Err(invalid("Unsupported or inconsistent snapshot manifest"));
+        }
+        // Validate object types and relationships before using stored metadata in commands.
+        for (name, oid, kind) in [
+            ("index", &snapshot.index_tree, "tree"),
+            ("work", &snapshot.work_tree, "tree"),
+            ("untracked", &snapshot.untracked_blob, "blob"),
+        ] {
+            if !oid.bytes().all(|b| b.is_ascii_hexdigit()) || ![40, 64].contains(&oid.len()) {
+                return Err(invalid("Invalid snapshot object ID"));
+            }
+            if self.string(&["rev-parse", &format!("{reference}:{name}")])? != *oid
+                || self.string(&["cat-file", "-t", oid])? != kind
+            {
+                return Err(invalid("Snapshot object graph does not match its manifest"));
+            }
+        }
+        if let Some(head) = &snapshot.head {
+            if self.string(&["rev-parse", &format!("{reference}^1")])? != *head {
+                return Err(invalid("Snapshot base does not match its parent"));
+            }
+        }
+        snapshot.pinned = self
+            .string(&[
+                "show-ref",
+                "--verify",
+                "--hash",
+                &format!("{PINS}{}", snapshot.id),
+            ])
+            .is_ok();
+        Ok(snapshot)
+    }
+    /// Read and validate one snapshot.
+    pub fn show(&self, id: &str) -> Result<Snapshot> {
+        let _lock = self.lock()?;
+        self.load(id)
+    }
+    fn list_inner(&self) -> Result<Vec<Snapshot>> {
+        let refs = self.string(&[
+            "for-each-ref",
+            "--format=%(refname) %(contents:subject)",
+            PREFIX,
+        ])?;
+        let pins = self.string(&["for-each-ref", "--format=%(refname)", PINS])?;
+        let pins: BTreeSet<_> = pins.lines().collect();
+        let mut result = Vec::new();
+        for line in refs.lines() {
+            let (reference, message) = line
+                .split_once(' ')
+                .ok_or_else(|| invalid("Invalid snapshot reference metadata"))?;
+            let mut snapshot: Snapshot = serde_json::from_str(message)?;
+            if snapshot.version != 1 || reference != self.reference(&snapshot.id)? {
+                return Err(invalid("Unsupported or inconsistent snapshot manifest"));
+            }
+            snapshot.pinned = pins.contains(format!("{PINS}{}", snapshot.id).as_str());
+            result.push(snapshot);
+        }
+        result.sort_by(|a, b| {
+            b.created_at_ns
+                .cmp(&a.created_at_ns)
+                .then_with(|| b.id.cmp(&a.id))
+        });
+        Ok(result)
+    }
+    /// List checkpoints across all worktrees, newest first.
+    pub fn list(&self) -> Result<Vec<Snapshot>> {
+        let _lock = self.lock()?;
+        self.list_inner()
+    }
+    fn validate(&self) -> Result<()> {
+        // One index enumeration supplies conflict, mode, flag and attribute-path checks.
+        let config = self.string(&["config", "--list"])?;
+        if config.lines().any(|l| {
+            l.starts_with("filter.") || l == "core.autocrlf=true" || l == "core.autocrlf=input"
+        }) {
+            return Err(unsupported(
+                "Snapshots require no configured content filters or automatic CRLF conversion",
+            ));
+        }
+        let sparse = config.lines().any(|l| l == "core.sparsecheckout=true");
+        let empty_blob = self.string(&["hash-object", "--stdin"])?;
+        let entries = self.run(&["ls-files", "-v", "--stage", "-z"], None, None, None)?;
+        let mut names = Vec::new();
+        let mut may_have_intent = false;
+        for record in paths(&entries) {
+            let tab = record
+                .iter()
+                .position(|b| *b == b'\t')
+                .ok_or_else(|| invalid("Malformed Git index entry"))?;
+            let header = &record[..tab];
+            if header.last() != Some(&b'0') {
+                return Err(unsupported(
+                    "Resolve merge conflicts before taking a snapshot",
+                ));
+            }
+            if record.get(2..9) == Some(b"160000 ") {
+                return Err(unsupported("Submodules are not yet supported by snapshots"));
+            }
+            if record.first().is_some_and(u8::is_ascii_lowercase) {
+                return Err(unsupported(
+                    "Clear assume-unchanged index flags before saving",
+                ));
+            }
+            if record.starts_with(b"S ") && !sparse {
+                return Err(unsupported(
+                    "Clear manual skip-worktree flags before saving",
+                ));
+            }
+            may_have_intent |= header
+                .split(|b| *b == b' ')
+                .any(|part| part == empty_blob.as_bytes());
+            names.extend_from_slice(&record[tab + 1..]);
+            names.push(0);
+        }
+        drop(entries);
+        names.extend_from_slice(&self.run(
+            &["ls-files", "--others", "--exclude-standard", "-z"],
+            None,
+            None,
+            None,
+        )?);
+        let attrs = self.run(
+            &["check-attr", "--all", "-z", "--stdin"],
+            None,
+            Some(&names),
+            None,
+        )?;
+        let fields: Vec<_> = paths(&attrs).collect();
+        for attr in fields.as_chunks::<3>().0 {
+            if [
+                b"text".as_slice(),
+                b"eol",
+                b"filter",
+                b"working-tree-encoding",
+                b"ident",
+            ]
+            .contains(&attr[1])
+                && attr[2] != b"unset"
+            {
+                return Err(unsupported(
+                    "Content-converting Git attributes are not yet supported by snapshots",
+                ));
+            }
+        }
+        if may_have_intent
+            && self.run(
+                &[
+                    "diff",
+                    "--cached",
+                    "--name-only",
+                    "-z",
+                    "--ita-visible-in-index",
+                    "--",
+                ],
+                None,
+                None,
+                None,
+            )? != self.run(
+                &[
+                    "diff",
+                    "--cached",
+                    "--name-only",
+                    "-z",
+                    "--ita-invisible-in-index",
+                    "--",
+                ],
+                None,
+                None,
+                None,
+            )?
+        {
+            return Err(unsupported(
+                "Stage intent-to-add entries before saving a snapshot",
+            ));
+        }
+        Ok(())
+    }
+    fn index_bytes(&self) -> Result<Option<Vec<u8>>> {
+        match fs::read(self.git_dir.join("index")) {
+            Ok(b) => Ok(Some(b)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+    fn capture(&self, options: &SaveOptions, lock: &fs::File, publish: bool) -> Result<Snapshot> {
+        self.validate()?;
+        let head = self.head()?;
+        let original = self.index_bytes()?;
+        let temp = tempfile::Builder::new()
+            .prefix("scratch-")
+            .tempdir_in(&self.state)?;
+        let index = temp.path().join("index");
+        if let Some(bytes) = &original {
+            fs::write(&index, bytes)?;
+        } else {
+            self.run(&["read-tree", "--empty"], Some(&index), None, Some(lock))?;
+        }
+        let index_tree = text(self.run(&["write-tree"], Some(&index), None, Some(lock))?)?;
+        let untracked = self.run(
+            &["ls-files", "--others", "--exclude-standard", "-z"],
+            Some(&index),
+            None,
+            Some(lock),
+        )?;
+        let changed = self.run(
+            &[
+                "diff-files",
+                "--name-only",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--no-renames",
+                "-z",
+                "--",
+            ],
+            Some(&index),
+            None,
+            Some(lock),
+        )?;
+        let mut selected = BTreeSet::new();
+        for p in paths(&changed).chain(paths(&untracked)) {
+            selected.insert(p.to_vec());
+        }
+        let mut pathspec = Vec::new();
+        let mut removals = Vec::new();
+        let mut stamps = Vec::new();
+        for p in &selected {
+            let path = self.root.join(OsStr::from_bytes(p));
+            let stamp = stamp(&path)?;
+            if let Some((size, _, _, _)) = stamp {
+                if options.max_file_bytes != 0 && size > options.max_file_bytes {
+                    return Err(invalid(format!("Changed file {} exceeds {} bytes; raise --max-file-bytes or use 0 explicitly", path.display(), options.max_file_bytes)));
+                }
+                if fs::symlink_metadata(&path)?.is_dir()
+                    && (path.join(".git").exists() || p.ends_with(b"/"))
+                {
+                    return Err(unsupported("Nested repositories are not supported"));
+                }
+            }
+            let remove = stamp.is_none() || fs::symlink_metadata(&path).is_ok_and(|m| m.is_dir());
+            stamps.push((path, stamp));
+            if remove {
+                removals.extend_from_slice(p);
+                removals.push(0);
+                continue;
+            }
+            pathspec.extend_from_slice(p);
+            pathspec.push(0);
+        }
+        if !removals.is_empty() {
+            self.run(
+                &["update-index", "--force-remove", "-z", "--stdin"],
+                Some(&index),
+                Some(&removals),
+                Some(lock),
+            )?;
+        }
+        if !pathspec.is_empty() {
+            self.run(
+                &["update-index", "--add", "--remove", "-z", "--stdin"],
+                Some(&index),
+                Some(&pathspec),
+                Some(lock),
+            )?;
+        }
+        let work_tree = text(self.run(&["write-tree"], Some(&index), None, Some(lock))?)?;
+        crate::state::checkpoint("snapshot-captured");
+        if head != self.head()?
+            || original != self.index_bytes()?
+            || changed
+                != self.run(
+                    &[
+                        "diff-files",
+                        "--name-only",
+                        "--no-ext-diff",
+                        "--no-textconv",
+                        "--no-renames",
+                        "-z",
+                        "--",
+                    ],
+                    None,
+                    None,
+                    Some(lock),
+                )?
+            || stamps
+                .iter()
+                .any(|(p, s)| stamp(p).ok().as_ref() != Some(s))
+            || untracked
+                != self.run(
+                    &["ls-files", "--others", "--exclude-standard", "-z"],
+                    None,
+                    None,
+                    Some(lock),
+                )?
+        {
+            return Err(invalid(
+                "Workspace changed during capture; stop writers and retry",
+            ));
+        }
+        let untracked_blob = text(self.run(
+            &["hash-object", "-w", "--stdin"],
+            None,
+            Some(&untracked),
+            Some(lock),
+        )?)?;
+        let snapshot = Snapshot {
+            version: 1,
+            id: Uuid::new_v4().to_string(),
+            created_at: now(),
+            created_at_ns: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos(),
+            description: options.description.clone(),
+            workspace: self.git_dir.to_string_lossy().into_owned(),
+            branch: self.string(&["symbolic-ref", "-q", "HEAD"]).ok(),
+            head,
+            index_tree,
+            work_tree,
+            untracked_blob,
+            session: options.session.clone(),
+            pinned: false,
+        };
+        if !publish {
+            return Ok(snapshot);
+        }
+        let tree = format!(
+            "040000 tree {}\tindex\n040000 tree {}\twork\n100644 blob {}\tuntracked\n",
+            snapshot.index_tree, snapshot.work_tree, snapshot.untracked_blob
+        );
+        let tree = text(self.run(&["mktree"], None, Some(tree.as_bytes()), Some(lock))?)?;
+        let mut args = vec![
+            "-c",
+            "core.fsync=loose-object,reference",
+            "commit-tree",
+            &tree,
+        ];
+        if let Some(head) = &snapshot.head {
+            args.extend(["-p", head]);
+        }
+        let commit = text(self.run(
+            &args,
+            None,
+            Some(&serde_json::to_vec(&snapshot)?),
+            Some(lock),
+        )?)?;
+        crate::state::checkpoint("snapshot-before-publish");
+        let zero = "0".repeat(commit.len());
+        self.run(
+            &[
+                "-c",
+                "core.fsync=loose-object,reference",
+                "update-ref",
+                &self.reference(&snapshot.id)?,
+                &commit,
+                &zero,
+            ],
+            None,
+            None,
+            Some(lock),
+        )?;
+        crate::state::checkpoint("snapshot-published");
+        Ok(snapshot)
+    }
+    /// Capture without changing HEAD, working files or the real index.
+    pub fn save(&self, options: SaveOptions) -> Result<Snapshot> {
+        let lock = self.lock()?;
+        let snapshot = self.capture(&options, &lock, true)?;
+        // Retention failure must not hide a successfully published checkpoint.
+        let retention = self.retention().and_then(|policy| {
+            if policy.keep_last.is_some() || policy.older_than_seconds.is_some() {
+                self.prune_inner(&policy, false, &lock, Some(&snapshot.id))?;
+            }
+            Ok(())
+        });
+        if let Err(error) = retention {
+            tracing::warn!(%error, "Snapshot saved but retention failed");
+        }
+        Ok(snapshot)
+    }
+    /// Pin or unpin a checkpoint using a dedicated reference.
+    pub fn pin(&self, id: &str, pinned: bool) -> Result<()> {
+        let lock = self.lock()?;
+        let s = self.load(id)?;
+        let reference = format!("{PINS}{}", s.id);
+        if pinned {
+            let oid = self.string(&["rev-parse", &self.reference(id)?])?;
+            self.run(&["update-ref", &reference, &oid], None, None, Some(&lock))?;
+        } else {
+            self.run(&["update-ref", "-d", &reference], None, None, Some(&lock))?;
+        }
+        Ok(())
+    }
+    fn delete_inner(&self, id: &str, force: bool, lock: &fs::File) -> Result<()> {
+        let s = self.load(id)?;
+        if s.pinned && !force {
+            return Err(invalid("Snapshot is pinned; unpin it or pass --force"));
+        }
+        let reference = self.reference(id)?;
+        let oid = self.string(&["rev-parse", &reference])?;
+        let mut transaction = format!("start\ndelete {reference} {oid}\n");
+        if s.pinned {
+            transaction.push_str(&format!("delete {PINS}{}\n", s.id));
+        }
+        transaction.push_str("prepare\ncommit\n");
+        self.run(
+            &["update-ref", "--stdin"],
+            None,
+            Some(transaction.as_bytes()),
+            Some(lock),
+        )?;
+        Ok(())
+    }
+    /// Delete references only; pinned snapshots require explicit override.
+    pub fn delete(&self, id: &str, force: bool) -> Result<()> {
+        let lock = self.lock()?;
+        self.delete_inner(id, force, &lock)
+    }
+    fn prune_inner(
+        &self,
+        policy: &Retention,
+        dry_run: bool,
+        lock: &fs::File,
+        preserve: Option<&str>,
+    ) -> Result<Vec<String>> {
+        let mut ranks = std::collections::BTreeMap::<String, usize>::new();
+        let mut deleted = Vec::new();
+        for s in self.list_inner()? {
+            let rank = ranks.entry(s.workspace.clone()).or_default();
+            if Some(s.id.as_str()) != preserve && policy.selected(&s, *rank, now()) {
+                if !dry_run {
+                    self.delete_inner(&s.id, false, lock)?;
+                }
+                deleted.push(s.id);
+            }
+            *rank += 1;
+        }
+        Ok(deleted)
+    }
+    /// Select/delete snapshots with AND semantics for combined age/count rules.
+    pub fn prune(&self, policy: Retention, dry_run: bool) -> Result<Vec<String>> {
+        let lock = self.lock()?;
+        self.prune_inner(&policy, dry_run, &lock, None)
+    }
+    /// Read the repository's opt-in automatic retention policy.
+    pub fn retention(&self) -> Result<Retention> {
+        match fs::read(self.state.join("retention.json")) {
+            Ok(b) => Ok(serde_json::from_slice(&b)?),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Retention::default()),
+            Err(e) => Err(e.into()),
+        }
+    }
+    /// Atomically configure automatic retention. Empty settings disable it.
+    pub fn set_retention(&self, policy: Retention) -> Result<()> {
+        let _lock = self.lock()?;
+        let mut f = tempfile::Builder::new()
+            .prefix("scratch-")
+            .tempfile_in(&self.state)?;
+        f.write_all(&serde_json::to_vec(&policy)?)?;
+        f.as_file().sync_all()?;
+        f.persist(self.state.join("retention.json"))
+            .map_err(|e| e.error)?;
+        crate::state::sync_dir(&self.state)?;
+        Ok(())
+    }
+    /// Run normal repository GC; normal expiration and shared-object rules apply.
+    pub fn compact(&self) -> Result<()> {
+        let lock = self.lock()?;
+        self.run(&["gc"], None, None, Some(&lock))?;
+        Ok(())
+    }
+    /// Produce a Git patch between checkpoints, or against current working files.
+    pub fn diff(&self, id: &str, other: Option<&str>) -> Result<String> {
+        let lock = self.lock()?;
+        let a = self.load(id)?;
+        let b = match other {
+            Some(id) => self.load(id)?.work_tree,
+            None => {
+                let s = self.capture(
+                    &SaveOptions {
+                        description: "temporary diff".into(),
+                        ..Default::default()
+                    },
+                    &lock,
+                    false,
+                )?;
+                s.work_tree
+            }
+        };
+        self.string(&[
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--binary",
+            &a.work_tree,
+            &b,
+            "--",
+        ])
+    }
+    /// Restore in place, after a safety snapshot, or into a new checkout.
+    /// In-place restore requires the original HEAD and stopped external writers.
+    pub fn restore(&self, id: &str, destination: Option<&Path>) -> Result<serde_json::Value> {
+        let lock = self.lock()?;
+        let s = self.load(id)?;
+        if let Some(destination) = destination {
+            let destination = if destination.is_absolute() {
+                destination.to_path_buf()
+            } else {
+                std::env::current_dir()?.join(destination)
+            };
+            if destination.exists() {
+                return Err(invalid("Recovery destination must not exist"));
+            }
+            let destination_text = repository::utf8(&destination)?;
+            if let Some(head) = &s.head {
+                self.run(
+                    &[
+                        "worktree",
+                        "add",
+                        "--detach",
+                        "--no-checkout",
+                        destination_text,
+                        head,
+                    ],
+                    None,
+                    None,
+                    Some(&lock),
+                )?;
+            } else {
+                // An unborn source has no base for worktree add. Create an independent recovery repository.
+                let format = self.string(&["rev-parse", "--show-object-format"])?;
+                self.run(
+                    &[
+                        "init",
+                        &format!("--object-format={format}"),
+                        destination_text,
+                    ],
+                    None,
+                    None,
+                    Some(&lock),
+                )?;
+                Git::new(self.timeout).run(
+                    &destination,
+                    &[
+                        "fetch",
+                        "--no-tags",
+                        repository::utf8(&self.common)?,
+                        &self.reference(id)?,
+                    ],
+                    &[lock.as_raw_fd()],
+                )?;
+            }
+            let target = Self::open(&destination, self.timeout)?;
+            target.apply(&s, None, &lock)?;
+            return Ok(
+                serde_json::json!({"path":destination,"snapshot_id":id,"safety_snapshot_id":null}),
+            );
+        }
+        if self.head()? != s.head {
+            return Err(invalid(
+                "HEAD differs from snapshot base; use restore --to <directory>",
+            ));
+        }
+        self.validate()?;
+        // Capture first so every deletion during apply has a recovery object.
+        let safety = self.capture(
+            &SaveOptions {
+                description: format!("before restoring {id}"),
+                ..Default::default()
+            },
+            &lock,
+            true,
+        )?;
+        if safety.head != s.head {
+            return Err(
+                invalid("HEAD changed before restoration; no files were restored")
+                    .details(serde_json::json!({"safety_snapshot_id":safety.id})),
+            );
+        }
+        self.apply(&s, Some(&safety), &lock).map_err(|mut e| {
+            e.details["safety_snapshot_id"] = serde_json::json!(safety.id);
+            e
+        })?;
+        Ok(serde_json::json!({"path":self.root,"snapshot_id":id,"safety_snapshot_id":safety.id}))
+    }
+    fn apply(&self, s: &Snapshot, current: Option<&Snapshot>, lock: &fs::File) -> Result<()> {
+        // Git can overwrite ignored files during checkout. Reject collisions explicitly first.
+        let ignored = self.run(
+            &[
+                "ls-files",
+                "--others",
+                "--ignored",
+                "--exclude-standard",
+                "-z",
+            ],
+            None,
+            None,
+            Some(lock),
+        )?;
+        let target = self.run(
+            &["ls-tree", "-r", "--name-only", "-z", &s.work_tree],
+            None,
+            None,
+            Some(lock),
+        )?;
+        let target: BTreeSet<Vec<u8>> = paths(&target).map(Vec::from).collect();
+        for ignored in paths(&ignored) {
+            if path_collision(&target, ignored) {
+                return Err(invalid(
+                    "Restore would overwrite an ignored file; move it before retrying",
+                ));
+            }
+        }
+        // Temporary index represents captured files; refresh stats before merging trees.
+        let temp = tempfile::Builder::new()
+            .prefix("scratch-")
+            .tempdir_in(&self.state)?;
+        let index = temp.path().join("index");
+        if let Some(current) = current {
+            self.run(
+                &["read-tree", &current.work_tree],
+                Some(&index),
+                None,
+                Some(lock),
+            )?;
+        } else {
+            self.run(&["read-tree", "--empty"], Some(&index), None, Some(lock))?;
+        }
+        self.run(
+            &["update-index", "--refresh"],
+            Some(&index),
+            None,
+            Some(lock),
+        )?;
+        self.run(
+            &["read-tree", "-m", "-u", &s.work_tree],
+            Some(&index),
+            None,
+            Some(lock),
+        )?;
+        crate::state::checkpoint("snapshot-restored-files");
+        self.run(&["read-tree", &s.index_tree], None, None, Some(lock))?;
+        // Verify working contents using the materialized work tree, without mutating the real index.
+        self.run(&["diff-files", "--quiet"], Some(&index), None, Some(lock))?;
+        if self.string(&["write-tree"])? != s.index_tree {
+            return Err(invalid("Restored index verification failed"));
+        }
+        Ok(())
+    }
+}
+fn path_collision(target: &BTreeSet<Vec<u8>>, candidate: &[u8]) -> bool {
+    if target.contains(candidate) {
+        return true;
+    }
+    let mut prefix = candidate.to_vec();
+    prefix.push(b'/');
+    if target
+        .range(prefix.clone()..)
+        .next()
+        .is_some_and(|p| p.starts_with(&prefix))
+    {
+        return true;
+    }
+    candidate
+        .iter()
+        .enumerate()
+        .any(|(i, b)| *b == b'/' && target.contains(&candidate[..i]))
+}
+fn stamp(path: &Path) -> Result<Option<(u64, i64, i64, u32)>> {
+    use std::os::unix::fs::MetadataExt;
+    match fs::symlink_metadata(path) {
+        Ok(m) => Ok(Some((m.len(), m.mtime(), m.mtime_nsec(), m.mode()))),
+        Err(e)
+            if matches!(
+                e.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+            ) =>
+        {
+            Ok(None)
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn collisions_respect_path_boundaries() {
+        let target: BTreeSet<Vec<u8>> = [b"a/b".to_vec(), b"file".to_vec()].into_iter().collect();
+        for path in [b"a".as_slice(), b"a/b", b"file", b"file/child"] {
+            assert!(path_collision(&target, path));
+        }
+        for path in [b"ab".as_slice(), b"a/bb", b"files", b"unrelated/child"] {
+            assert!(!path_collision(&target, path));
+        }
+    }
+    #[test]
+    fn retention_combines_constraints_and_preserves_pins() {
+        let mut snapshot = Snapshot {
+            version: 1,
+            id: Uuid::new_v4().to_string(),
+            created_at: 100,
+            created_at_ns: 100,
+            description: String::new(),
+            workspace: String::new(),
+            branch: None,
+            head: None,
+            index_tree: String::new(),
+            work_tree: String::new(),
+            untracked_blob: String::new(),
+            session: None,
+            pinned: false,
+        };
+        let both = Retention {
+            keep_last: Some(2),
+            older_than_seconds: Some(50),
+        };
+        assert!(!Retention::default().selected(&snapshot, 99, 999));
+        assert!(!both.selected(&snapshot, 1, 999));
+        assert!(!both.selected(&snapshot, 2, 150));
+        assert!(both.selected(&snapshot, 2, 151));
+        assert!(!both.selected(&snapshot, 2, 1));
+        snapshot.pinned = true;
+        assert!(!both.selected(&snapshot, 99, 999));
+    }
+    #[test]
+    fn identifiers_cannot_escape_namespace() {
+        for id in ["../heads/main", "HEAD", "--all", ""] {
+            assert!(checked_id(id).is_err());
+        }
+        assert!(checked_id(&Uuid::new_v4().to_string()).is_ok());
+    }
+    #[test]
+    fn nul_paths_preserve_bytes() {
+        assert_eq!(
+            paths(b"a\nb\0\xff\0").collect::<Vec<_>>(),
+            vec![b"a\nb".as_slice(), b"\xff".as_slice()]
+        );
+    }
+}

@@ -1,0 +1,414 @@
+mod support;
+use groove_core::snapshot::{Retention, SaveOptions, Snapshots};
+use std::{
+    fs,
+    os::unix::{
+        ffi::OsStrExt,
+        fs::{symlink, PermissionsExt},
+    },
+    time::Duration,
+};
+use support::Repo;
+fn service(repo: &Repo) -> Snapshots {
+    Snapshots::open(&repo.path, Duration::from_secs(30)).unwrap()
+}
+fn save(s: &Snapshots) -> groove_core::snapshot::Snapshot {
+    s.save(SaveOptions::default()).unwrap()
+}
+#[test]
+fn roundtrip_preserves_index_files_and_head() {
+    let repo = Repo::new();
+    let s = service(&repo);
+    fs::write(repo.path.join("tracked.txt"), "staged\n").unwrap();
+    repo.git(&["add", "tracked.txt"]);
+    fs::write(repo.path.join("tracked.txt"), "unstaged\n").unwrap();
+    fs::write(repo.path.join("new\nfile"), b"binary\0\xff").unwrap();
+    fs::create_dir(repo.path.join("ignored")).unwrap();
+    fs::write(repo.path.join("ignored/cache"), "keep").unwrap();
+    let index = fs::read(repo.path.join(".git/index")).unwrap();
+    let head = repo.git(&["rev-parse", "HEAD"]);
+    let snap = save(&s);
+    assert_eq!(index, fs::read(repo.path.join(".git/index")).unwrap());
+    assert_eq!(head, repo.git(&["rev-parse", "HEAD"]));
+    fs::write(repo.path.join("tracked.txt"), "later\n").unwrap();
+    fs::remove_file(repo.path.join("new\nfile")).unwrap();
+    fs::write(repo.path.join("extra"), "later").unwrap();
+    let restored = s.restore(&snap.id, None).unwrap();
+    assert!(restored["safety_snapshot_id"].is_string());
+    assert_eq!(
+        fs::read(repo.path.join("tracked.txt")).unwrap(),
+        b"unstaged\n"
+    );
+    assert_eq!(repo.git(&["show", ":tracked.txt"]), "staged");
+    assert_eq!(
+        fs::read(repo.path.join("new\nfile")).unwrap(),
+        b"binary\0\xff"
+    );
+    assert!(!repo.path.join("extra").exists());
+    assert_eq!(fs::read(repo.path.join("ignored/cache")).unwrap(), b"keep");
+}
+#[test]
+fn external_recovery_and_gc_keep_local_history() {
+    let repo = Repo::new();
+    let s = service(&repo);
+    repo.git(&["commit", "--allow-empty", "-qm", "local"]);
+    let head = repo.git(&["rev-parse", "HEAD"]);
+    fs::write(repo.path.join("new"), "hello").unwrap();
+    let snap = save(&s);
+    s.compact().unwrap();
+    let dest = repo.temp.path().join("recovered");
+    s.restore(&snap.id, Some(&dest)).unwrap();
+    assert_eq!(fs::read(dest.join("new")).unwrap(), b"hello");
+    assert_eq!(support::git(&dest, &["rev-parse", "HEAD"]), head);
+    assert!(s.restore(&snap.id, Some(&dest)).is_err());
+}
+#[test]
+fn unborn_roundtrip_and_external_recovery() {
+    let temp = tempfile::tempdir().unwrap();
+    support::git(temp.path(), &["init", "-q"]);
+    fs::write(temp.path().join("first"), "first").unwrap();
+    let s = Snapshots::open(temp.path(), Duration::from_secs(30)).unwrap();
+    let snap = save(&s);
+    assert!(snap.head.is_none());
+    fs::write(temp.path().join("first"), "later").unwrap();
+    s.restore(&snap.id, None).unwrap();
+    assert_eq!(fs::read(temp.path().join("first")).unwrap(), b"first");
+    let outside = tempfile::tempdir().unwrap();
+    let dest = outside.path().join("recovered");
+    s.restore(&snap.id, Some(&dest)).unwrap();
+    assert_eq!(fs::read(dest.join("first")).unwrap(), b"first");
+    assert_eq!(support::git(&dest, &["ls-files"]), "");
+}
+#[test]
+fn pin_prune_and_automatic_retention() {
+    let repo = Repo::new();
+    let s = service(&repo);
+    let a = save(&s);
+    s.pin(&a.id, true).unwrap();
+    let b = save(&s);
+    let policy = Retention {
+        keep_last: Some(0),
+        older_than_seconds: None,
+    };
+    assert_eq!(s.prune(policy.clone(), true).unwrap(), vec![b.id.clone()]);
+    assert_eq!(s.list().unwrap().len(), 2);
+    assert!(s.delete(&a.id, false).is_err());
+    s.prune(policy.clone(), false).unwrap();
+    assert_eq!(s.list().unwrap().len(), 1);
+    s.set_retention(policy).unwrap();
+    let c = save(&s);
+    assert!(s.show(&c.id).is_ok());
+    assert!(s.show(&a.id).unwrap().pinned);
+    s.delete(&a.id, true).unwrap();
+    assert!(s.show(&a.id).is_err());
+}
+#[test]
+fn file_modes_deletions_symlinks_and_non_utf8() {
+    let repo = Repo::format("sha256");
+    let s = service(&repo);
+    fs::remove_file(repo.path.join("tracked.txt")).unwrap();
+    let name = std::ffi::OsStr::from_bytes(b"odd\xff");
+    fs::write(repo.path.join(name), "exe").unwrap();
+    fs::set_permissions(repo.path.join(name), fs::Permissions::from_mode(0o755)).unwrap();
+    symlink("absent", repo.path.join("link")).unwrap();
+    let snap = save(&s);
+    let dest = repo.temp.path().join("recovery");
+    s.restore(&snap.id, Some(&dest)).unwrap();
+    assert!(!dest.join("tracked.txt").exists());
+    assert_eq!(
+        fs::read_link(dest.join("link")).unwrap(),
+        std::path::Path::new("absent")
+    );
+    assert_eq!(
+        fs::metadata(dest.join(name)).unwrap().permissions().mode() & 0o111,
+        0o111
+    );
+}
+#[test]
+fn rejects_large_files_filters_conflicts_and_changed_head() {
+    let repo = Repo::new();
+    let s = service(&repo);
+    fs::write(repo.path.join("new"), "large").unwrap();
+    assert!(s
+        .save(SaveOptions {
+            max_file_bytes: 1,
+            ..Default::default()
+        })
+        .is_err());
+    assert!(s.list().unwrap().is_empty());
+    let snap = save(&s);
+    repo.git(&["commit", "--allow-empty", "-qm", "changed"]);
+    assert!(s.restore(&snap.id, None).is_err());
+    repo.git(&["config", "filter.lfs.clean", "cat"]);
+    assert!(s.save(Default::default()).is_err());
+}
+#[test]
+fn no_change_reuses_file_trees_and_diff_includes_untracked() {
+    let repo = Repo::new();
+    let s = service(&repo);
+    let a = save(&s);
+    let b = save(&s);
+    assert_eq!(a.work_tree, b.work_tree);
+    assert_eq!(a.index_tree, b.index_tree);
+    fs::write(repo.path.join("new"), "hello\n").unwrap();
+    assert!(s.diff(&a.id, None).unwrap().contains("+hello"));
+    assert_eq!(s.list().unwrap().len(), 2);
+}
+#[test]
+fn ignored_collision_is_never_overwritten() {
+    let repo = Repo::new();
+    let s = service(&repo);
+    fs::write(repo.path.join("collision"), "saved").unwrap();
+    let snap = save(&s);
+    fs::write(repo.path.join(".git/info/exclude"), "collision\n").unwrap();
+    fs::write(repo.path.join("collision"), "precious ignored").unwrap();
+    assert!(s.restore(&snap.id, None).is_err());
+    assert_eq!(
+        fs::read(repo.path.join("collision")).unwrap(),
+        b"precious ignored"
+    );
+}
+#[test]
+fn linked_worktree_snapshots_are_shared() {
+    let repo = Repo::new();
+    let s = service(&repo);
+    let other = repo.temp.path().join("linked");
+    repo.git(&["worktree", "add", "--detach", other.to_str().unwrap()]);
+    let other = Snapshots::open(other, Duration::from_secs(30)).unwrap();
+    let a = save(&s);
+    let b = save(&other);
+    assert_ne!(a.workspace, b.workspace);
+    assert_eq!(s.list().unwrap().len(), 2);
+}
+#[test]
+fn sparse_checkout_preserves_outside_entries() {
+    let repo = Repo::new();
+    fs::create_dir(repo.path.join("inside")).unwrap();
+    fs::create_dir(repo.path.join("outside")).unwrap();
+    fs::write(repo.path.join("inside/a"), "a").unwrap();
+    fs::write(repo.path.join("outside/b"), "b").unwrap();
+    repo.git(&["add", "."]);
+    repo.git(&["commit", "-qm", "directories"]);
+    repo.git(&["sparse-checkout", "set", "inside"]);
+    let s = service(&repo);
+    fs::write(repo.path.join("inside/a"), "changed").unwrap();
+    let snap = save(&s);
+    assert!(!repo.path.join("outside/b").exists());
+    assert_eq!(
+        repo.git(&["show", &format!("{}:outside/b", snap.work_tree)]),
+        "b"
+    );
+    let dest = repo.temp.path().join("sparse-recovery");
+    s.restore(&snap.id, Some(&dest)).unwrap();
+    assert_eq!(fs::read(dest.join("inside/a")).unwrap(), b"changed");
+}
+#[test]
+fn malformed_manifest_and_conversion_attributes_fail_closed() {
+    let repo = Repo::new();
+    let s = service(&repo);
+    fs::write(repo.path.join(".gitattributes"), "*.txt text eol=crlf\n").unwrap();
+    assert!(s.save(Default::default()).is_err());
+    fs::remove_file(repo.path.join(".gitattributes")).unwrap();
+    let snap = save(&s);
+    repo.git(&[
+        "update-ref",
+        &format!("refs/groove/snapshots/{}", snap.id),
+        "HEAD",
+    ]);
+    assert!(s.show(&snap.id).is_err());
+}
+#[test]
+fn index_flags_and_gitlinks_fail_without_publication() {
+    let repo = Repo::new();
+    let s = service(&repo);
+    repo.git(&["update-index", "--assume-unchanged", "tracked.txt"]);
+    assert!(s.save(Default::default()).is_err());
+    repo.git(&["update-index", "--no-assume-unchanged", "tracked.txt"]);
+    let head = repo.git(&["rev-parse", "HEAD"]);
+    repo.git(&[
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        &format!("160000,{head},module"),
+    ]);
+    assert!(s.save(Default::default()).is_err());
+    assert!(s.list().unwrap().is_empty());
+}
+#[test]
+fn publication_failure_does_not_mutate_workspace() {
+    let repo = Repo::new();
+    let s = service(&repo);
+    fs::write(repo.path.join("tracked.txt"), "unsaved\n").unwrap();
+    let index = fs::read(repo.path.join(".git/index")).unwrap();
+    let head = repo.git(&["rev-parse", "HEAD"]);
+    fs::create_dir_all(repo.path.join(".git/refs/groove")).unwrap();
+    fs::write(
+        repo.path.join(".git/refs/groove/snapshots"),
+        "blocking file",
+    )
+    .unwrap();
+    assert!(s.save(Default::default()).is_err());
+    assert_eq!(fs::read(repo.path.join(".git/index")).unwrap(), index);
+    assert_eq!(repo.git(&["rev-parse", "HEAD"]), head);
+    assert_eq!(
+        fs::read(repo.path.join("tracked.txt")).unwrap(),
+        b"unsaved\n"
+    );
+}
+#[test]
+fn unresolved_merge_is_rejected() {
+    let repo = Repo::new();
+    let original = repo.git(&["branch", "--show-current"]);
+    repo.git(&["checkout", "-qb", "other"]);
+    fs::write(repo.path.join("tracked.txt"), "other\n").unwrap();
+    repo.git(&["commit", "-qam", "other"]);
+    repo.git(&["checkout", &original]);
+    fs::write(repo.path.join("tracked.txt"), "main\n").unwrap();
+    repo.git(&["commit", "-qam", "main"]);
+    assert!(!support::command(&repo.path, "git")
+        .args(["merge", "other"])
+        .output()
+        .unwrap()
+        .status
+        .success());
+    let s = service(&repo);
+    assert!(s.save(Default::default()).is_err());
+    assert!(s.list().unwrap().is_empty());
+}
+#[test]
+fn tracked_files_under_ignored_directories_are_captured() {
+    let repo = Repo::new();
+    fs::create_dir(repo.path.join("ignored")).unwrap();
+    fs::write(repo.path.join("ignored/tracked"), "base").unwrap();
+    repo.git(&["add", "-f", "ignored/tracked"]);
+    repo.git(&["commit", "-qm", "tracked ignored"]);
+    fs::write(repo.path.join("ignored/tracked"), "changed").unwrap();
+    fs::write(repo.path.join("ignored/untracked"), "excluded").unwrap();
+    let s = service(&repo);
+    let snap = save(&s);
+    assert_eq!(
+        repo.git(&["show", &format!("{}:ignored/tracked", snap.work_tree)]),
+        "changed"
+    );
+    assert!(!repo
+        .git(&["ls-tree", "-r", "--name-only", &snap.work_tree])
+        .contains("untracked"));
+}
+#[test]
+fn file_directory_transitions_preserve_only_selected_files() {
+    let repo = Repo::new();
+    let s = service(&repo);
+    fs::remove_file(repo.path.join("tracked.txt")).unwrap();
+    fs::create_dir(repo.path.join("tracked.txt")).unwrap();
+    fs::write(repo.path.join("tracked.txt/child"), "child").unwrap();
+    fs::write(repo.path.join(".git/info/exclude"), "hidden\n").unwrap();
+    fs::write(repo.path.join("tracked.txt/hidden"), "ignored").unwrap();
+    let a = save(&s);
+    assert_eq!(
+        repo.git(&["show", &format!("{}:tracked.txt/child", a.work_tree)]),
+        "child"
+    );
+    assert!(!repo
+        .git(&["ls-tree", "-r", "--name-only", &a.work_tree])
+        .contains("hidden"));
+    repo.git(&["add", "-A"]);
+    repo.git(&["commit", "-qm", "directory"]);
+    fs::remove_dir_all(repo.path.join("tracked.txt")).unwrap();
+    fs::write(repo.path.join("tracked.txt"), "file again").unwrap();
+    let b = save(&s);
+    assert_eq!(
+        repo.git(&["show", &format!("{}:tracked.txt", b.work_tree)]),
+        "file again"
+    );
+}
+#[test]
+fn deletion_releases_unique_objects_without_retaining_snapshot_history() {
+    let repo = Repo::new();
+    let s = service(&repo);
+    fs::write(repo.path.join("tracked.txt"), "first unique content\n").unwrap();
+    let a = save(&s);
+    fs::write(repo.path.join("tracked.txt"), "second unique content\n").unwrap();
+    let b = save(&s);
+    s.delete(&a.id, false).unwrap();
+    // Aggressive expiry is used only in this disposable fixture, never by the product.
+    repo.git(&["gc", "--prune=now"]);
+    assert!(!support::command(&repo.path, "git")
+        .args(["cat-file", "-e", &a.work_tree])
+        .output()
+        .unwrap()
+        .status
+        .success());
+    assert!(s.show(&b.id).is_ok());
+}
+#[test]
+fn split_index_and_intent_to_add_are_handled_explicitly() {
+    let repo = Repo::new();
+    repo.git(&["update-index", "--split-index"]);
+    let s = service(&repo);
+    fs::write(repo.path.join("tracked.txt"), "split\n").unwrap();
+    let index = fs::read(repo.path.join(".git/index")).unwrap();
+    let a = save(&s);
+    assert_eq!(
+        repo.git(&["show", &format!("{}:tracked.txt", a.work_tree)]),
+        "split"
+    );
+    assert_eq!(fs::read(repo.path.join(".git/index")).unwrap(), index);
+    fs::write(repo.path.join("intent"), "intent\n").unwrap();
+    repo.git(&["add", "-N", "intent"]);
+    assert!(s.save(Default::default()).is_err());
+}
+#[test]
+fn unborn_sha256_recovery_preserves_object_format() {
+    let temp = tempfile::tempdir().unwrap();
+    support::git(temp.path(), &["init", "-q", "--object-format=sha256"]);
+    fs::write(temp.path().join("first"), "first").unwrap();
+    let s = Snapshots::open(temp.path(), Duration::from_secs(30)).unwrap();
+    let snapshot = save(&s);
+    let other = tempfile::tempdir().unwrap();
+    let dest = other.path().join("recovery");
+    s.restore(&snapshot.id, Some(&dest)).unwrap();
+    assert_eq!(
+        support::git(&dest, &["rev-parse", "--show-object-format"]),
+        "sha256"
+    );
+    assert_eq!(fs::read(dest.join("first")).unwrap(), b"first");
+}
+#[test]
+fn snapshot_survives_pool_release_and_slot_reuse() {
+    use groove_core::{Pool, PoolOptions};
+    let repo = Repo::new();
+    Pool::init(
+        &repo.path,
+        PoolOptions {
+            capacity: 1,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let pool = Pool::open(&repo.path).unwrap();
+    let mut lease = pool.acquire(Default::default()).unwrap();
+    let path = lease.info().worktree_path.clone();
+    fs::write(path.join("tracked.txt"), "task result\n").unwrap();
+    fs::write(path.join("new-result"), "new result\n").unwrap();
+    let snapshots = Snapshots::open(&path, Duration::from_secs(30)).unwrap();
+    let snapshot = save(&snapshots);
+    lease.release().unwrap();
+    let mut next = pool.acquire(Default::default()).unwrap();
+    assert_eq!(
+        fs::read(next.info().worktree_path.join("tracked.txt")).unwrap(),
+        b"baseline\n"
+    );
+    let recovered = repo.temp.path().join("saved-task");
+    service(&repo)
+        .restore(&snapshot.id, Some(&recovered))
+        .unwrap();
+    assert_eq!(
+        fs::read(recovered.join("tracked.txt")).unwrap(),
+        b"task result\n"
+    );
+    assert_eq!(
+        fs::read(recovered.join("new-result")).unwrap(),
+        b"new result\n"
+    );
+    next.release().unwrap();
+}

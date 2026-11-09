@@ -27,7 +27,7 @@ impl Git {
         args: impl IntoIterator<Item = &'a OsStr>,
         fds: &[RawFd],
     ) -> Result<Vec<u8>> {
-        Ok(self.run_output(cwd, args, fds, false)?.bytes)
+        Ok(self.run_output(cwd, args, fds, false, &[], None)?.bytes)
     }
     /// Scan NUL-delimited ls-tree records while retaining only bounded diagnostics.
     pub fn has_gitlinks(&self, cwd: &Path, oid: &str) -> Result<bool> {
@@ -37,8 +37,22 @@ impl Git {
                 ["ls-tree", "-r", "-z", oid].into_iter().map(OsStr::new),
                 &[],
                 true,
+                &[],
+                None,
             )?
             .gitlink)
+    }
+    pub(crate) fn snapshot(
+        &self,
+        cwd: &Path,
+        args: &[&str],
+        env: &[(&str, &OsStr)],
+        input: Option<std::fs::File>,
+        fds: &[RawFd],
+    ) -> Result<Vec<u8>> {
+        Ok(self
+            .run_output(cwd, args.iter().map(OsStr::new), fds, false, env, input)?
+            .bytes)
     }
     fn run_output<'a>(
         &self,
@@ -46,7 +60,10 @@ impl Git {
         args: impl IntoIterator<Item = &'a OsStr>,
         fds: &[RawFd],
         scan_tree: bool,
+        env: &[(&str, &OsStr)],
+        input: Option<std::fs::File>,
     ) -> Result<Capture> {
+        tracing::trace!(event = "git.started", "Starting Git operation");
         let mut cmd = Command::new("git");
         cmd.current_dir(cwd)
             .args([
@@ -77,6 +94,30 @@ impl Git {
             .env("GIT_OPTIONAL_LOCKS", "0")
             .env("GIT_NO_REPLACE_OBJECTS", "1")
             .env("LC_ALL", "C");
+        if !env.is_empty() {
+            // Snapshots must honor user/system ignore and attribute configuration.
+            // Pool maintenance retains its existing isolated configuration policy.
+            for key in [
+                "GIT_CONFIG_GLOBAL",
+                "GIT_CONFIG_SYSTEM",
+                "GIT_CONFIG_NOSYSTEM",
+            ] {
+                match std::env::var_os(key) {
+                    Some(value) => {
+                        cmd.env(key, value);
+                    }
+                    None => {
+                        cmd.env_remove(key);
+                    }
+                }
+            }
+        }
+        for (key, value) in env {
+            cmd.env(key, value);
+        }
+        if let Some(input) = input {
+            cmd.stdin(input);
+        }
         let inherit = fds.to_vec();
         // SAFETY: the child closure performs only async-signal-safe fcntl syscalls;
         // all allocations are performed before fork and descriptors stay owned by the caller.
@@ -94,8 +135,13 @@ impl Git {
         let mut child = cmd.spawn()?;
         let stdout = child.stdout.take().expect("piped stdout");
         let stderr = child.stderr.take().expect("piped stderr");
-        let out_thread = thread::spawn(move || capture(stdout, scan_tree));
-        let err_thread = thread::spawn(move || capture(stderr, false));
+        let limit = if env.is_empty() {
+            OUTPUT_LIMIT
+        } else {
+            128 * 1024 * 1024
+        };
+        let out_thread = thread::spawn(move || capture(stdout, scan_tree, limit));
+        let err_thread = thread::spawn(move || capture(stderr, false, OUTPUT_LIMIT));
         let start = Instant::now();
         let status = loop {
             if let Some(status) = child.try_wait()? {
@@ -123,6 +169,13 @@ impl Git {
         let err = err_thread
             .join()
             .map_err(|_| Error::new(crate::ErrorCode::IoError, "stderr reader panicked"))??;
+        tracing::debug!(
+            event = "git.completed",
+            elapsed_ms = start.elapsed().as_millis() as u64,
+            exit_code = status.and_then(|s| s.code()),
+            timed_out = status.is_none(),
+            "Git operation finished"
+        );
         if !status.is_some_and(|s| s.success()) || (out.large && !scan_tree) || err.large {
             return Err(Error::new(crate::ErrorCode::GitError, if status.is_none() { "Git operation timed out" } else { "Git operation failed or exceeded its output limit" })
                 .details(json!({"exit_code": status.and_then(|s|s.code()), "stdout": String::from_utf8_lossy(&out.bytes), "stderr": String::from_utf8_lossy(&err.bytes), "output_truncated": out.large || err.large})));
@@ -136,7 +189,7 @@ struct Capture {
     large: bool,
     gitlink: bool,
 }
-fn capture(mut reader: impl Read, scan_tree: bool) -> std::io::Result<Capture> {
+fn capture(mut reader: impl Read, scan_tree: bool, limit: usize) -> std::io::Result<Capture> {
     let mut out = Vec::new();
     let mut large = false;
     let mut buffer = [0; 8192];
@@ -148,7 +201,7 @@ fn capture(mut reader: impl Read, scan_tree: bool) -> std::io::Result<Capture> {
         if n == 0 {
             break;
         }
-        let keep = n.min(OUTPUT_LIMIT.saturating_sub(out.len()));
+        let keep = n.min(limit.saturating_sub(out.len()));
         out.extend_from_slice(&buffer[..keep]);
         large |= keep != n;
         if scan_tree {

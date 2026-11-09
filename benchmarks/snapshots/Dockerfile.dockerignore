@@ -1,0 +1,17 @@
+**
+!Cargo.toml
+!Cargo.lock
+!README.md
+!LICENSE-APACHE
+!LICENSE-MIT
+!crates/
+!crates/**
+!schemas/
+!schemas/**
+!benchmarks/
+!benchmarks/**
+!scripts/
+!scripts/**
+**/__pycache__
+
+!benchmark-source.json

@@ -2,6 +2,13 @@ mod support;
 use groove_core::{ErrorCode, LeaseId, Pool, PoolOptions};
 use support::Repo;
 
+// These cases assume only their own explicit lease owners exist. A concurrent
+// test's fork temporarily inherits every CLOEXEC descriptor until exec, correctly
+// keeping another fixture's flock alive after its Rust handle is dropped. Isolate
+// these fixtures; explicit cross-process inheritance is covered by concurrency
+// and CLI git_child tests, which intentionally retain and verify those owners.
+static PROCESS_FIXTURE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn pool(repo: &Repo) -> Pool {
     Pool::init(
         &repo.path,
@@ -16,6 +23,7 @@ fn pool(repo: &Repo) -> Pool {
 
 #[test]
 fn protection_survives_drop_and_only_matching_explicit_release_clears_it() {
+    let _fixture = PROCESS_FIXTURE.lock().unwrap();
     let repo = Repo::new();
     let pool = pool(&repo);
     let mut lease = pool.acquire(Default::default()).unwrap();
@@ -74,6 +82,7 @@ fn protection_survives_drop_and_only_matching_explicit_release_clears_it() {
 
 #[test]
 fn malformed_protection_blocks_reuse_and_failed_release_retains_ownership() {
+    let _fixture = PROCESS_FIXTURE.lock().unwrap();
     let repo = Repo::new();
     let pool = pool(&repo);
     let mut lease = pool.acquire(Default::default()).unwrap();

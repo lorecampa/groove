@@ -222,3 +222,79 @@ fn release_retry_finishes_same_generation_after_crash() {
         );
     }
 }
+
+#[test]
+fn durable_shell_reservations_survive_sigkill_and_release_retries_are_generation_safe() {
+    for checkpoint in ["reuse-protected", "release-recorded", "release-unlocked"] {
+        let r = Repo::new();
+        Pool::init(
+            &r.path,
+            PoolOptions {
+                capacity: 1,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        if checkpoint == "reuse-protected" {
+            let (mut command, listener) = checkpoint_command(&r, checkpoint, &["acquire"]);
+            kill_at_checkpoint(&mut command, listener, checkpoint);
+        } else {
+            let output = Command::new(env!("CARGO_BIN_EXE_groove"))
+                .arg("--repo")
+                .arg(&r.path)
+                .arg("acquire")
+                .output()
+                .unwrap();
+            support::assert_success(&output);
+        }
+        let pool = Pool::open(&r.path).unwrap();
+        let lease = pool.protected_leases().unwrap().remove(0);
+        if checkpoint != "reuse-protected" {
+            let (mut command, listener) = checkpoint_command(
+                &r,
+                checkpoint,
+                &[
+                    "release",
+                    "--slot",
+                    lease.slot_id.as_str(),
+                    "--lease-id",
+                    &lease.lease_id.to_string(),
+                    "--writers-stopped",
+                ],
+            );
+            kill_at_checkpoint(&mut command, listener, checkpoint);
+        } else {
+            assert!(pool.acquire(Default::default()).is_err());
+        }
+        // Use independent CLI processes throughout. Taking locks in this
+        // multithreaded harness can transiently lend them to another test's fork
+        // before CLOEXEC runs; that is not the ordinary one-shot CLI lifecycle.
+        let release = |slot: &groove_core::SlotId, id: groove_core::LeaseId| {
+            Command::new(env!("CARGO_BIN_EXE_groove"))
+                .arg("--repo")
+                .arg(&r.path)
+                .args([
+                    "release",
+                    "--slot",
+                    slot.as_str(),
+                    "--lease-id",
+                    &id.to_string(),
+                    "--writers-stopped",
+                ])
+                .output()
+                .unwrap()
+        };
+        support::assert_success(&release(&lease.slot_id, lease.lease_id));
+        support::assert_success(&release(&lease.slot_id, lease.lease_id));
+        let acquired = Command::new(env!("CARGO_BIN_EXE_groove"))
+            .arg("--repo")
+            .arg(&r.path)
+            .arg("acquire")
+            .output()
+            .unwrap();
+        support::assert_success(&acquired);
+        let next = pool.protected_leases().unwrap().remove(0);
+        assert!(!release(&lease.slot_id, lease.lease_id).status.success());
+        support::assert_success(&release(&next.slot_id, next.lease_id));
+    }
+}

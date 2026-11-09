@@ -362,3 +362,175 @@ fn cancelled_acquire_remains_discoverable_and_protected() {
     assert_eq!(server.acquire("cancelled-task").lease_id, info.lease_id);
     assert_eq!(server.release(&info, true)["ok"], true);
 }
+
+/// Opt-in test against a real local repository, always cloned into disposable storage.
+#[test]
+#[ignore = "set GROOVE_TEST_LOCAL_REPO and run with --ignored to test a real repository clone"]
+fn real_local_repository_workspace_lifecycle() {
+    use std::path::PathBuf;
+    let source = PathBuf::from(
+        std::env::var_os("GROOVE_TEST_LOCAL_REPO").expect("set GROOVE_TEST_LOCAL_REPO"),
+    );
+    let source = std::fs::canonicalize(source).unwrap();
+    let source_status = || {
+        let output = support::command(&source, "git")
+            .env("GIT_OPTIONAL_LOCKS", "0")
+            .args([
+                "-c",
+                "core.fsmonitor=false",
+                "status",
+                "--porcelain=v1",
+                "-z",
+            ])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        output.stdout
+    };
+    let original_status = source_status();
+    let original_pool_existed = source.join(".git/groove").exists();
+    let original_refs = support::git(
+        &source,
+        &["for-each-ref", "--format=%(refname) %(objectname)"],
+    );
+    let original_diff = support::git(
+        &source,
+        &["diff", "--binary", "--no-ext-diff", "--no-textconv", "HEAD"],
+    );
+    let original_head = support::git(&source, &["rev-parse", "HEAD"]);
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("real repository clone");
+    let output = support::command(temp.path(), "git")
+        .args(["clone", "--local", "--no-hardlinks", "--no-checkout", "--"])
+        .arg(&source)
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "local clone failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let repo = Repo { temp, path };
+    repo.git(&["config", "user.name", "Groove Local Test"]);
+    repo.git(&["config", "user.email", "groove-test@example.invalid"]);
+    assert_eq!(repo.git(&["rev-parse", "HEAD"]), original_head);
+    let mut server = Server::start(&repo);
+    server.init(2);
+    let a = server.acquire("real-task-a");
+    let b = server.acquire("real-task-b");
+    assert_ne!(a.slot_id, b.slot_id);
+    assert_ne!(a.worktree_path, b.worktree_path);
+    for info in [&a, &b] {
+        assert_eq!(info.base_oid.as_str(), original_head);
+        assert_eq!(
+            support::git(&info.worktree_path, &["rev-parse", "HEAD"]),
+            original_head
+        );
+        assert!(support::git(&info.worktree_path, &["status", "--porcelain"]).is_empty());
+    }
+    assert_eq!(
+        server.tool(
+            "groove_acquire",
+            json!({"base":"HEAD","request_key":"overflow"})
+        )["error"]["code"],
+        "POOL_EXHAUSTED"
+    );
+    let files = support::git(&a.worktree_path, &["ls-tree", "-r", "-z", "HEAD"]);
+    let tracked = files
+        .split('\0')
+        .filter_map(|entry| {
+            let (metadata, name) = entry.split_once('\t')?;
+            if !metadata.starts_with("100644 ") && !metadata.starts_with("100755 ") {
+                return None;
+            }
+            let path = a.worktree_path.join(name);
+            (std::fs::metadata(path).ok()?.len() < 1024 * 1024).then(|| PathBuf::from(name))
+        })
+        .next()
+        .expect("repository needs a regular file smaller than 1 MiB");
+    let original = std::fs::read(a.worktree_path.join(&tracked)).unwrap();
+    let mut changed = original.clone();
+    changed.extend_from_slice(b"\nGroove local MCP lifecycle test\n");
+    std::fs::write(a.worktree_path.join(&tracked), &changed).unwrap();
+    let artifact = format!(".groove-local-test-{}", a.lease_id);
+    assert!(!a.worktree_path.join(&artifact).exists());
+    std::fs::write(a.worktree_path.join(&artifact), "disposable artifact").unwrap();
+    let branch = format!("groove-local-test/{}", a.lease_id);
+    support::git(&a.worktree_path, &["checkout", "-b", &branch]);
+    let tracked = tracked.to_str().expect("test selects a UTF-8 filename");
+    support::git(&a.worktree_path, &["add", "--", tracked]);
+    support::git(
+        &a.worktree_path,
+        &["commit", "-qm", "Preserve disposable MCP test result"],
+    );
+    let result_commit = support::git(&a.worktree_path, &["rev-parse", "HEAD"]);
+    assert_ne!(result_commit, original_head);
+    assert_eq!(
+        std::fs::read(b.worktree_path.join(tracked)).unwrap(),
+        original
+    );
+    assert_eq!(server.release(&a, true)["ok"], true);
+    assert_eq!(server.release(&b, true)["ok"], true);
+    let c = server.acquire("reused-task-c");
+    let d = server.acquire("reused-task-d");
+    assert_eq!(
+        std::fs::read(a.worktree_path.join(tracked)).unwrap(),
+        original
+    );
+    assert!(!a.worktree_path.join(&artifact).exists());
+    assert_eq!(repo.git(&["rev-parse", &branch]), result_commit);
+    let abandoned = c
+        .worktree_path
+        .join(format!(".groove-abandoned-{}", c.lease_id));
+    std::fs::write(&abandoned, "preserve across MCP crash").unwrap();
+    server.stop(true);
+    let pool = Pool::open(&repo.path).unwrap();
+    assert_eq!(
+        pool.acquire(Default::default()).err().unwrap().code,
+        ErrorCode::PoolUnhealthy
+    );
+    assert_eq!(
+        std::fs::read_to_string(&abandoned).unwrap(),
+        "preserve across MCP crash"
+    );
+    let mut restarted = Server::start(&repo);
+    let list = restarted.tool("groove_leases", json!({}));
+    assert_eq!(list["result"]["leases"].as_array().unwrap().len(), 2);
+    for info in [&c, &d] {
+        assert_eq!(restarted.release(info, true)["ok"], true);
+    }
+    let e = restarted.acquire("after-restart-e");
+    let f = restarted.acquire("after-restart-f");
+    assert!(!abandoned.exists());
+    assert_eq!(restarted.release(&e, true)["ok"], true);
+    assert_eq!(restarted.release(&f, true)["ok"], true);
+    restarted.stop(false);
+    assert_eq!(
+        source_status(),
+        original_status,
+        "source status changed during local test"
+    );
+    assert!(
+        support::git(
+            &source,
+            &["diff", "--binary", "--no-ext-diff", "--no-textconv", "HEAD"]
+        ) == original_diff,
+        "source tracked content changed during local test"
+    );
+    assert_eq!(support::git(&source, &["rev-parse", "HEAD"]), original_head);
+    assert_eq!(
+        source.join(".git/groove").exists(),
+        original_pool_existed,
+        "source pool state changed during local test"
+    );
+    assert_eq!(
+        support::git(
+            &source,
+            &["for-each-ref", "--format=%(refname) %(objectname)"]
+        ),
+        original_refs,
+        "source refs changed during local test"
+    );
+    eprintln!("Local repository smoke passed: two slots, capacity, independent edits, retained result branch, cleanup, crash protection and restart recovery");
+}

@@ -54,6 +54,7 @@ jobs:
         run: |
           cargo install --path crates/groove-cli --locked --root "$RUNNER_TEMP/package"
           cargo install --path crates/groove-mcp --locked --root "$RUNNER_TEMP/package"
+          GROOVE_CLI_BINARY="$RUNNER_TEMP/package/bin/groove" cargo test -p groove-cli --test durable --locked
           GROOVE_MCP_BINARY="$RUNNER_TEMP/package/bin/groove-mcp" cargo test -p groove-mcp --test stdio --locked
           fixture=$(mktemp -d)
           git -C "$fixture" init -q

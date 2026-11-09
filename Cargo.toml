@@ -1,6 +1,6 @@
 [workspace]
 members = ["crates/groove-core", "crates/groove-cli", "crates/groove-mcp"]
-resolver = "2"
+resolver = "3"
 
 [workspace.package]
 version = "0.1.0"
@@ -19,6 +19,8 @@ thiserror = "2"
 uuid = { version = "1", features = ["v4", "serde"] }
 tempfile = "3"
 libc = "0.2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["registry"] }
 clap = { version = "4", features = ["derive"] }
 
 [workspace.lints.rust]

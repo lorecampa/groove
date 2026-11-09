@@ -1,60 +1,59 @@
-# Groove
+# <img src="assets/groove-icon.svg" alt="" width="40" align="top"> Groove
 
-Reusable Git worktree pools for coding agents and CI. Each task gets an exclusive,
-verified checkout; released slots are cleaned and reused.
-
-**Development preview · Linux only · Git 2.40+ · Rust 1.89+ to build.**
+Reusable Git worktrees for coding agents. Give each task an exclusive checkout,
+then release it for reuse when the work is saved and every writer has stopped.
 
 ## Install
 
-From a checkout of this repository:
+Development preview: Linux, Git 2.40+, a local filesystem, and Rust 1.89+.
+Until the package is published, install from source:
 
 ```sh
-cargo install --path crates/groove-cli --locked
-cargo install --path crates/groove-mcp --locked
+cargo install --git https://github.com/lorecampa/groove --locked groove-cli
 ```
 
-Executables are installed into `~/.cargo/bin`; ensure it is on your `PATH`.
+Ensure `~/.cargo/bin` is on your `PATH`. Install once; use it across repositories.
 
-## Connect your agent
+## Instruct your agent
 
-Add a **local stdio MCP server** in your agent application:
+Add this to your project's `AGENTS.md` or your agent's persistent instructions:
 
-- Executable: absolute path to `groove-mcp` (run `command -v groove-mcp`).
-- Arguments: `--repo /absolute/path/to/your/repository`.
+> Use Groove for task workspaces. Read `groove --help` and the relevant command's
+> `--help` before use. Initialize a pool if needed, acquire a checkout, and work
+> only in its returned path. Create a unique task branch and save results before
+> releasing. Stop every writer before `release --writers-stopped`. After a lost
+> acquire response, inspect `groove leases` and identify ownership before retrying.
+> Never release another task's reservation or bypass pool protection.
 
-Then add these agent instructions:
+An installable [agent skill](skills/groove/SKILL.md) is also available.
 
-> Use Groove for task workspaces. Call groove_init with capacity 4, then
-> groove_acquire with the requested base and a unique request_key for the task.
-> Work only in result.lease.worktree_path. Save changes to a task-owned branch or
-> export a patch outside the workspace, stop all workers/watchers, then call
-> groove_release with slot_id, lease_id and writers_stopped=true.
-> After a lost response or restart, inspect groove_leases. Never delete Groove's
-> lock/protection files or create overflow worktrees when the pool is full.
+## Basic workflow
 
-The MCP server keeps workspaces reserved between tool calls. Reservations survive
-server shutdown/crash until explicitly released after their writers have stopped.
-See [MCP setup and recovery](docs/mcp.md) for configuration JSON and tool details.
-
-## CLI and Rust integrations
+From the repository you want to work on:
 
 ```sh
-groove --repo /path/to/repo init --capacity 4
+groove init --capacity 4
+groove acquire --base HEAD
 ```
 
-The CLI's `acquire` requires a supervisor that retains a transferred descriptor;
-JSON capture alone does not reserve a workspace. Use the [CLI client](crates/groove-cli/examples/client.rs),
-[Rust library example](crates/groove-core/examples/agent.rs), or [protocol](docs/protocol.md).
+Commands return JSON. Check `ok`, then retain `result.slot_id`, `result.lease_id`
+and `result.worktree_path`. In that checkout, create a unique branch, do your
+work, and commit your results. The reservation survives command exit.
 
-Worktrees are created on acquisition under `<GIT_COMMON_DIR>/groove/worktrees/`.
-On a new pool, `init --worktree-root /absolute/empty/path` selects another root.
-Cleanup defaults to `pristine`, deleting untracked and ignored files. Opt-in
-`warm` may retain ignored files. Worktrees share Git objects, refs and
-configuration; they are not security sandboxes.
+After saving results and stopping all workers, tests and watchers, run from the
+original repository:
 
-[Contributing](CONTRIBUTING.md) · [Operations](docs/operations.md) ·
-[Testing](docs/testing.md) · [Release readiness](docs/releasing.md) ·
-[Changelog](CHANGELOG.md) · [Security](SECURITY.md)
+```sh
+groove release --slot SLOT --lease-id UUID --writers-stopped
+```
 
-Licensed under [MIT](LICENSE-MIT) OR [Apache-2.0](LICENSE-APACHE).
+Replace `SLOT` and `UUID` with the acquired identifiers. Released files are
+disposable: the next acquisition cleans the checkout, including ignored files
+under the default policy.
+
+Use `groove --help`, `groove acquire --help`, or `groove snapshot --help` for
+commands, examples and recovery rules. Help is JSON too; with jq installed,
+`groove --help | jq -r '.result.text'` displays the formatted text.
+
+[Contributing](CONTRIBUTING.md) · [Optional MCP](docs/mcp.md) ·
+[MIT](LICENSE-MIT) / [Apache-2.0](LICENSE-APACHE)

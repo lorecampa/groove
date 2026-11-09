@@ -107,7 +107,7 @@ status nor a prior success record authorizes skipping normalization.
 ## 4. Versioned protocol and CLI
 
 - [x] JSON success/error envelope, optional request ID, stable codes and exit categories.
-- [x] JSON help/version/usage errors and optional stderr JSON Lines diagnostics.
+- [x] JSON help/version/usage errors and bounded file logs and optional verbose stderr output.
 - [x] Published response/config/slot schemas and real-result conformance tests.
 - [x] Connected seqpacket validation, bounded atomic JSON-plus-one-FD handoff,
   close-on-exec reception, malformed/truncated descriptor rejection and cleanup.

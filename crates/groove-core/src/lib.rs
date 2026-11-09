@@ -35,6 +35,7 @@ mod locking;
 mod pool;
 mod recovery;
 mod repository;
+pub mod snapshot;
 mod state;
 pub mod transport;
 mod types;

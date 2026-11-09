@@ -9,3 +9,9 @@
 .idea/
 .vscode/
 .DS_Store
+
+# Disposable local tooling and generated Python/benchmark files
+/.local/
+**/__pycache__/
+*.pyc
+/benchmarks/**/results/

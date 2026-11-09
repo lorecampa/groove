@@ -121,7 +121,7 @@ sleep; tests never use sleep to establish ownership or crash ordering.
 | core concurrency | Eight processes/two slots with monotonic ownership intervals, SIGKILL of sole owner, surviving participating worker retaining its lease |
 | core compatibility | Cargo build and Git commands inside `.git/groove/worktrees`; optional offline npm script |
 | core stress | Seeded sequences of contamination, index flags, interrupted operations, explicit and implicit release; seed and step reported on failure |
-| CLI protocol | JSON help/version/errors, exit categories, request IDs, stderr JSON Lines, concurrent init, real responses and metadata validated against published schemas |
+| CLI protocol | JSON help/version/errors, exit categories, request IDs, verbose stderr, bounded JSONL file logs, fresh matching UTC timestamps across successful lifecycles and startup notices, ENOSPC isolation, concurrent cleanup and crashed log owners, concurrent init, real responses and metadata validated against published schemas |
 | CLI handoff | Ownership survives sender exit, atomic CLOEXEC, stale release rejection, queued abandonment, failed send, malformed/truncated JSON/ancillary data, missing/extra descriptors, mismatched request IDs, capacity timeout |
 | CLI crash checkpoints | Init metadata sync/rename and ready publication; existing-tree cleanup, old-tree removal, new-tree creation, verification, lease persistence; release metadata/unlock, lost response, same-generation retries and stale-generation rejection |
 | CLI Git child | Parent SIGKILL while mutation child owns both locks; Git execution timeout terminates blocked mutation group before recovery |
@@ -215,3 +215,114 @@ are not implied by these results.
   using GROOVE_MCP_BINARY. The MCP package includes its shared test fixture.
 - The three production MCP stdio tests also passed against the locally installed
   executable, and both installed binaries reported version 0.1.0.
+
+## Opt-in real-repository smoke test
+
+To exercise the installed production MCP server with an existing local project's
+committed history and files:
+
+```sh
+GROOVE_TEST_LOCAL_REPO=/absolute/path/to/project \
+GROOVE_MCP_BINARY="$HOME/.cargo/bin/groove-mcp" \
+  cargo test -p groove-mcp --test stdio --locked -- --ignored --nocapture
+```
+
+The test uses a disposable local clone with copied Git objects. It checks two
+independent workspaces, bounded capacity, a saved result branch, sanitation,
+server death, protected work and recovery through a new server. Source status,
+tracked diff, HEAD and refs are compared before and after; the source pool is not
+initialized. The clone is removed on completion. Uncommitted source edits are
+not included in the test checkout. This test passed locally against an existing
+project using the installed production executable; it requires no project build,
+service credentials or changes to the agent application.
+
+## CLI-first workflow verification — 2026-11-09
+
+- The full workspace suite passes on current Rust and Rust 1.89.0: 56 test
+  entries passed, with the opt-in real-repository smoke test left ignored.
+- Ordinary CLI process tests exercise repository discovery from a subdirectory,
+  reservations surviving command exit, bounded concurrent acquisition, saved
+  result branches, sanitation, explicit stopped-writer confirmation, lost stdout,
+  release retries and rejection of stale generations.
+- SIGKILL checkpoints cover protection publication and interrupted durable release.
+  The crash test performs follow-up ownership operations through independent CLI
+  processes, avoiding lock inheritance between threads of the process harness.
+- CLI recovery rejects live protected descriptor owners (the MCP ownership model)
+  and unprotected leased records. An abandoned protected lease is releasable only
+  with matching identifiers after writers stop.
+- Formatting, Clippy with warnings denied on both compilers, four doctests and
+  rustdoc with warnings denied pass. The agent skill validator, local documentation
+  links and shell syntax checks pass. Cargo audit reports no denied advisories
+  against the 181-dependency lockfile at this check.
+- Production binaries installed into an isolated temporary prefix without test
+  hooks pass all four CLI workflow tests and all three default-feature MCP tests.
+  CI now includes those installed-CLI tests alongside its installed-MCP checks.
+- Package file lists include the CLI regression tests and updated response schemas.
+  These are local checks; no remote CI result is implied.
+
+## Snapshot verification — 2026-11-10
+
+Snapshot-specific coverage adds four pure unit tests, twenty real-Git integration
+tests, and five CLI/process tests. These cover IDs and path boundaries, retention,
+exact staged/unstaged/untracked recovery, file modes and symlinks, non-UTF-8 names,
+file/directory transitions, SHA-1/SHA-256 including unborn repositories, split
+indexes, sparse checkouts, global ignore rules, failed publication, unsupported
+conflicts/filters/gitlinks/index flags, large-file limits, pins and pruning,
+exclusive-object reclamation, interrupted capture/restore, concurrent writes,
+lost stdout, scratch cleanup, and recovery after pool release and slot reuse.
+
+Final local checks:
+
+- 98 workspace tests passed on Rust 1.99.1 and Rust 1.89.0 with
+  `--all-targets --all-features --locked -- --test-threads=1`.
+- One pre-existing opt-in MCP real-repository smoke test was skipped. The snapshot
+  CLI was separately exercised against a disposable copy of Iurio.
+- Four doctests passed; Clippy and rustdoc passed with warnings denied; formatting
+  and `git diff --check` passed.
+- Release-build benchmarks exercised Iurio, 100k files and 1M files, including
+  recovery into another checkout and in place. See
+  [measured results](snapshot-benchmarks.md) and
+  [raw samples](snapshot-benchmark-results.json).
+
+The default parallel test runner intermittently failed the pre-existing
+`protection_survives_drop_and_only_matching_explicit_release_clears_it` pool test
+with “Protected lease still has a live lock owner.” Serial scheduling passed on
+both compilers; the pool implementation was left unchanged. Explicit subprocess
+concurrency tests still exercise concurrent processes under serial test scheduling.
+This record does not claim the default parallel workspace run is consistently green.
+
+Process-kill tests do not simulate power loss or storage-controller failure.
+Benchmarks do not establish cold-cache guarantees or all large-binary workloads.
+Remote CI has not been run for this change.
+
+## Versioned scale regressions and hooks
+
+The snapshot lab now includes deterministic 1k/100k/1M-file integration tests, a
+shared versioned fixture contract with a golden tree, a digest-pinned container
+environment and resource limits, and source/binary/environment provenance in v2
+reports. Relevant PRs run the 100k regression; scheduled/manual CI adds 1M and
+performance measurements. See [the lab](../benchmarks/snapshots/README.md).
+
+The two protection tests now isolate their process fixtures with a test-only
+mutex: an unrelated test's fork can correctly retain a CLOEXEC lease descriptor
+until exec, invalidating the tests' assumption that dropping their own handle
+removes the last owner. Product ownership rules are unchanged; deliberate child
+inheritance is still exercised by concurrency and Git-child regressions. The
+pre-push gate uses default scheduling rather than treating serial-only success
+as sufficient evidence. Hook tests use real disposable Git commits and pushes
+to verify failure blocks publication and custom hook paths are preserved.
+
+### Pinned lab verification — 2026-11-10
+
+The digest-pinned container was built and its Rust 1.89.0, Git 2.40.0, Python
+3.11.2 and GNU time 1.9 package versions were verified. The deterministic 1k,
+100k and 1M integration cases passed with four-CPU/8-GiB limits and disk-backed
+scratch. The 100k and 1M correctness cases took approximately 29 and 389 seconds;
+these are execution observations, not pass/fail timing thresholds.
+
+Two canonical smoke-plus-Iurio benchmark runs completed, each verifying both
+restoration modes and unchanged source state through a read-only source mount.
+Their v2 reports passed compatibility comparison. Ten Python infrastructure/hook
+tests passed, including golden-fixture generation, environment-drift rejection,
+real Git commit/push blocking on failed gates, and custom-hook preservation.
+These are local executions of the pinned lab; remote CI execution is separate.

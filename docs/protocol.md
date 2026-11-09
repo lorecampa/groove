@@ -2,45 +2,69 @@
 
 Status: implemented development interface. Freeze v1 only after release review.
 
-Agents using ordinary editing/terminal tools can use the [stdio MCP adapter](mcp.md).
-Its durable reuse protections upgrade the ready manifest to schema 2; this version
-reads manifests 1 and 2. CLI response envelopes and slot records remain v1.
-The CLI has exactly three commands. `run` and `status` are deferred.
+The CLI is the default interface for agents using ordinary terminal calls.
+Acquisition persists a durable reservation before exposing its checkout; the
+reservation survives command exit until explicit stopped-writer release. No daemon
+or retained shell session is required. See [agent setup](agents.md).
+
+Durable protection upgrades the ready manifest to schema 2; this version reads
+manifests 1 and 2. CLI response envelopes and slot records remain v1. Stop older
+processes before enabling durable protection. The optional [MCP adapter](mcp.md)
+uses the same protections while retaining live descriptor leases.
 
 ## Callers and ownership
 
-Rust applications normally use `groove_core::Pool` and `Lease` directly. The CLI
-is intended for supervisors capable of Unix descriptor passing. An ordinary
-shell command that only captures JSON cannot retain a lease after `acquire`
-exits. The reference supervisor is
-[`crates/groove-cli/examples/client.rs`](../crates/groove-cli/examples/client.rs).
-It creates a socket pair, inherits one endpoint into the CLI, receives ownership,
-retains the descriptor, and passes it to `release`.
+Ordinary shell callers use durable acquisition (the default). Rust applications
+can use `Pool` and `Lease` directly, including `Lease::into_protected` to reserve
+across process exit. Closing the last descriptor only permits reuse for an
+**unprotected** lease.
 
-```sh
-cargo build -p groove-cli
-# First initialize a disposable repository or your intended pool:
-target/debug/groove --repo /path/to/repo init --capacity 4
-cargo run -p groove-cli --example client -- \
-  "$PWD/target/debug/groove" /path/to/repo main
-```
-
-The reference client demonstrates the wire protocol; the core agent example
-instead demonstrates direct library integration and participating worker lifetime.
-Neither introduces another Groove command.
+Supervisors can opt into `--lease-channel-fd` and retain a transferred descriptor
+for the task lifetime. In that mode, captured JSON alone does not retain ownership.
+See the [reference supervisor](../crates/groove-cli/examples/client.rs).
 
 ## Commands
 
+The installed command reference is `groove --help`; use
+`groove COMMAND --help` for examples, defaults and recovery rules, including
+`groove snapshot --help` and `groove config --help`. Help uses the same JSON
+envelope as other responses (`result.text`). With jq, render it using
+`groove --help | jq -r '.result.text'`.
+
 ```text
-groove [--repo PATH] [--request-id ID] [--diagnostics]
+groove [--repo PATH] [--request-id ID] [-v|-vv]
        [--git-timeout-ms MS] init --capacity N
        [--cleanup pristine|warm] [--worktree-root PATH]
 
-groove [global options] acquire --base REV --lease-channel-fd FD
-       [--wait-ms MS]
+groove [global options] acquire [--base REV] [--wait-ms MS]
+       [--lease-channel-fd FD]
 
-groove [global options] release --slot SLOT --lease-id UUID --lease-fd FD
+groove [global options] config path|show|edit
+groove [global options] config set KEY TOML_VALUE
+groove [global options] config unset KEY
+
+groove [global options] snapshot save|list|show|diff|restore|delete|pin|unpin
+groove [global options] snapshot prune|retention|compact
+
+groove [global options] leases
+
+groove [global options] release --slot SLOT --lease-id UUID
+       (--writers-stopped | --lease-fd FD)
 ```
+
+`acquire --base` defaults to `HEAD`. Without a channel descriptor, it persists
+reuse protection and returns `lease_transport: "durable_protection"` with
+`descriptor_count: 0`. Never automatically retry a lost acquire response: inspect
+`leases` and identify the original task first. `leases` lists durable reservations,
+not all live unprotected descriptor leases, and does not prove writers stopped.
+
+`release --writers-stopped` confirms results were saved and all writers stopped.
+It acquires the slot lock, checks the generation, records release and removes
+protection. A live MCP/descriptor owner blocks recovery. Same-generation release
+retries succeed while the released receipt remains current; stale generations
+are rejected after reacquisition. No age-based expiry or implicit release occurs.
+`--lease-fd` instead uses descriptor-owner release; it is mutually exclusive with
+`--writers-stopped`. Both modes require stopping writers before release.
 
 Global options may appear before or after a subcommand. `--repo` defaults to `.`;
 `--request-id` is optional and defaults to JSON null. Request IDs correlate
@@ -86,8 +110,10 @@ Clients branch on `code`, not the wording of `message`. `retryable` indicates
 whether the same capacity request may succeed when another owner finishes.
 `details` provides diagnostic context, not another source of ownership.
 
-Stderr is empty by default. `--diagnostics` enables JSON Lines error diagnostics
-with `level`, `code`, `message` and `request_id`. No JSON response can be guaranteed
+Stderr is empty by default. `-v` / `--verbose` mirrors debug events to stderr;
+`-vv` also enables trace detail. These logs are separate from the stdout protocol.
+See [logging](logging.md) for persistent logs, retention and opt-out controls.
+No JSON response can be guaranteed
 after SIGKILL, OOM termination, or failure of the output stream.
 
 ## Success results
@@ -96,12 +122,14 @@ after SIGKILL, OOM termination, or failure of the output stream.
 | --- | --- |
 | init | `created`, `common_git_dir`, `state_dir`, `capacity`, `slots`, `cleanup_policy`, `worktree_root` |
 | acquire | `slot_id`, `lease_id`, `worktree_path`, `base_oid`, `head_mode`, `recovery`, `cleanup_policy`, `lease_transport`, `descriptor_count` |
+| leases | `leases`: array of protected lease metadata |
 | release | `slot_id`, `lease_id`, `released`, `cleanup` |
+| config | `config_path`; show adds `config`, `environment_overrides`; writes add `updated` |
 
 All managed paths are absolute UTF-8 strings. Slot IDs are `wt-0001` through
 `wt-4096`. Lease IDs are UUID v4 values. OIDs currently support Git SHA-1 and
 SHA-256 formats. `head_mode` is `detached`. `recovery` is `created`, `sanitized`,
-or `rebuilt`. Wire acquisitions use `lease_transport: "scm_rights"` and
+or `rebuilt`. Descriptor wire acquisitions use `lease_transport: "scm_rights"` and
 `descriptor_count: 1`; direct library acquisition uses `"in_process"`.
 Explicit release returns `released: true`, `cleanup: "deferred"`.
 See [response schema](../schemas/response-v1.schema.json).
@@ -191,3 +219,13 @@ received descriptors are closed on failure.
 Existing Rust callers must migrate string comparisons to enum variants and parse
 IDs before invoking release. `LeaseId::generate()` creates a fresh UUID v4;
 `LeaseId::from(uuid)` is an explicit conversion for UUID interoperability.
+
+## Snapshot responses
+
+`groove snapshot` returns the normal v1 envelope with a result containing
+`elapsed_ms` and `snapshot_result`. Save/show/pin/unpin return a `snapshot`
+manifest, list returns `snapshots`, diff returns `patch`, restore returns `path`,
+`snapshot_id` and nullable `safety_snapshot_id`; delete returns `deleted`, prune
+returns `selected` and `dry_run`, retention returns `retention`, and compact
+returns `compacted: true`. Failures use existing error categories. See
+[snapshots](snapshots.md) for command behavior and storage boundaries.

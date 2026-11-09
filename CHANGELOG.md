@@ -2,7 +2,30 @@
 
 ## Unreleased
 
+- Concise installation and agent workflow README; expanded command help covers
+  reservations, recovery, snapshots, configuration and JSON/exit contracts.
+- Contributor `AGENTS.md`, pinned Rust 1.89.0 tooling and MSRV-aware dependency
+  resolution. CLI help coverage requires descriptions for every command/argument.
+
 Initial Linux development implementation; no public release is recorded here.
+
+- Replace `--diagnostics` with `-v`/`--verbose` and `-vv`. Add bounded per-invocation
+  typed, versioned JSONL logs and readable stderr with matching UTC RFC 3339 timestamps; preserve JSON-only stdout and
+  keep logging I/O failures independent of lease outcomes.
+- User TOML preferences with environment overrides and `config path/show/set/unset/edit`;
+  validated, atomic edits preserve comments and reject concurrent changes.
+
+- CLI-first agent workflow: default `acquire` persists a durable reservation across
+  shell calls, `leases` lists protected workspaces, and `release --writers-stopped`
+  requires explicit confirmation before reuse. Repository defaults to the current
+  directory; acquisition base defaults to HEAD. No daemon or MCP setup is required.
+- Optional `--lease-channel-fd` / `--lease-fd` transport retains descriptor-based
+  supervisor compatibility. JSON adds `durable_protection` with zero descriptors.
+- `Lease::into_protected` exports a durable reservation. Protected release supports
+  same-generation retries after lost responses without unlocking newer work.
+- Portable agent skill, source-linked setup prompt and CLI-first documentation;
+  MCP remains optional. Regression tests cover independent/concurrent shell calls,
+  SIGKILL, lost output, saved branches, cleanup, confirmation and stale releases.
 
 - Rust pool and lease API, plus JSON CLI initialization, acquisition and release.
 - Fixed-capacity ownership using file descriptors, crash recovery and verified cleanup.
@@ -25,3 +48,20 @@ Initial Linux development implementation; no public release is recorded here.
   explicit stopped-writer recovery and manifest schema 2 to reject older binaries.
 - MCP end-to-end tests for negotiation, schemas, errors, retries, cancellation,
   separate sessions and surviving external writers.
+
+### Local snapshots
+
+- Added `groove snapshot` save/list/show/diff/restore, pin/unpin, delete/prune,
+  opt-in automatic retention and normal Git compaction.
+- Checkpoints preserve staged and working-file trees without moving HEAD or
+  modifying the real index, including repositories with no commits.
+- Added recovery, process-crash and CLI tests plus a disposable real-repository
+  and 100k/1M-file benchmark runner. See `docs/snapshots.md`.
+
+### Reproducible validation
+
+- Added deterministic large snapshot regressions, shared versioned workload
+  fixtures, a pinned container environment, provenance reports and scale CI.
+- Added installable pre-commit/pre-push hooks and fail-closed hook regression tests.
+- Isolated protection-test process fixtures to prevent unrelated forks from
+  retaining transient descriptor owners during default parallel scheduling.

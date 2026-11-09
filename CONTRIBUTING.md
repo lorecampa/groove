@@ -1,5 +1,9 @@
 # Contributing
 
+Coding agents must also follow [AGENTS.md](AGENTS.md). The checked-in
+`rust-toolchain.toml` pins the contributor toolchain; CI tests both the minimum
+supported Rust version and current stable.
+
 Groove is a Linux Rust workspace. Install Rust 1.89+ and Git 2.40+; Node/npm are
 used only for the optional build-tool compatibility test. See
 [testing](docs/testing.md) for local checks and deterministic crash tests.
@@ -28,10 +32,22 @@ cargo test --workspace --doc --locked
 RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked
 ```
 
-Public APIs require rustdoc, including ownership and error behavior. Keep leases
-alive explicitly; dropping a returned lease immediately releases its protection.
+Public APIs require rustdoc, including ownership and error behavior. Keep descriptor leases
+alive explicitly; dropping an unprotected lease closes its descriptor. Durable
+CLI/MCP protection survives handle closure and requires stopped-writer release.
 Document user-visible changes in [CHANGELOG.md](CHANGELOG.md). Use the
 [release checklist](docs/releasing.md) before publishing.
 
 Be respectful and focus review on code and behavior. Harassment, discrimination,
 and disclosure of private information are not acceptable in project spaces.
+
+## Repository hooks
+
+Run `./scripts/install-hooks.sh` once per clone. The installer sets the local
+`core.hooksPath` to the versioned `.githooks` directory and refuses to replace an
+existing custom path. Pre-commit checks staged whitespace and Rust formatting;
+pre-push runs formatting, Python infrastructure tests, Clippy, the full Rust suite
+with default scheduling, doctests and rustdoc. Hooks do not edit or stage files.
+Run the same gates directly with `./scripts/check.sh commit` or
+`./scripts/check.sh push`. Large pinned-container regressions run separately in
+CI; see [the snapshot lab](benchmarks/snapshots/README.md).

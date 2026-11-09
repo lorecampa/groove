@@ -85,6 +85,8 @@ pub enum LeaseTransport {
     InProcess,
     /// A Unix socket transfers the descriptor using SCM_RIGHTS.
     ScmRights,
+    /// Durable reservation survives command exit until explicit stopped-writer release.
+    DurableProtection,
 }
 
 /// When a released slot is cleaned.
@@ -97,7 +99,8 @@ pub enum CleanupTiming {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-/// Serializable lease metadata. Retain the owning descriptor separately.
+/// Serializable lease metadata. Descriptor transports require a separately retained owner;
+/// durable protection instead requires explicit release after all writers stop.
 pub struct LeaseInfo {
     /// Permanent slot name, such as `wt-0001`.
     pub slot_id: SlotId,
@@ -113,9 +116,9 @@ pub struct LeaseInfo {
     pub recovery: RecoveryOutcome,
     /// Configured handling of ignored residual files.
     pub cleanup_policy: CleanupPolicy,
-    /// Ownership transport: `in_process` or `scm_rights`.
+    /// Ownership transport: a retained descriptor or durable reuse protection.
     pub lease_transport: LeaseTransport,
-    /// Number of ownership descriptors; currently always one.
+    /// One for descriptor transports; zero for durable protection.
     pub descriptor_count: usize,
 }
 #[derive(Debug, Serialize, Deserialize)]

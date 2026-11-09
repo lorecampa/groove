@@ -1,0 +1,59 @@
+name: Snapshot scale
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'crates/groove-core/**'
+      - 'crates/groove-cli/**'
+      - 'Cargo.*'
+      - 'benchmarks/**'
+      - 'tests/benchmark_infra/**'
+      - 'scripts/**'
+      - '.githooks/**'
+      - 'schemas/**'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/snapshot-scale.yml'
+  workflow_dispatch:
+  schedule:
+    - cron: '47 4 * * 0'
+permissions:
+  contents: read
+jobs:
+  deterministic-large:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Harness unit tests
+        run: python3 -m unittest discover -s tests/benchmark_infra -v
+      - name: Pinned 100k-file correctness regression
+        run: python3 benchmarks/snapshots/run.py check --profile large --temp-root "$RUNNER_TEMP/scale" --output "$RUNNER_TEMP/reports/check-large.json"
+      - name: Retain correctness evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: snapshot-scale-large-${{ github.sha }}
+          path: ${{ runner.temp }}/reports
+          retention-days: 30
+  extended:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Pinned million-file correctness regression
+        run: python3 benchmarks/snapshots/run.py check --profile million --temp-root "$RUNNER_TEMP/scale" --output "$RUNNER_TEMP/reports/check-million.json"
+      - name: Record performance separately from correctness
+        run: python3 benchmarks/snapshots/run.py benchmark --profile large --profile million --temp-root "$RUNNER_TEMP/scale" --output "$RUNNER_TEMP/reports/benchmark.json"
+      - name: Retain environment and samples
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: snapshot-benchmarks-${{ github.sha }}
+          path: ${{ runner.temp }}/reports
+          retention-days: 90
