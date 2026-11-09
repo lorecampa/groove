@@ -1,0 +1,80 @@
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 3 * * *'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        rust: ['1.89.0', stable]
+        git: [system, '2.40.0']
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: |
+          rustup toolchain install '${{ matrix.rust }}' --profile minimal --component clippy --component rustfmt
+          rustup override set '${{ matrix.rust }}'
+      - name: Install minimum Git
+        if: matrix.git != 'system'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential zlib1g-dev
+          curl --proto '=https' --tlsv1.2 -fsSL 'https://www.kernel.org/pub/software/scm/git/git-${{ matrix.git }}.tar.xz' -o "$RUNNER_TEMP/git.tar.xz"
+          # kernel.org pub/software/scm/git/sha256sums.asc, Git 2.40.0.
+          echo 'b17a598fbf58729ef13b577465eb93b2d484df1201518b708b5044ff623bf46d  '"$RUNNER_TEMP/git.tar.xz" | sha256sum --check
+          tar -xf "$RUNNER_TEMP/git.tar.xz" -C "$RUNNER_TEMP"
+          make -C "$RUNNER_TEMP/git-${{ matrix.git }}" -j2 prefix="$RUNNER_TEMP/git-install" 'CFLAGS=-O2 -std=gnu99' NO_TCLTK=YesPlease NO_GETTEXT=YesPlease NO_CURL=YesPlease NO_OPENSSL=YesPlease NO_EXPAT=YesPlease install
+          echo "$RUNNER_TEMP/git-install/bin" >> "$GITHUB_PATH"
+      - name: Versions
+        run: |
+          rustc --version
+          git --version
+          node --version
+          npm --version
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - run: cargo test --workspace --all-targets --all-features --locked
+      - run: cargo test --workspace --doc --locked
+      - name: Public API documentation
+        run: cargo doc --workspace --no-deps --locked
+        env:
+          RUSTDOCFLAGS: -D warnings
+      - run: cargo build --workspace --examples --locked
+      - name: Exercise packaged CLI and both reference examples
+        run: |
+          cargo install --path crates/groove-cli --locked --root "$RUNNER_TEMP/package"
+          cargo install --path crates/groove-mcp --locked --root "$RUNNER_TEMP/package"
+          GROOVE_MCP_BINARY="$RUNNER_TEMP/package/bin/groove-mcp" cargo test -p groove-mcp --test stdio --locked
+          fixture=$(mktemp -d)
+          git -C "$fixture" init -q
+          git -C "$fixture" -c user.name=CI -c user.email=ci@example.invalid commit --allow-empty -qm initial
+          "$RUNNER_TEMP/package/bin/groove" --repo "$fixture" init --capacity 2
+          cargo run -p groove-core --example agent -- "$fixture" HEAD
+          cargo run -p groove-cli --example client -- "$RUNNER_TEMP/package/bin/groove" "$fixture" HEAD
+      - name: Extended seeded workload
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: |
+          for seed in 17 42 2026 65537; do
+            GROOVE_STRESS_SEED="$seed" GROOVE_STRESS_STEPS=100 cargo test -p groove-core --test stress --locked
+            cargo test -p groove-core --test concurrency --locked
+          done
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install stable --profile minimal
+      - run: cargo +stable install cargo-audit --version 0.22.2 --locked
+      - run: cargo +stable audit --deny warnings

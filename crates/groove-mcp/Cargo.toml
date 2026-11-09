@@ -1,0 +1,32 @@
+[package]
+name = "groove-mcp"
+description = "Local MCP server for descriptor-owned Groove worktree pools"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+groove-core = { path = "../groove-core", version = "0.1.0" }
+rmcp = { version = "3.9", default-features = false, features = ["server", "macros", "transport-io"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "signal"] }
+schemars = "1"
+serde.workspace = true
+serde_json.workspace = true
+clap.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+libc.workspace = true
+
+jsonschema = { version = "0.33", default-features = false }
+
+[lints]
+workspace = true
+
+[features]
+test-hooks = ["groove-core/test-hooks"]

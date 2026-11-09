@@ -1,0 +1,28 @@
+[package]
+name = "groove-core"
+description = "Descriptor-owned, crash-recoverable Git worktree pools"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+tempfile.workspace = true
+libc.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+test-hooks = []
