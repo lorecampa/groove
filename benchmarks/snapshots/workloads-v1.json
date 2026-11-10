@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "fixture_version": 1,
+  "seed": 17,
+  "files_per_directory": 1000,
+  "content_pool": 256,
+  "content_repetitions": 16,
+  "changed_files": 12,
+  "runs": 5,
+  "profiles": {
+    "smoke": 1000,
+    "large": 100000,
+    "million": 1000000
+  },
+  "expected_smoke_tree_sha1": "9e2615251d46b498bea843e089fb6d8c25990971"
+}

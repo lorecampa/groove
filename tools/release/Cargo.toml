@@ -1,0 +1,26 @@
+[package]
+name = "groove-release"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Development-only Groove release preparation and publishing"
+
+[dependencies]
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tempfile.workspace = true
+libc.workspace = true
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+toml = "0.9"
+toml_edit = "0.23"
+semver = "1"
+sha2 = "0.11"
+tar = { version = "0.4", default-features = false }
+flate2 = "1"
+
+[lints]
+workspace = true

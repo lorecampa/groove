@@ -1,0 +1,27 @@
+EXAMPLES:
+  groove acquire --task fix-parser
+  groove acquire --task fix-parser --request-key issue-42-attempt-1
+  groove acquire --task 'investigate flake' --base main --wait-ms 5000
+  groove acquire --task fix-parser --setup dev
+
+Reserves a cleaned, verified checkout of --base (default HEAD) until it is
+explicitly released. HEAD is detached there; Groove never creates or switches
+branches. --task names the reservation so later commands can select it with
+--task NAME instead of the lease ID. Labels need not be unique, but --task then
+refuses to guess and asks for --lease-id.
+
+Capacity: a zero --wait-ms scans once; a positive value bounds waiting for a
+free slot (not checkout preparation, which has its own Git timeouts). There is
+no FIFO fairness. On POOL_EXHAUSTED or ACQUIRE_TIMEOUT, wait or inspect with
+`groove list`; never bypass capacity.
+
+Retries: with --request-key, repeating the same key, base and task
+returns the same reservation, even across restarts. Changed inputs and
+completed keys are rejected; keys never expire, so use a new key per task.
+Without a key, run `groove list` BEFORE retrying a lost response.
+
+--setup runs a reviewed .groove.toml profile in the new checkout. The
+reservation stays protected if setup fails; the error names its lease so you
+can inspect, retry with `groove exec --setup PROFILE --retry`, or release.
+Setup worker output streams to stderr, including in JSON mode. --quiet hides
+live output while preserving saved logs and the reservation result.

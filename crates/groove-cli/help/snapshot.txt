@@ -1,0 +1,23 @@
+EXAMPLES:
+  groove snapshot save 'before refactor'
+  groove snapshot list
+  groove snapshot diff ID
+  groove snapshot restore ID --to ../recovered
+  groove snapshot delete ID
+
+Snapshots save staged and working files, including deletions, modes, symlinks
+and non-ignored untracked files, without moving HEAD or touching the real index.
+Ignored files and empty folders are excluded. No pool, remote or first commit is
+required. Stop writers first: capture detects common races but is not atomic.
+Actual bytes, executable bits and symlinks are preserved independently of Git's
+autocrlf/filemode/symlinks preferences. User ignore rules still apply.
+
+Snapshots are shared by all linked worktrees and survive pool reuse. They live in
+local refs/groove/snapshots/ and the shared object database; ordinary pushes do
+not back them up. Conflicts, submodules, nested repositories, active content filters,
+content-converting attributes, intent-to-add and manual index flags are rejected.
+Unused filter definitions, such as a global Git LFS installation, are harmless.
+Concurrent saves wait for the shared lock up to --git-timeout-ms (default 120000).
+
+Snapshots pinned by `finish` need `delete --force`. Deleting removes the ref;
+Git reclaims the space during its normal garbage collection.

@@ -1,0 +1,552 @@
+use crate::{
+    git::Git,
+    lease::Lease,
+    locking::{self, SlotGuard},
+    recovery,
+    repository::{self, Repository},
+    state::{self, Config, SlotRecord},
+    AcquireOptions, Error, InitResult, PoolOptions, Result,
+};
+use std::{
+    collections::BTreeMap,
+    fs,
+    path::Path,
+    time::{Duration, Instant},
+};
+use uuid::Uuid;
+
+#[derive(Debug, Clone)]
+/// A repository's bounded pool. Cloning does not acquire a slot.
+pub struct Pool {
+    pub(crate) repo: Repository,
+    pub(crate) config: Config,
+    pub(crate) git_timeout: Duration,
+}
+impl Pool {
+    /// Create a pool, or explicitly resume matching interrupted initialization.
+    ///
+    /// # Errors
+    /// Rejects invalid options, conflicting configuration, unsafe managed paths,
+    /// unsupported environments, and Git or filesystem failures.
+    pub fn init(repo: impl AsRef<Path>, options: PoolOptions) -> Result<InitResult> {
+        if !(1..=crate::MAX_CAPACITY).contains(&options.capacity) || options.git_timeout.is_zero() {
+            return Err(Error::new(
+                crate::ErrorCode::InvalidArgument,
+                "Capacity must be 1..=4096 and Git timeout positive",
+            ));
+        }
+        let repo = Repository::discover(repo.as_ref(), options.git_timeout)?;
+        repository::mkdir(&repo.root)?;
+        repository::owned_dir(&repo.root)?;
+        repository::mkdir(&repo.root.join("locks"))?;
+        let admin_file = locking::open(&repo.admin_lock_path(), !repo.config_path().exists())?;
+        admin_file.sync_all()?;
+        state::sync_dir(&repo.root.join("locks"))?;
+        let admin_id = locking::identity(&admin_file)?;
+        let _admin = SlotGuard::wait(&repo.admin_lock_path(), Some(admin_id), options.git_timeout)?;
+        let requested = match options.worktree_root {
+            Some(path) => {
+                let path = if path.is_absolute() {
+                    path
+                } else {
+                    std::env::current_dir()?.join(path)
+                };
+                repository::no_symlinks(&path)?;
+                repository::utf8(&path)?;
+                path
+            }
+            None => repo.default_worktree_root(),
+        };
+        if repo.config_path().exists() {
+            return Err(Error::new(
+                crate::ErrorCode::ConfigConflict,
+                "Pool already initialized; inspect or update it instead of running init again",
+            ));
+        }
+        if overlaps_administration(&repo, &requested) {
+            return Err(Error::new(
+                crate::ErrorCode::InvalidArgument,
+                "Worktree root overlaps repository administration",
+            ));
+        }
+        // Persist initialization intent before creating external storage. Conflicting
+        // resumptions must fail, even when the ready manifest was never published.
+        let intent = repo.root.join("initializing.json");
+        let expected = InitIntent {
+            schema_version: state::SCHEMA_VERSION,
+            capacity: options.capacity,
+            cleanup_policy: options.cleanup_policy,
+            worktree_root: requested.clone(),
+        };
+        if intent.exists() {
+            if !options.resume {
+                return Err(Error::new(
+                    crate::ErrorCode::ConfigConflict,
+                    "Interrupted initialization exists; retry the original settings with init --resume",
+                ));
+            }
+            if state::read::<InitIntent>(&intent)? != expected {
+                return Err(Error::new(
+                    crate::ErrorCode::ConfigConflict,
+                    "Interrupted initialization has a different configuration",
+                ));
+            }
+        } else {
+            if options.resume {
+                return Err(Error::new(
+                    crate::ErrorCode::ConfigConflict,
+                    "No interrupted initialization to resume",
+                ));
+            }
+            if requested.exists() && fs::read_dir(&requested)?.next().is_some() {
+                return Err(Error::new(
+                    crate::ErrorCode::ConfigConflict,
+                    "Worktree root must initially be empty",
+                ));
+            }
+            state::write(&intent, &expected)?;
+        }
+        repository::mkdir(&requested)?;
+        repository::owned_dir(&requested)?;
+        for name in ["slots", "tmp"] {
+            repository::mkdir(&repo.root.join(name))?;
+        }
+        let mut slots = BTreeMap::new();
+        let mut execution_locks = BTreeMap::new();
+        for i in 1..=options.capacity {
+            let slot = crate::SlotId::new(i)?;
+            slots.insert(slot.clone(), create_lock(&repo.lock_path(&slot))?);
+            execution_locks.insert(slot.clone(), create_lock(&repo.execution_lock_path(&slot))?);
+            if !repo.record_path(&slot).exists() {
+                state::write(&repo.record_path(&slot), &SlotRecord::empty())?;
+            }
+        }
+        state::sync_dir(&repo.root.join("locks"))?;
+        state::sync_dir(&repo.root)?;
+        let config = Config {
+            schema_version: state::SCHEMA_VERSION,
+            capacity: options.capacity,
+            cleanup_policy: options.cleanup_policy,
+            worktree_root: requested,
+            admin_identity: admin_id,
+            slots,
+            execution_locks,
+        };
+        state::checkpoint("before-ready-manifest");
+        state::write(&repo.config_path(), &config)?;
+        fs::remove_file(intent)?;
+        state::sync_dir(&repo.root)?;
+        Ok(Self {
+            repo,
+            config,
+            git_timeout: options.git_timeout,
+        }
+        .init_result(true))
+    }
+    /// Discover an initialized pool from any checkout of its repository, bounding
+    /// discovery Git calls by [`DEFAULT_GIT_TIMEOUT`](crate::DEFAULT_GIT_TIMEOUT).
+    ///
+    /// # Errors
+    /// Rejects missing/incompatible metadata, changed lock identities, unsafe paths,
+    /// and Git or filesystem failures.
+    pub fn open(repo: impl AsRef<Path>) -> Result<Self> {
+        Self::open_with_timeout(repo, crate::DEFAULT_GIT_TIMEOUT)
+    }
+    /// Like [`Self::open`], with an explicit positive bound for discovery Git calls
+    /// and for each snapshot subprocess/lock wait when finishing a reservation.
+    ///
+    /// # Errors
+    /// See [`Self::open`]; additionally rejects a zero timeout.
+    pub fn open_with_timeout(repo: impl AsRef<Path>, git_timeout: Duration) -> Result<Self> {
+        if git_timeout.is_zero() {
+            return Err(Error::new(
+                crate::ErrorCode::InvalidArgument,
+                "Git timeout must be positive",
+            ));
+        }
+        Self::load(
+            Repository::discover(repo.as_ref(), git_timeout)?,
+            git_timeout,
+        )
+    }
+    pub(crate) fn load(repo: Repository, git_timeout: Duration) -> Result<Self> {
+        let not_initialized =
+            || Error::new(crate::ErrorCode::NotInitialized, "Pool is not initialized");
+        if !repo.root.exists() {
+            return Err(not_initialized());
+        }
+        repository::owned_dir(&repo.root)?;
+        if !repo.config_path().exists() {
+            return Err(not_initialized());
+        }
+        let config: Config = state::read(&repo.config_path())?;
+        config.validate()?;
+        if !config.worktree_root.is_absolute()
+            || overlaps_administration(&repo, &config.worktree_root)
+        {
+            return Err(Error::new(
+                crate::ErrorCode::ConfigConflict,
+                "Unsafe manifest worktree root",
+            ));
+        }
+        repository::owned_dir(&config.worktree_root)?;
+        repository::owned_dir(&repo.root.join("locks"))?;
+        repository::owned_dir(&repo.root.join("slots"))?;
+        let admin = locking::open(&repo.admin_lock_path(), false)?;
+        if locking::identity(&admin)? != config.admin_identity {
+            return Err(Error::new(
+                crate::ErrorCode::IoError,
+                "Administrative lock identity changed",
+            ));
+        }
+        Ok(Self {
+            repo,
+            config,
+            git_timeout,
+        })
+    }
+    fn init_result(&self, created: bool) -> InitResult {
+        InitResult {
+            created,
+            common_git_dir: self.repo.common.clone(),
+            state_dir: self.repo.root.clone(),
+            capacity: self.config.capacity,
+            slots: self.config.slots.keys().cloned().collect(),
+            cleanup_policy: self.config.cleanup_policy,
+            worktree_root: self.config.worktree_root.clone(),
+        }
+    }
+    /// Return the capacity observed when this handle was opened.
+    /// Use [`Self::settings`] for current settings; allocation refreshes each scan.
+    pub fn capacity(&self) -> usize {
+        self.config.capacity
+    }
+    /// Acquire and verify a detached checkout of the requested commit.
+    ///
+    /// Previous slot contents are disposable and may be deleted or rebuilt.
+    ///
+    /// # Errors
+    /// Rejects invalid revisions and unsupported Git configuration. Reports exhausted
+    /// capacity, capacity wait timeout, unusable slots, and Git or filesystem failures.
+    pub fn acquire(&self, options: AcquireOptions) -> Result<Lease> {
+        if options.git_timeout.is_zero() {
+            return Err(Error::new(
+                crate::ErrorCode::InvalidArgument,
+                "Git timeout must be positive",
+            ));
+        }
+        let git = Git::new(options.git_timeout);
+        let revision = format!("{}^{{commit}}", options.base);
+        let bytes = git
+            .run(
+                &self.repo.common,
+                &[
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    "--end-of-options",
+                    &revision,
+                ],
+                &[],
+            )
+            .map_err(|e| {
+                if e.code == crate::ErrorCode::GitError && e.git_exit_code() == Some(1) {
+                    let details = e.details.clone();
+                    Error::new(
+                        crate::ErrorCode::InvalidRevision,
+                        "Base does not resolve to a commit",
+                    )
+                    .with_details(|d| *d = *details)
+                    .with_source(e)
+                } else {
+                    e
+                }
+            })?;
+        let oid = String::from_utf8(bytes)
+            .map_err(|e| {
+                Error::new(crate::ErrorCode::GitError, "Git returned an invalid OID").with_source(e)
+            })?
+            .trim_end_matches('\n')
+            .to_owned();
+        let oid = oid.parse::<crate::CommitOid>().map_err(|e| {
+            Error::new(crate::ErrorCode::GitError, "Git returned an invalid OID").with_source(e)
+        })?;
+        recovery::validate_config(&git, &self.repo, &oid)?;
+        let scan_seed = Uuid::new_v4().as_u128();
+        let start = Instant::now();
+        let mut failed = BTreeMap::new();
+        loop {
+            let current = Self::load(self.repo.clone(), self.git_timeout)?;
+            let slots: Vec<_> = current.config.slots.iter().collect();
+            let start_slot = (scan_seed % slots.len() as u128) as usize;
+            let mut busy = 0;
+            for n in 0..slots.len() {
+                let (slot, expected) = slots[(start_slot + n) % slots.len()];
+                if failed.contains_key(slot) {
+                    continue;
+                }
+                // Durable protection prohibits allocation even without an owner.
+                // Observe it before probing ownership so capacity waiters do not
+                // transiently lock a reservation and spuriously block release.
+                // The check under the acquired descriptor below remains required
+                // for protection published between this observation and locking.
+                if state::read::<state::ReuseProtection>(&self.repo.protection_path(slot))
+                    .is_ok_and(|record| {
+                        record.schema_version == state::SCHEMA_VERSION
+                            && &record.lease.slot_id == slot
+                    })
+                {
+                    busy += 1;
+                    continue;
+                }
+                // Failed/malformed observations retain the original ownership
+                // probe and validation below; an active descriptor still counts
+                // as contention, and unowned corrupt metadata fails closed.
+                let guard = match SlotGuard::try_lock(&self.repo.lock_path(slot), Some(*expected)) {
+                    Ok(Some(g)) => g,
+                    Ok(None) => {
+                        tracing::trace!(event = "slot.busy", slot = %slot, "Slot busy");
+                        busy += 1;
+                        continue;
+                    }
+                    Err(e) => {
+                        failed.insert(slot.clone(), e.to_string());
+                        continue;
+                    }
+                };
+                // Protection is a durable prohibition on cleanup, not evidence of
+                // lock ownership. It survives a tool server's death while external
+                // writers may still be using a path that server exposed.
+                match fs::symlink_metadata(self.repo.protection_path(slot)) {
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
+                    Err(e) => {
+                        failed.insert(slot.clone(), e.to_string());
+                        continue;
+                    }
+                    Ok(_) => {
+                        match state::read::<state::ReuseProtection>(
+                            &self.repo.protection_path(slot),
+                        ) {
+                            Ok(record)
+                                if record.schema_version == state::SCHEMA_VERSION
+                                    && &record.lease.slot_id == slot =>
+                            {
+                                busy += 1;
+                            }
+                            Ok(_) => {
+                                failed
+                                    .insert(slot.clone(), "Invalid reuse protection record".into());
+                            }
+                            Err(e) => {
+                                failed.insert(slot.clone(), e.to_string());
+                            }
+                        }
+                        tracing::debug!(event = "slot.protected", slot = %slot, "Slot protected; skipping");
+                        continue;
+                    }
+                }
+                if let Ok(record) = state::read::<serde_json::Value>(&self.repo.record_path(slot)) {
+                    if record["schema_version"]
+                        .as_u64()
+                        .is_some_and(|v| v != u64::from(state::SCHEMA_VERSION))
+                    {
+                        return Err(Error::new(
+                            crate::ErrorCode::UnsupportedConfiguration,
+                            "Unsupported slot metadata version",
+                        ));
+                    }
+                }
+                match recovery::prepare(
+                    &self.repo,
+                    &current.config,
+                    slot,
+                    &guard,
+                    &oid,
+                    options.git_timeout,
+                ) {
+                    Ok(recovery) => {
+                        let info = crate::LeaseInfo {
+                            slot_id: slot.clone(),
+                            lease_id: crate::LeaseId::generate(),
+                            worktree_path: current.config.worktree_root.join(slot.as_str()),
+                            base_oid: oid.clone(),
+                            head_mode: crate::HeadMode::Detached,
+                            recovery,
+                            cleanup_policy: current.config.cleanup_policy,
+                            ownership: crate::Ownership::InProcess,
+                            task: None,
+                            request_key: None,
+                            requested_base: None,
+                            acquired_at_unix_ms: Some(crate::reservation::now_ms()),
+                        };
+                        let record = SlotRecord {
+                            schema_version: state::SCHEMA_VERSION,
+                            phase: crate::state::SlotPhase::Leased,
+                            lease: Some(info.clone()),
+                            failure: None,
+                        };
+                        state::write(&self.repo.record_path(slot), &record)?;
+                        state::checkpoint("lease-recorded");
+                        return Ok(Lease::new(current.clone(), guard, info));
+                    }
+                    Err(e) => {
+                        let record = SlotRecord {
+                            schema_version: state::SCHEMA_VERSION,
+                            phase: crate::state::SlotPhase::Quarantined,
+                            lease: None,
+                            failure: Some(e.to_string()),
+                        };
+                        let _ = state::write(&self.repo.record_path(slot), &record);
+                        failed.insert(slot.clone(), e.to_string());
+                    }
+                }
+            }
+            if busy == 0 || options.wait.is_zero() || start.elapsed() >= options.wait {
+                let code = if busy == 0 {
+                    crate::ErrorCode::PoolUnhealthy
+                } else if options.wait.is_zero() {
+                    crate::ErrorCode::PoolExhausted
+                } else {
+                    crate::ErrorCode::AcquireTimeout
+                };
+                return Err(Error::new(code, "No verified worktree slot is available")
+                    .with_details(|d| {
+                        d.capacity = Some(crate::CapacityFailure {
+                            capacity: current.config.capacity,
+                            busy_slots: busy,
+                            failed_slots: failed,
+                        })
+                    })
+                    .retryable(busy > 0));
+            }
+            std::thread::sleep(
+                Duration::from_millis(10).min(options.wait.saturating_sub(start.elapsed())),
+            );
+        }
+    }
+    /// List durable reuse protections (all CLI reservations).
+    /// This is diagnostic metadata; it does not establish current lock ownership.
+    ///
+    /// # Errors
+    /// Reports malformed/unsupported protection records and filesystem errors.
+    pub fn protected_leases(&self) -> Result<Vec<crate::LeaseInfo>> {
+        let pool = self.refreshed()?;
+        let mut leases = Vec::new();
+        for slot in pool.config.slots.keys() {
+            let path = self.repo.protection_path(slot);
+            match fs::symlink_metadata(&path) {
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(e.into()),
+                Ok(_) => (),
+            }
+            match state::read::<state::ReuseProtection>(&path) {
+                Ok(record) => {
+                    if record.schema_version != state::SCHEMA_VERSION
+                        || &record.lease.slot_id != slot
+                    {
+                        return Err(Error::new(
+                            crate::ErrorCode::ProtocolError,
+                            "Invalid reuse protection record",
+                        ));
+                    }
+                    leases.push(record.lease);
+                }
+                // An explicit release may remove the record during a diagnostic scan.
+                Err(e)
+                    if e.code == crate::ErrorCode::IoError
+                        && matches!(fs::symlink_metadata(&path), Err(ref io) if io.kind() == std::io::ErrorKind::NotFound) =>
+                    {}
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(leases)
+    }
+
+    /// Release a durable reservation or abandoned protected lease after stopping ALL writers.
+    ///
+    /// This intentionally does not return a usable checkout. The next acquisition
+    /// normalizes and verifies it. A live lock owner must release its own lease.
+    ///
+    /// # Errors
+    /// Rejects busy locks, missing active protections, stale generations and I/O failures.
+    /// Repeating a completed release succeeds while its generation remains current.
+    pub fn release_protected(
+        &self,
+        slot: &crate::SlotId,
+        lease_id: crate::LeaseId,
+    ) -> Result<crate::ReleaseResult> {
+        let pool = self.refreshed()?;
+        let identity = pool
+            .config
+            .slots
+            .get(slot)
+            .ok_or_else(|| Error::new(crate::ErrorCode::InvalidLease, "Unknown slot"))?;
+        let guard =
+            SlotGuard::try_lock(&self.repo.lock_path(slot), Some(*identity))?.ok_or_else(|| {
+                Error::new(
+                    crate::ErrorCode::InvalidLease,
+                    "Protected lease still has a live lock owner",
+                )
+            })?;
+        match fs::symlink_metadata(self.repo.protection_path(slot)) {
+            Ok(_) => {
+                let record: state::ReuseProtection = state::read(&self.repo.protection_path(slot))?;
+                if record.schema_version != state::SCHEMA_VERSION
+                    || &record.lease.slot_id != slot
+                    || record.lease.lease_id != lease_id
+                {
+                    return Err(Error::new(
+                        crate::ErrorCode::LeaseMismatch,
+                        "Protected lease generation mismatch",
+                    ));
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // A lost release response may leave only the same generation's
+                // released receipt. Never release an ordinary unprotected lease.
+                let record: state::SlotRecord = state::read(&self.repo.record_path(slot))?;
+                if record.schema_version != state::SCHEMA_VERSION
+                    || record.phase != state::SlotPhase::Released
+                    || !record
+                        .lease
+                        .as_ref()
+                        .is_some_and(|l| &l.slot_id == slot && l.lease_id == lease_id)
+                {
+                    return Err(Error::new(
+                        crate::ErrorCode::LeaseMismatch,
+                        "No matching released generation or active protection",
+                    ));
+                }
+            }
+            Err(e) => return Err(e.into()),
+        }
+        use std::os::fd::AsFd;
+        crate::lease::release(&pool, slot, lease_id, guard.file.as_fd())
+    }
+}
+
+/// Settings persisted before initialization creates storage, so an interrupted
+/// `init` can only be resumed with identical settings.
+#[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InitIntent {
+    schema_version: u32,
+    capacity: usize,
+    cleanup_policy: crate::CleanupPolicy,
+    worktree_root: std::path::PathBuf,
+}
+
+/// Whether a checkout root would place worktrees inside, or around, Git or Groove
+/// administration. Only the default `<state>/worktrees` root may live there.
+fn overlaps_administration(repo: &Repository, root: &Path) -> bool {
+    root == repo.root
+        || repo.common.starts_with(root)
+        || (root.starts_with(&repo.common) && root != repo.default_worktree_root())
+}
+
+/// Create (or adopt) a permanent lock file and durably record its identity.
+fn create_lock(path: &Path) -> Result<locking::Identity> {
+    let file = locking::open(path, true)?;
+    file.sync_all()?;
+    locking::identity(&file)
+}

@@ -1,0 +1,17 @@
+EXAMPLES:
+  GROOVE_OUTPUT=human groove completions bash > groove.bash
+  source groove.bash
+  GROOVE_OUTPUT=human groove completions zsh > _groove
+  GROOVE_OUTPUT=human groove completions fish > groove.fish
+  groove --json completions bash
+
+Prints a script; does not install it or change shell startup files. Redirecting
+stdout overwrites the destination file. Bash users can source the generated
+file from ~/.bashrc. For Zsh, put _groove in a directory on $fpath before running
+compinit. For Fish, save groove.fish in ~/.config/fish/completions/.
+PowerShell and Elvish scripts can be loaded using their shell's normal mechanism.
+
+Completes commands, options and fixed choices, not live task names or lease IDs.
+No repository or valid user configuration is required. Regenerate after upgrading.
+With --json or GROOVE_OUTPUT=json, the script is result.text in the normal single
+JSON response; extract that field before loading it into your shell.

@@ -1,0 +1,179 @@
+name: CI
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 3 * * *'
+permissions:
+  contents: read
+jobs:
+  packages:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Infrastructure regression tests
+        run: cargo test --package groove-release --locked
+        env:
+          GIT_CONFIG_GLOBAL: /dev/null
+          GIT_CONFIG_NOSYSTEM: '1'
+      - name: Build extracted packages and exercise production binaries
+        run: bash scripts/release.sh packages
+        env:
+          GIT_CONFIG_GLOBAL: /dev/null
+          GIT_CONFIG_NOSYSTEM: '1'
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        rust: ['1.89.0', stable]
+        git: [system, '2.40.0']
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: |
+          rustup toolchain install '${{ matrix.rust }}' --profile minimal --component clippy --component rustfmt
+          rustup override set '${{ matrix.rust }}'
+      - name: Install minimum Git
+        if: matrix.git != 'system'
+        run: |
+          # ubuntu-24.04 already supplies cc, make and zlib development files.
+          # Verify the actual prerequisites without upgrading the build-essential
+          # metapackage (which adds an unnecessary dependency on Ubuntu mirrors).
+          cc --version
+          make --version
+          printf '#include <zlib.h>\nint main(void) { return zlibVersion() == 0; }\n' | cc -x c - -lz -o "$RUNNER_TEMP/git-build-prerequisites"
+          "$RUNNER_TEMP/git-build-prerequisites"
+          curl --proto '=https' --tlsv1.2 --retry 3 --retry-all-errors --retry-max-time 300 --max-time 120 -fsSL 'https://www.kernel.org/pub/software/scm/git/git-${{ matrix.git }}.tar.xz' -o "$RUNNER_TEMP/git.tar.xz"
+          # kernel.org pub/software/scm/git/sha256sums.asc, Git 2.40.0.
+          echo 'b17a598fbf58729ef13b577465eb93b2d484df1201518b708b5044ff623bf46d  '"$RUNNER_TEMP/git.tar.xz" | sha256sum --check
+          tar -xf "$RUNNER_TEMP/git.tar.xz" -C "$RUNNER_TEMP"
+          make -C "$RUNNER_TEMP/git-${{ matrix.git }}" -j2 prefix="$RUNNER_TEMP/git-install" 'CFLAGS=-O2 -std=gnu99' NO_TCLTK=YesPlease NO_GETTEXT=YesPlease NO_CURL=YesPlease NO_OPENSSL=YesPlease NO_EXPAT=YesPlease install
+          echo "$RUNNER_TEMP/git-install/bin" >> "$GITHUB_PATH"
+      - name: Versions
+        run: |
+          rustc --version
+          git --version
+          node --version
+          npm --version
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - run: cargo test --workspace --all-targets --all-features --locked
+        # Isolate fixtures without changing checkout's own Git configuration.
+        # User-configuration regressions provide explicit configuration files.
+        env:
+          GIT_CONFIG_GLOBAL: /dev/null
+          GIT_CONFIG_NOSYSTEM: '1'
+      - run: cargo test --workspace --doc --locked
+        env:
+          GIT_CONFIG_GLOBAL: /dev/null
+          GIT_CONFIG_NOSYSTEM: '1'
+      - name: Public API documentation
+        run: cargo doc --workspace --no-deps --locked
+        env:
+          RUSTDOCFLAGS: -D warnings
+      - run: cargo build --workspace --examples --locked
+      - name: Exercise packaged CLI and the reference example
+        env:
+          GIT_CONFIG_GLOBAL: /dev/null
+          GIT_CONFIG_NOSYSTEM: '1'
+        run: |
+          cargo install --path crates/groove-cli --locked --root "$RUNNER_TEMP/package"
+          GROOVE_CLI_BINARY="$RUNNER_TEMP/package/bin/groove" cargo test -p groove-cli --test durable --locked
+          fixture=$(mktemp -d)
+          git -C "$fixture" init -q
+          git -C "$fixture" -c user.name=CI -c user.email=ci@example.invalid commit --allow-empty -qm initial
+          "$RUNNER_TEMP/package/bin/groove" --repo "$fixture" init --capacity 2
+          cargo run -p groove-core --example agent -- "$fixture" HEAD
+      - name: Extended seeded workload
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        env:
+          GIT_CONFIG_GLOBAL: /dev/null
+          GIT_CONFIG_NOSYSTEM: '1'
+        run: |
+          for seed in 17 42 2026 65537; do
+            GROOVE_STRESS_SEED="$seed" GROOVE_STRESS_STEPS=100 cargo test -p groove-core --test stress --locked
+            cargo test -p groove-core --test concurrency --locked
+          done
+  macos:
+    name: macOS (${{ matrix.os }}, Rust ${{ matrix.rust }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel]
+        rust: ['1.89.0', stable]
+    env:
+      GIT_CONFIG_GLOBAL: /dev/null
+      GIT_CONFIG_NOSYSTEM: '1'
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
+      # Keep fixture Unix sockets below Darwin's sun_path limit. The product
+      # uses its own short, validated path independent of the caller's TMPDIR.
+      TMPDIR: /private/tmp
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          set-safe-directory: false
+      - name: Install Rust
+        run: |
+          rustup toolchain install '${{ matrix.rust }}' --profile minimal --component clippy --component rustfmt
+          rustup override set '${{ matrix.rust }}'
+      - name: Versions
+        run: |
+          rustc --version
+          git --version
+          sw_vers
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - run: cargo test --workspace --all-targets --all-features --locked --no-fail-fast
+      - run: cargo test --workspace --doc --locked
+      - run: cargo doc --workspace --no-deps --locked
+        env:
+          RUSTDOCFLAGS: -D warnings
+      - name: APFS reflink cache regression
+        run: cargo test -p groove-core --test preparation --locked -- --ignored reflink
+        env:
+          GROOVE_TEST_REFLINK_ROOT: /private/tmp
+      - name: Packaged production binaries
+        if: matrix.rust == '1.89.0'
+        run: |
+          bash scripts/release.sh packages
+          target=$(rustc -vV | sed -n 's/^host: //p')
+          bash scripts/release.sh bundle --bin-dir target/package-check/debug --target "$target" --output "$RUNNER_TEMP/distribution"
+      - name: Case-sensitive APFS process, cache and snapshot regressions
+        if: matrix.rust == '1.89.0'
+        run: |
+          image="$RUNNER_TEMP/groove-apfs.sparseimage"
+          mount="$RUNNER_TEMP/groove-apfs"
+          hdiutil create -size 2g -type SPARSE -fs 'Case-sensitive APFS' -volname GrooveTests "$image"
+          mkdir -p "$mount"
+          hdiutil attach -nobrowse -mountpoint "$mount" "$image"
+          trap 'hdiutil detach "$mount"' EXIT
+          mkdir -m 700 "$mount/scratch"
+          mkdir "$mount/scratch/CaseProbe"
+          test ! -e "$mount/scratch/caseprobe"
+          rmdir "$mount/scratch/CaseProbe"
+          GROOVE_TEST_ROOT="$mount/scratch" TMPDIR="$mount/scratch" cargo test -p groove-core --test snapshots --test preparation --test quiescence --test fork_inheritance --locked
+          GROOVE_TEST_ROOT="$mount/scratch" TMPDIR="$mount/scratch" cargo test -p groove-cli --test execution --locked
+          GROOVE_TEST_REFLINK_ROOT="$mount/scratch" cargo test -p groove-core --test preparation --locked -- --ignored reflink
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install stable --profile minimal
+      - run: cargo +stable install cargo-audit --version 0.22.2 --locked
+      - run: cargo +stable audit --deny warnings

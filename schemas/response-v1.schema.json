@@ -1,0 +1,1587 @@
+{
+  "$defs": {
+    "preparation": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "lease_id",
+        "profile",
+        "fingerprint",
+        "status",
+        "steps",
+        "cache_hit",
+        "seeded_bytes",
+        "seeded_files",
+        "control_name",
+        "started_at_unix_ms"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "lease_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "profile": {
+          "type": "string"
+        },
+        "fingerprint": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "status": {
+          "enum": [
+            "preparing",
+            "ready",
+            "failed"
+          ]
+        },
+        "step": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "skipped",
+              "execution"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "skipped": {
+                "type": "boolean"
+              },
+              "execution": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/$defs/execution_result/properties/execution"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "cache_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cache_hit": {
+          "type": "boolean"
+        },
+        "seeded_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "seeded_files": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cancelled": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "started_at_unix_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "completed_at_unix_ms": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "control_name": {
+          "description": "Opaque platform-local supervisor endpoint name; use groove stop to request cancellation.",
+          "type": "string"
+        }
+      }
+    },
+    "preparation_result": {
+      "type": "object",
+      "required": [
+        "preparation"
+      ],
+      "not": {
+        "required": [
+          "lease_id"
+        ]
+      },
+      "properties": {
+        "preparation": {
+          "$ref": "#/$defs/preparation"
+        }
+      }
+    },
+    "project_result": {
+      "type": "object",
+      "required": [
+        "project_path",
+        "project",
+        "fingerprint"
+      ],
+      "properties": {
+        "project_path": {
+          "type": "string"
+        },
+        "project": {
+          "type": "object",
+          "required": [
+            "schema_version"
+          ],
+          "properties": {
+            "schema_version": {
+              "const": 1
+            }
+          }
+        },
+        "fingerprint": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "properties": {
+        "hint": {
+          "type": "string",
+          "description": "Optional advisory recovery guidance; clients branch on code, not this text."
+        },
+        "code": {
+          "enum": [
+            "INVALID_ARGUMENT",
+            "UNSUPPORTED_CONFIGURATION",
+            "POOL_EXHAUSTED",
+            "ACQUIRE_TIMEOUT",
+            "NOT_INITIALIZED",
+            "CONFIG_CONFLICT",
+            "INVALID_REVISION",
+            "INVALID_LEASE",
+            "LEASE_MISMATCH",
+            "RECOVERY_FAILED",
+            "POOL_UNHEALTHY",
+            "IO_ERROR",
+            "GIT_ERROR",
+            "PROTOCOL_ERROR",
+            "UNSAVED_CHANGES",
+            "WORKSPACE_IN_USE"
+          ]
+        },
+        "details": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "git": {
+              "type": "object",
+              "required": [
+                "exit_code",
+                "stdout",
+                "stderr",
+                "output_truncated"
+              ],
+              "properties": {
+                "exit_code": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "stdout": {
+                  "type": "string"
+                },
+                "stderr": {
+                  "type": "string"
+                },
+                "output_truncated": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "capacity": {
+              "type": "object",
+              "required": [
+                "capacity",
+                "busy_slots",
+                "failed_slots"
+              ],
+              "properties": {
+                "capacity": {
+                  "type": "integer"
+                },
+                "busy_slots": {
+                  "type": "integer"
+                },
+                "failed_slots": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "lease_id": {
+              "$ref": "#/$defs/uuid"
+            },
+            "worktree_path": {
+              "type": "string"
+            },
+            "released": {
+              "type": "boolean"
+            },
+            "snapshot_id": {
+              "$ref": "#/$defs/uuid"
+            },
+            "safety_snapshot_id": {
+              "$ref": "#/$defs/uuid"
+            },
+            "preparation": {
+              "$ref": "#/$defs/preparation"
+            },
+            "secondary_error": {
+              "type": "string"
+            },
+            "changes": {
+              "type": "object",
+              "required": [
+                "staged",
+                "modified",
+                "untracked"
+              ],
+              "properties": {
+                "staged": {
+                  "type": "boolean"
+                },
+                "modified": {
+                  "type": "boolean"
+                },
+                "untracked": {
+                  "type": "boolean"
+                },
+                "error": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "processes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "pid",
+                  "command",
+                  "uses"
+                ],
+                "properties": {
+                  "pid": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "command": {
+                    "type": "string"
+                  },
+                  "uses": {
+                    "enum": [
+                      "working_directory",
+                      "executable",
+                      "open_file"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "message": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "retryable",
+        "details"
+      ],
+      "type": "object"
+    },
+    "execution_info": {
+      "properties": {
+        "control_name": {
+          "description": "Opaque platform-local supervisor endpoint name; use groove stop to request cancellation.",
+          "type": "string"
+        },
+        "leader_pid": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "lease_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "program": {
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "started_at_unix_ms": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stderr_path": {
+          "type": "string"
+        },
+        "stdout_path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "lease_id",
+        "run_id",
+        "program",
+        "started_at_unix_ms",
+        "leader_pid",
+        "control_name",
+        "stdout_path",
+        "stderr_path"
+      ],
+      "type": "object"
+    },
+    "execution_result": {
+      "properties": {
+        "execution": {
+          "properties": {
+            "exit_code": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "lease_id": {
+              "$ref": "#/$defs/uuid"
+            },
+            "run": {
+              "$ref": "#/$defs/execution_info"
+            },
+            "signal": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "termination": {
+              "enum": [
+                "exited",
+                "timed_out",
+                "cancelled",
+                "output_limited"
+              ]
+            },
+            "cancel_signal": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "lease_id",
+            "run",
+            "termination",
+            "exit_code",
+            "signal",
+            "cancel_signal"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "execution"
+      ],
+      "type": "object"
+    },
+    "finish_result": {
+      "type": "object",
+      "required": [
+        "release",
+        "snapshot"
+      ],
+      "properties": {
+        "release": {
+          "$ref": "#/$defs/release"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/snapshot"
+        }
+      }
+    },
+    "init": {
+      "properties": {
+        "capacity": {
+          "maximum": 4096,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "cleanup_policy": {
+          "$ref": "#/$defs/policy"
+        },
+        "common_git_dir": {
+          "type": "string"
+        },
+        "created": {
+          "type": "boolean"
+        },
+        "slots": {
+          "items": {
+            "$ref": "#/$defs/slot"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "state_dir": {
+          "type": "string"
+        },
+        "worktree_root": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "created",
+        "common_git_dir",
+        "state_dir",
+        "capacity",
+        "slots",
+        "cleanup_policy",
+        "worktree_root"
+      ],
+      "type": "object"
+    },
+    "slot_result": {
+      "type": "object",
+      "required": [
+        "slot"
+      ],
+      "properties": {
+        "slot": {
+          "$ref": "#/$defs/inspection_result/properties/inspection/properties/slots/items"
+        }
+      }
+    },
+    "inspection_result": {
+      "properties": {
+        "inspection": {
+          "properties": {
+            "capacity": {
+              "maximum": 4096,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "slots": {
+              "items": {
+                "properties": {
+                  "execution": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/$defs/execution_info"
+                      }
+                    ]
+                  },
+                  "preparation": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/$defs/preparation"
+                      }
+                    ]
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "next_action": {
+                    "type": "string"
+                  },
+                  "git": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "staged",
+                          "modified",
+                          "untracked",
+                          "error"
+                        ],
+                        "properties": {
+                          "staged": {
+                            "type": "boolean"
+                          },
+                          "modified": {
+                            "type": "boolean"
+                          },
+                          "untracked": {
+                            "type": "boolean"
+                          },
+                          "error": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "failure": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "lease": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/$defs/lease"
+                      }
+                    ]
+                  },
+                  "lock_held": {
+                    "type": "boolean"
+                  },
+                  "slot_id": {
+                    "$ref": "#/$defs/slot"
+                  },
+                  "status": {
+                    "enum": [
+                      "available",
+                      "reserved",
+                      "locked",
+                      "quarantined",
+                      "unhealthy"
+                    ]
+                  },
+                  "worktree_path": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "slot_id",
+                  "status",
+                  "worktree_path",
+                  "lease",
+                  "lock_held",
+                  "execution",
+                  "failure"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "capacity",
+            "slots"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "inspection"
+      ],
+      "type": "object"
+    },
+    "lease": {
+      "properties": {
+        "preparation": {
+          "$ref": "#/$defs/preparation"
+        },
+        "acquired_at_unix_ms": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "base_oid": {
+          "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$",
+          "type": "string"
+        },
+        "cleanup_policy": {
+          "$ref": "#/$defs/policy"
+        },
+        "head_mode": {
+          "const": "detached"
+        },
+        "lease_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "recovery": {
+          "enum": [
+            "created",
+            "sanitized",
+            "rebuilt"
+          ]
+        },
+        "request_key": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requested_base": {
+          "type": "string"
+        },
+        "slot_id": {
+          "$ref": "#/$defs/slot"
+        },
+        "task": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "worktree_path": {
+          "type": "string"
+        },
+        "ownership": {
+          "enum": [
+            "in_process",
+            "durable"
+          ]
+        }
+      },
+      "required": [
+        "slot_id",
+        "lease_id",
+        "worktree_path",
+        "base_oid",
+        "head_mode",
+        "recovery",
+        "cleanup_policy",
+        "ownership"
+      ],
+      "type": "object"
+    },
+    "leases": {
+      "properties": {
+        "leases": {
+          "items": {
+            "$ref": "#/$defs/lease"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "leases"
+      ],
+      "type": "object"
+    },
+    "policy": {
+      "enum": [
+        "pristine",
+        "warm"
+      ]
+    },
+    "recover_result": {
+      "properties": {
+        "execution_recovered": {
+          "$ref": "#/$defs/execution_info"
+        }
+      },
+      "required": [
+        "execution_recovered"
+      ],
+      "type": "object"
+    },
+    "release": {
+      "properties": {
+        "cleanup": {
+          "const": "deferred"
+        },
+        "lease_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "released": {
+          "const": true
+        },
+        "slot_id": {
+          "$ref": "#/$defs/slot"
+        }
+      },
+      "required": [
+        "slot_id",
+        "lease_id",
+        "released",
+        "cleanup"
+      ],
+      "type": "object"
+    },
+    "slot": {
+      "pattern": "^wt-(000[1-9]|00[1-9][0-9]|0[1-9][0-9]{2}|[1-3][0-9]{3}|40[0-8][0-9]|409[0-6])$",
+      "type": "string"
+    },
+    "snapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "branch": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "created_at": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "created_at_ns": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "description": {
+          "type": "string"
+        },
+        "head": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "index_tree": {
+          "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$",
+          "type": "string"
+        },
+        "pinned": {
+          "type": "boolean"
+        },
+        "session": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "untracked_blob": {
+          "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$",
+          "type": "string"
+        },
+        "version": {
+          "const": 1
+        },
+        "work_tree": {
+          "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$",
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "created_at",
+        "created_at_ns",
+        "description",
+        "workspace",
+        "branch",
+        "head",
+        "index_tree",
+        "work_tree",
+        "untracked_blob",
+        "session",
+        "pinned"
+      ],
+      "type": "object"
+    },
+    "snapshot_result": {
+      "anyOf": [
+        {
+          "type": "object",
+          "required": [
+            "snapshot"
+          ],
+          "properties": {
+            "snapshot": {
+              "$ref": "#/$defs/snapshot"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "snapshots"
+          ],
+          "properties": {
+            "snapshots": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/snapshot"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "patch"
+          ],
+          "properties": {
+            "patch": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "path",
+            "snapshot_id",
+            "safety_snapshot_id"
+          ],
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "snapshot_id": {
+              "$ref": "#/$defs/uuid"
+            },
+            "safety_snapshot_id": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/uuid"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "deleted"
+          ],
+          "properties": {
+            "deleted": {
+              "$ref": "#/$defs/uuid"
+            }
+          }
+        }
+      ]
+    },
+    "stop_result": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "stop_requested"
+          ],
+          "properties": {
+            "stop_requested": {
+              "$ref": "#/$defs/execution_info"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "preparation_stop_requested"
+          ],
+          "properties": {
+            "preparation_stop_requested": {
+              "$ref": "#/$defs/preparation"
+            }
+          }
+        }
+      ]
+    },
+    "text": {
+      "properties": {
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "user_config": {
+      "properties": {
+        "config": {
+          "type": "object",
+          "properties": {
+            "logging": {
+              "type": "object",
+              "properties": {
+                "level": {
+                  "enum": [
+                    "error",
+                    "warn",
+                    "info",
+                    "debug",
+                    "trace"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "config_path": {
+          "type": "string"
+        },
+        "environment_overrides": {
+          "type": "object"
+        },
+        "updated": {
+          "const": true
+        }
+      },
+      "required": [
+        "config_path"
+      ],
+      "type": "object"
+    },
+    "uuid": {
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "type": "string"
+    },
+    "pool_settings": {
+      "type": "object",
+      "properties": {
+        "capacity": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "cleanup_policy": {
+          "$ref": "#/$defs/policy"
+        },
+        "worktree_root": {
+          "type": "string"
+        },
+        "state_dir": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "capacity",
+        "cleanup_policy",
+        "worktree_root",
+        "state_dir"
+      ],
+      "additionalProperties": false
+    },
+    "pool_result": {
+      "type": "object",
+      "properties": {
+        "pool": {
+          "$ref": "#/$defs/pool_settings"
+        },
+        "updated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "pool"
+      ],
+      "not": {
+        "required": [
+          "inspection"
+        ]
+      }
+    },
+    "lease_result": {
+      "type": "object",
+      "required": [
+        "lease"
+      ],
+      "properties": {
+        "lease": {
+          "$ref": "#/$defs/lease"
+        },
+        "slot": {
+          "type": "object"
+        }
+      }
+    },
+    "run_history": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cancel_signal",
+        "duration_ms",
+        "ended_at_unix_ms",
+        "exit_code",
+        "failure",
+        "lease_id",
+        "logs",
+        "origin",
+        "outcome",
+        "program",
+        "run_id",
+        "schema_version",
+        "signal",
+        "slot_id",
+        "started_at_unix_ms",
+        "stderr_path",
+        "stdout_path",
+        "task",
+        "termination"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "run_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "slot_id": {
+          "$ref": "#/$defs/slot"
+        },
+        "lease_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "task": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "program": {
+          "type": "string"
+        },
+        "origin": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "command"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "profile",
+                "step"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "setup"
+                },
+                "profile": {
+                  "type": "string"
+                },
+                "step": {
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "name"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "recipe"
+                },
+                "name": {
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "name"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "agent"
+                },
+                "name": {
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "unknown"
+                }
+              }
+            }
+          ]
+        },
+        "started_at_unix_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ended_at_unix_ms": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "duration_ms": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "outcome": {
+          "enum": [
+            "unresolved",
+            "completed",
+            "spawn_failed",
+            "recovered"
+          ]
+        },
+        "termination": {
+          "anyOf": [
+            {
+              "enum": [
+                "exited",
+                "timed_out",
+                "cancelled",
+                "output_limited"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "exit_code": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "signal": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cancel_signal": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "logs": {
+          "enum": [
+            "present",
+            "removing",
+            "removed"
+          ]
+        },
+        "stdout_path": {
+          "type": "string"
+        },
+        "stderr_path": {
+          "type": "string"
+        }
+      }
+    },
+    "history_result": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "runs"
+          ],
+          "properties": {
+            "runs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/run_history"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "run"
+          ],
+          "properties": {
+            "run": {
+              "$ref": "#/$defs/run_history"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "deleted_run_id"
+          ],
+          "properties": {
+            "deleted_run_id": {
+              "$ref": "#/$defs/uuid"
+            }
+          }
+        }
+      ]
+    },
+    "storage_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "storage"
+      ],
+      "properties": {
+        "storage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "artifact_bytes",
+            "history_bytes",
+            "log_bytes",
+            "runs",
+            "untracked_log_bytes",
+            "untracked_runs",
+            "workspace_bytes"
+          ],
+          "properties": {
+            "log_bytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "history_bytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "untracked_log_bytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "untracked_runs": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "artifact_bytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "workspace_bytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "runs": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "cleanup_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cleanup"
+      ],
+      "properties": {
+        "cleanup": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "dry_run",
+            "entries"
+          ],
+          "properties": {
+            "dry_run": {
+              "type": "boolean"
+            },
+            "entries": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "error_code",
+                  "log_bytes",
+                  "reason",
+                  "run_id",
+                  "status"
+                ],
+                "properties": {
+                  "run_id": {
+                    "$ref": "#/$defs/uuid"
+                  },
+                  "log_bytes": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "status": {
+                    "enum": [
+                      "removed",
+                      "would_remove",
+                      "skipped",
+                      "failed"
+                    ]
+                  },
+                  "reason": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "error_code": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "INVALID_ARGUMENT",
+                          "UNSUPPORTED_CONFIGURATION",
+                          "POOL_EXHAUSTED",
+                          "ACQUIRE_TIMEOUT",
+                          "NOT_INITIALIZED",
+                          "CONFIG_CONFLICT",
+                          "INVALID_REVISION",
+                          "INVALID_LEASE",
+                          "LEASE_MISMATCH",
+                          "RECOVERY_FAILED",
+                          "POOL_UNHEALTHY",
+                          "IO_ERROR",
+                          "GIT_ERROR",
+                          "PROTOCOL_ERROR",
+                          "UNSAVED_CHANGES",
+                          "WORKSPACE_IN_USE"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$id": "https://github.com/lorecampa/groove/schemas/response-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "not": {
+        "required": [
+          "error"
+        ]
+      },
+      "properties": {
+        "ok": {
+          "const": true
+        },
+        "result": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/init"
+            },
+            {
+              "$ref": "#/$defs/lease"
+            },
+            {
+              "$ref": "#/$defs/release"
+            },
+            {
+              "$ref": "#/$defs/text"
+            },
+            {
+              "$ref": "#/$defs/leases"
+            },
+            {
+              "$ref": "#/$defs/user_config"
+            },
+            {
+              "$ref": "#/$defs/snapshot_result"
+            },
+            {
+              "$ref": "#/$defs/inspection_result"
+            },
+            {
+              "$ref": "#/$defs/slot_result"
+            },
+            {
+              "$ref": "#/$defs/execution_result"
+            },
+            {
+              "$ref": "#/$defs/stop_result"
+            },
+            {
+              "$ref": "#/$defs/recover_result"
+            },
+            {
+              "$ref": "#/$defs/finish_result"
+            },
+            {
+              "$ref": "#/$defs/pool_result"
+            },
+            {
+              "$ref": "#/$defs/lease_result"
+            },
+            {
+              "$ref": "#/$defs/preparation_result"
+            },
+            {
+              "$ref": "#/$defs/project_result"
+            },
+            {
+              "$ref": "#/$defs/history_result"
+            },
+            {
+              "$ref": "#/$defs/storage_result"
+            },
+            {
+              "$ref": "#/$defs/cleanup_result"
+            }
+          ]
+        }
+      },
+      "required": [
+        "result"
+      ]
+    },
+    {
+      "not": {
+        "required": [
+          "result"
+        ]
+      },
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/error"
+        },
+        "ok": {
+          "const": false
+        }
+      },
+      "required": [
+        "error"
+      ]
+    }
+  ],
+  "properties": {
+    "api_version": {
+      "const": 1
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "request_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "api_version",
+    "request_id",
+    "ok"
+  ],
+  "title": "Groove CLI response v1",
+  "type": "object"
+}

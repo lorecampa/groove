@@ -1,0 +1,7 @@
+{
+  "smoke": {
+    "after_seconds": 0.229108627,
+    "before_seconds": 0.238343829,
+    "ratio": 0.9612526070477788
+  }
+}

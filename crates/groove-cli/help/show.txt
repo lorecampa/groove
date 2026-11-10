@@ -1,0 +1,10 @@
+EXAMPLES:
+  groove show
+  groove show --task fix-parser
+  groove show --lease-id UUID --details
+  groove show --slot wt-0001
+
+Without a selector, shows pool settings and every slot. With --task or
+--lease-id, shows that reservation (or its release receipt) and its slot.
+--details reads bounded local Git status (staged, modified, untracked); with a
+selector, only that workspace is checked. Nothing contacts a remote.

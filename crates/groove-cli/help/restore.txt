@@ -1,0 +1,11 @@
+EXAMPLES:
+  groove snapshot restore ID --to ../recovered
+  groove snapshot restore ID
+
+--to recovers into a new directory that must not exist. Without --to, restore
+works in place: HEAD must equal the saved HEAD, a safety snapshot is taken first,
+and captured files absent from the
+target are removed. On failure the error reports the safety snapshot ID.
+Recovery preserves saved bytes, executable bits and symlinks even if Git
+preferences changed after capture. Active conversion/filter attributes are
+checked before restoring files, including with --to.

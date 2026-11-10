@@ -1,0 +1,17 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+
+# Local environment and editor files
+.env
+.env.*
+!.env.example
+.idea/
+.vscode/
+.DS_Store
+
+# Disposable local tooling and generated benchmark files
+/.local/
+**/__pycache__/
+*.pyc
+/benchmarks/**/results/

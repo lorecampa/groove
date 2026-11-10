@@ -1,0 +1,45 @@
+schema_version = 1
+
+# Slot identity stays stable while tasks and branches change. This derives a
+# predictable port number; the application must still bind/check its port.
+[workspace]
+port_base = 8000
+[workspace.environment]
+WORKSPACE_NAME = "{slot}"
+
+# Add node_modules/ to .gitignore and commit this file plus package-lock.json.
+# Use an explicit toolchain/environment version and change it on upgrades.
+[caches.dependencies]
+paths = ["node_modules"]
+inputs = ["package-lock.json"]
+key = "node-22-linux-x86_64"
+mode = "copy" # Or explicit "reflink" on compatible storage; no fallback.
+
+[setup.dev]
+cache = "dependencies"
+
+[[setup.dev.steps]]
+name = "dependencies"
+command = ["npm", "ci"]
+when = "cache_miss"
+timeout_ms = 600000
+
+[[setup.dev.steps]]
+name = "check"
+command = ["npm", "run", "check", "--if-present"]
+
+[recipes.test]
+command = ["npm", "test"]
+requires_setup = "dev"
+
+# Programs run in the reserved checkout, with captured logs and normal tool
+# permissions. Extra arguments after -- are appended directly, without a shell.
+[agents.codex]
+command = ["codex", "exec", "--sandbox", "workspace-write"]
+requires_setup = "dev"
+timeout_ms = 0
+
+[agents.claude]
+command = ["claude", "--print"]
+requires_setup = "dev"
+timeout_ms = 0

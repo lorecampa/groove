@@ -1,0 +1,28 @@
+EXAMPLES:
+  groove exec --task fix-parser -- cargo test
+  groove exec --lease-id UUID --timeout-ms 600000 -- make check
+  groove exec --task fix-parser --setup dev
+  groove exec --task fix-parser --setup dev --retry
+  groove exec --task fix-parser --recipe test
+  groove exec --task fix-parser --agent claude -- -p 'Fix the parser'
+
+Runs the program directly (no shell; use `bash -c` explicitly) in its own
+process group, captures stdout/stderr to log files outside the checkout and
+stops the whole group before returning. The reservation is never released.
+
+Both worker streams are mirrored live to stderr, also with --json. Stdout stays
+reserved for the final result. --quiet hides live output but keeps log files,
+errors and exit status. Child buffering can delay output. Slow or failed stderr
+consumers may miss live bytes; consult the captured files for complete output.
+To silence stderr completely, redirect it with 2>/dev/null.
+
+--setup runs a .groove.toml setup profile: it clears only approved ignored
+cache roots, seeds compatible artifacts and runs ordered steps. A failed,
+interrupted or changed setup needs an explicit --retry, which restarts from the
+first step. --recipe and --agent run named commands; trailing arguments are
+appended literally. Required setup is never run implicitly.
+
+A positive --timeout-ms overrides each step or recipe deadline; zero keeps the
+configured default (unlimited for raw commands). If the supervisor is killed,
+an execution record keeps the slot protected: stop external writers, then run
+`groove recover` before release.

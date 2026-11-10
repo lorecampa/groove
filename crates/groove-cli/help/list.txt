@@ -1,0 +1,9 @@
+EXAMPLES:
+  groove list
+  groove list --slots
+  groove list --details
+
+By default lists active reservations, including ones left by interrupted
+commands. --slots lists every slot with its status, reason and suggested next
+action. --details adds bounded local Git status (staged, modified, untracked).
+Observations never prove ownership or that writers have stopped.

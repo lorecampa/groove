@@ -1,0 +1,45 @@
+WORKFLOW:
+  groove init --capacity 4
+  groove acquire --task fix-parser            # prints the path; work there
+  groove exec --task fix-parser -- cargo test
+  groove finish --task fix-parser             # snapshot, then free the slot
+
+INSPECTION AND SETTINGS:
+  groove list                      active reservations
+  groove list --slots              every slot, with status and next action
+  groove show --task NAME          one reservation in detail
+  groove snapshot list             local checkpoints
+  groove config set --capacity 8   grow the pool
+  groove completions bash          print a shell completion script
+  groove history --task NAME       past executions, even after release
+  groove storage show              logical storage usage
+  groove storage clean --logs --older-than 30d --dry-run
+                                   preview explicit captured-log cleanup
+
+Stop ALL writers, then finish (snapshot, then release) or release. To keep
+commits on a branch, create one yourself first; Groove never manages branches.
+Reservations survive exits and crashes until explicitly released: there is no
+expiry, daemon or implicit task execution. No command pushes or merges.
+Worktrees share Git objects, refs and configuration; they are not security
+sandboxes.
+
+OUTPUT:
+  Human-readable text by default; errors go to stderr.
+  --json (or GROOVE_OUTPUT=json) prints exactly one versioned JSON object on
+  stdout for every outcome, including help, version and argument errors:
+  {"api_version":1,"ok":...}.
+  Exit 0: success; 2: arguments/unsupported; 3: capacity/wait;
+  4: uninitialized/configuration conflict/revision; 5: invalid/stale lease,
+  unsaved changes or workspace in use;
+  6: recovery/unhealthy pool; 7: I/O/Git/protocol.
+  exec and setup exit with the worker's status: 124 on timeout, 128+signal when
+  cancelled or killed, 1 when output exceeded its limit.
+  storage clean exits 7 if any per-run removal failed; inspect its report.
+  Stderr shows warnings, errors and live worker output in either output mode.
+  -v adds info diagnostics; -vv adds debug; -vvv adds trace.
+  --quiet hides warnings, progress and worker output, retaining errors/results.
+  Quiet and verbose conflict. Saved logs are independent of terminal verbosity.
+
+Linux or macOS 13+, Git 2.40+, local storage (APFS on macOS).
+Run groove COMMAND --help for examples,
+defaults and recovery rules.

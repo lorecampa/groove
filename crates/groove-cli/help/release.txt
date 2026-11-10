@@ -1,0 +1,19 @@
+EXAMPLES:
+  groove release --task fix-parser
+  groove release --lease-id UUID
+  groove release --force --task fix-parser    # discard unsaved changes
+
+Returns the workspace to the pool. The next acquisition discards its contents
+(ignored files too, under the default pristine cleanup), so first use
+`groove finish` or save your work elsewhere, and stop ALL writers: workers,
+tests, watchers and dev servers.
+
+Release refuses with UNSAVED_CHANGES if the workspace has staged, modified or
+untracked files, and with WORKSPACE_IN_USE if other processes still have their
+working directory, executable or open files in it (your own shell is ignored).
+The process check only sees your processes and is best effort, so it does not
+replace stopping writers. --force skips both checks; it never bypasses a running
+`groove exec`, which must be stopped first.
+
+A lost response can be retried with the same lease. Stale lease IDs can never
+release a later task's workspace.

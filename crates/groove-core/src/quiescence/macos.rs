@@ -1,0 +1,212 @@
+//! Best-effort Darwin process inspection through libproc, never ownership proof.
+use super::{self_and_ancestors, ProcessUse, WorkspaceProcess};
+use crate::Result;
+use std::{
+    ffi::OsString,
+    mem::{size_of, MaybeUninit},
+    os::unix::ffi::OsStringExt,
+    path::{Path, PathBuf},
+};
+
+// Darwin's public <sys/proc_info.h>. libc supplies the nested vnode structures,
+// but not these two wrappers or PROC_PIDFDVNODEPATHINFO.
+// https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/proc_info.h
+#[repr(C)]
+struct ProcFileInfo {
+    open_flags: u32,
+    status: u32,
+    offset: libc::off_t,
+    kind: i32,
+    guard_flags: u32,
+}
+
+#[repr(C)]
+struct VnodeFdInfoWithPath {
+    file: ProcFileInfo,
+    vnode: libc::vnode_info_path,
+}
+const PROC_PIDFDVNODEPATHINFO: i32 = 2;
+
+pub(super) fn processes_using(root: &Path) -> Result<Vec<WorkspaceProcess>> {
+    let skip = self_and_ancestors();
+    let mut found = Vec::new();
+    for pid in pids()? {
+        if pid <= 1 || skip.contains(&(pid as u32)) {
+            continue;
+        }
+        if let Some(uses) = process_use(pid, root) {
+            let command = bsd_info(pid)
+                .map(|info| {
+                    let bytes: Vec<u8> = info
+                        .pbi_comm
+                        .iter()
+                        .take_while(|&&c| c != 0)
+                        .map(|&c| c as u8)
+                        .collect();
+                    String::from_utf8_lossy(&bytes).into_owned()
+                })
+                .unwrap_or_default();
+            found.push(WorkspaceProcess {
+                pid: pid as u32,
+                command,
+                uses,
+            });
+        }
+    }
+    found.sort_by_key(|p| p.pid);
+    Ok(found)
+}
+
+fn pids() -> std::io::Result<Vec<libc::pid_t>> {
+    // SAFETY: a null buffer requests a count without writing memory.
+    let count = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
+    if count <= 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let mut capacity = count as usize + 128;
+    for _ in 0..3 {
+        let mut pids = vec![0; capacity];
+        // SAFETY: pids is initialized writable pid_t storage of the supplied
+        // byte size. proc_listallpids returns an element count, not bytes.
+        let count = unsafe {
+            libc::proc_listallpids(
+                pids.as_mut_ptr().cast(),
+                std::mem::size_of_val(pids.as_slice()) as i32,
+            )
+        };
+        if count <= 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        if (count as usize) < pids.len() {
+            pids.truncate(count as usize);
+            return Ok(pids);
+        }
+        capacity *= 2;
+    }
+    Err(std::io::Error::other(
+        "Process list kept growing during workspace inspection; retry after stopping writers",
+    ))
+}
+
+fn bsd_info(pid: i32) -> Option<libc::proc_bsdinfo> {
+    let mut info = MaybeUninit::<libc::proc_bsdinfo>::uninit();
+    // SAFETY: info has the exact layout/size required by PROC_PIDTBSDINFO.
+    let bytes = unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            info.as_mut_ptr().cast(),
+            size_of::<libc::proc_bsdinfo>() as i32,
+        )
+    };
+    if bytes as usize != size_of::<libc::proc_bsdinfo>() {
+        return None;
+    }
+    // SAFETY: a complete successful response initialized every field.
+    Some(unsafe { info.assume_init() })
+}
+
+pub(super) fn parent_of(pid: u32) -> Option<u32> {
+    bsd_info(i32::try_from(pid).ok()?).map(|info| info.pbi_ppid)
+}
+
+fn vnode_path(info: &libc::vnode_info_path) -> PathBuf {
+    let bytes: Vec<u8> = info
+        .vip_path
+        .as_flattened()
+        .iter()
+        .take_while(|&&c| c != 0)
+        .map(|&c| c as u8)
+        .collect();
+    PathBuf::from(OsString::from_vec(bytes))
+}
+
+fn process_use(pid: i32, root: &Path) -> Option<ProcessUse> {
+    let mut cwd = MaybeUninit::<libc::proc_vnodepathinfo>::uninit();
+    // SAFETY: cwd has the exact layout/size required by PROC_PIDVNODEPATHINFO.
+    let bytes = unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDVNODEPATHINFO,
+            0,
+            cwd.as_mut_ptr().cast(),
+            size_of::<libc::proc_vnodepathinfo>() as i32,
+        )
+    };
+    if bytes as usize == size_of::<libc::proc_vnodepathinfo>() {
+        // SAFETY: a complete successful response initialized both vnode paths.
+        let cwd = unsafe { cwd.assume_init() };
+        if vnode_path(&cwd.pvi_cdir).starts_with(root) {
+            return Some(ProcessUse::WorkingDirectory);
+        }
+    }
+    let mut executable = vec![0_u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    // SAFETY: executable is writable storage of the supplied byte size.
+    let bytes =
+        unsafe { libc::proc_pidpath(pid, executable.as_mut_ptr().cast(), executable.len() as u32) };
+    if bytes > 0 {
+        executable.truncate(
+            executable
+                .iter()
+                .position(|&b| b == 0)
+                .unwrap_or(executable.len()),
+        );
+        if PathBuf::from(OsString::from_vec(executable)).starts_with(root) {
+            return Some(ProcessUse::Executable);
+        }
+    }
+    // SAFETY: a null buffer requests the number of bytes needed for descriptors.
+    let bytes =
+        unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0) };
+    if bytes <= 0 {
+        return None;
+    }
+    let count = bytes as usize / size_of::<libc::proc_fdinfo>() + 32;
+    let mut fds: Vec<_> = (0..count)
+        .map(|_| libc::proc_fdinfo {
+            proc_fd: -1,
+            proc_fdtype: 0,
+        })
+        .collect();
+    // SAFETY: fds is initialized writable proc_fdinfo storage of the supplied size.
+    let bytes = unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDLISTFDS,
+            0,
+            fds.as_mut_ptr().cast(),
+            std::mem::size_of_val(fds.as_slice()) as i32,
+        )
+    };
+    if bytes <= 0 {
+        return None;
+    }
+    let count = (bytes as usize / size_of::<libc::proc_fdinfo>()).min(fds.len());
+    for fd in &fds[..count] {
+        if fd.proc_fdtype != libc::PROX_FDTYPE_VNODE as u32 {
+            continue;
+        }
+        let mut info = MaybeUninit::<VnodeFdInfoWithPath>::uninit();
+        // SAFETY: info matches vnode_fdinfowithpath in Darwin's proc_info.h;
+        // proc_pidfdinfo is given exactly its writable size. Exited processes,
+        // closed descriptors and denied access are skipped as best-effort observations.
+        let bytes = unsafe {
+            libc::proc_pidfdinfo(
+                pid,
+                fd.proc_fd,
+                PROC_PIDFDVNODEPATHINFO,
+                info.as_mut_ptr().cast(),
+                size_of::<VnodeFdInfoWithPath>() as i32,
+            )
+        };
+        if bytes as usize == size_of::<VnodeFdInfoWithPath>() {
+            // SAFETY: a complete successful response initialized all fields.
+            let info = unsafe { info.assume_init() };
+            if vnode_path(&info.vnode).starts_with(root) {
+                return Some(ProcessUse::OpenFile);
+            }
+        }
+    }
+    None
+}

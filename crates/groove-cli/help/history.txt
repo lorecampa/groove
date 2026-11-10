@@ -1,0 +1,18 @@
+EXAMPLES:
+  groove history
+  groove history --task tasks/fix-parser
+  groove history --lease-id 00000000-0000-4000-8000-000000000001
+  groove history show RUN_ID
+  groove history delete RUN_ID
+
+Lists all known runs newest first, including setup steps, recipes and agents.
+Task labels can be reused: filter by lease ID to select one reservation generation.
+History survives release, finish, reuse and log cleanup. It records program names,
+not arguments or environment values. Run logs can contain sensitive worker output.
+
+An unresolved outcome means no terminal outcome was durably recorded; it may be
+active or interrupted. Stop all writers before explicit `groove recover`.
+Recovery records an unknown exit outcome; age or a missing PID never proves completion.
+
+Use `storage clean --logs` to remove logs first, then `history delete` to explicitly
+forget one terminal run. Legacy log directories without history are not adopted.
