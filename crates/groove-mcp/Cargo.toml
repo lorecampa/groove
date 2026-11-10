@@ -23,7 +23,7 @@ clap.workspace = true
 tempfile.workspace = true
 libc.workspace = true
 
-jsonschema = { version = "0.33", default-features = false }
+jsonschema = { version = "0.60", default-features = false }
 
 [lints]
 workspace = true
