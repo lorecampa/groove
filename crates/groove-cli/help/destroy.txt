@@ -10,7 +10,7 @@ Omitting --pool targets default. When several non-deleted pools exist, select
 other pools and their reservations remain intact. Use groove pools to inspect
 the catalog. --pool-id checks a generation inside the selected namespace.
 
-Finish or release every reservation and stop ALL writers first. Live lease and
+Release every reservation and stop ALL writers first. Live lease and
 execution descriptors, protected reservations and orphaned execution records
 always refuse deletion. Use stop/recover before release where necessary. Run
 destroy from outside every directory being removed, including your shell's cwd.
@@ -24,7 +24,7 @@ Index flags that hide edits and interrupted Git operations also block inspection
 repair them or explicitly acknowledge their loss with --discard-changes. Inspection
 uses bounded Git output; an inspection failure never authorizes removal.
 
-Permanent locks, request-key tombstones, finish receipts, execution history/logs,
+Permanent locks, request-key tombstones, saved-release receipts, execution history/logs,
 branches and snapshots remain. Checkout root directories (including external
 roots) and unknown files in them remain. History, storage and snapshot commands
 remain available; log cleanup/history deletion retain their existing rules.

@@ -248,7 +248,7 @@ fn global_lfs_definitions_do_not_strand_an_ordinary_task() {
     let lease = assert_success(&invoke(&["acquire", "--task", "ordinary"]));
     let workspace = std::path::Path::new(lease["result"]["worktree_path"].as_str().unwrap());
     fs::write(workspace.join("result.txt"), "precious result\n").unwrap();
-    let finished = assert_success(&invoke(&["finish", "--task", "ordinary"]));
+    let finished = assert_success(&invoke(&["release", "--save", "--task", "ordinary"]));
     let snapshot = finished["result"]["snapshot"]["id"].as_str().unwrap();
     let destination = repo.temp.path().join("recovered");
     assert_success(&invoke(&[
@@ -294,7 +294,7 @@ fn snapshot_wait_honors_timeout_and_preserves_reserved_results() {
     let first_listener = UnixListener::bind(&first_socket).unwrap();
     let mut first = support::TestChild::spawn(
         support::groove_in(&repo.path)
-            .args(["finish", "--task", "first"])
+            .args(["release", "--save", "--task", "first"])
             .env("GROOVE_TEST_CHECKPOINT", "snapshot-captured")
             .env("GROOVE_TEST_SOCKET", &first_socket),
     );
@@ -334,7 +334,8 @@ fn snapshot_wait_honors_timeout_and_preserves_reserved_results() {
         &[
             "--git-timeout-ms",
             "350",
-            "finish",
+            "release",
+            "--save",
             "--force",
             "--task",
             "second",
@@ -354,7 +355,7 @@ fn snapshot_wait_honors_timeout_and_preserves_reserved_results() {
     first_stream.write_all(&[1]).unwrap();
     let first_result = assert_success(&first.wait_with_output().unwrap());
     let second_result = assert_success(&second.wait_with_output().unwrap());
-    checked(&repo, &["finish", "--task", "second"]);
+    checked(&repo, &["release", "--save", "--task", "second"]);
     for (task, result) in [("first", first_result), ("second", second_result)] {
         let snapshot = result["result"]["snapshot"]["id"].as_str().unwrap();
         let destination = repo.temp.path().join(task);

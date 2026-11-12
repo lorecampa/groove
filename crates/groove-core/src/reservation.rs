@@ -247,7 +247,7 @@ impl Pool {
                 {
                     return Err(Error::new(
                         ErrorCode::InvalidArgument,
-                        "An active reservation already has this task label; reuse it, finish it, or choose another label",
+                        "An active reservation already has this task label; reuse it, release it, or choose another label",
                     )
                     .with_details(|d| {
                         d.lease_id = Some(existing.lease_id);

@@ -14,5 +14,5 @@ partial deletion is recorded and retryable; inspect each entry (exit 7 on failur
 Unknown/legacy log directories are reported but never automatically deleted.
 
 This command does not delete workspaces, artifact caches, snapshots, reservation
-records, finish receipts or CLI diagnostic logs. To forget history separately,
+records, saved-release receipts or CLI diagnostic logs. To forget history separately,
 use `groove history delete RUN_ID` after cleaning that run's logs.

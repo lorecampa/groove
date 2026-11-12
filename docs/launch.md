@@ -42,7 +42,7 @@ when the GitHub repository is private. It is disabled by default here.
    Manual dispatch is always draft-only. Stable tag pushes automatically publish
    the verified GitHub release; do not use a stable tag for a draft rehearsal.
 4. Verify the exact commit's Linux/macOS checks, downloaded asset checksums,
-   version, a disposable acquire/finish/restore cycle, and retry behavior.
+   version, a disposable acquire/release --save/restore cycle, and retry behavior.
 5. Install the matching complete skill and run/record the harness evaluations.
    Authenticated success does not establish anonymous installation.
 

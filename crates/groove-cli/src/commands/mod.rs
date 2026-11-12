@@ -43,7 +43,7 @@ fn select(pool: &Pool, selector: &LeaseSelector) -> Result<LeaseInfo> {
 }
 
 /// Resolve the selector to a lease ID without validating an explicit ID, so
-/// core retry logic (e.g. finish receipts for superseded generations) still applies.
+/// core retry logic (e.g. saved-release receipts for superseded generations) still applies.
 fn select_id(pool: &Pool, selector: &LeaseSelector) -> Result<groove_core::LeaseId> {
     match (&selector.lease_id, &selector.task) {
         (Some(id), _) => Ok(*id),
@@ -100,22 +100,22 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
         ),
         Command::Stop { lease } => lease::stop(context, lease),
         Command::Recover { lease } => lease::recover(context, lease),
-        Command::Finish {
+        Command::Release {
             lease,
+            save,
             description,
             max_file_bytes,
             force,
-        } => lease::finish(
+        } => lease::release(
             context,
             lease,
-            groove_core::snapshot::SaveOptions {
+            save.then(|| groove_core::snapshot::SaveOptions {
                 description: description.clone(),
                 session: None,
                 max_file_bytes: *max_file_bytes,
-            },
+            }),
             *force,
         ),
-        Command::Release { lease, force } => lease::release(context, lease, *force),
         Command::List { slots, details } => pool::list(context, *slots, *details),
         Command::Show { selector, details } => pool::show(context, selector, *details),
         Command::Completions { shell } => completions::run(*shell),

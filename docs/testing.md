@@ -71,7 +71,7 @@ CI explicitly disables the runner's system/global Git configuration. Snapshot
 fixtures must not inherit installed content filters or automatic CRLF conversion.
 Use `support::groove_in` for repository CLI fixtures, including checkpoint children;
 tests of user preferences can explicitly override their configuration paths.
-`checkpoint_finish_ignores_parent_git_filters` exercises the finish/recovery crash
+`checkpoint_finish_ignores_parent_git_filters` exercises the release --save/recovery crash
 scenario in a child test process with a global filter definition.
 
 Use explicit readiness handshakes, not sleep-based guesses. Bound connection,
@@ -95,7 +95,7 @@ in `validation.rs` use the same isolation so unrelated fixture forks cannot reta
 their short-lived reservation descriptors. `fork_inheritance.rs` deliberately
 holds the pre-exec boundary and verifies rejection/preservation before exec and release
 after descriptor closure while the child remains alive, for both slot and execution
-descriptors, including blocked finish and successful checkpoint preservation after
+descriptors, including blocked release --save and successful checkpoint preservation after
 exec. Preparation fixtures also run concurrently in separate processes: unrelated
 fork/exec can otherwise keep a just-dropped execution guard alive and correctly
 make an immediate setup attempt report contention. Keep explicit contention and
@@ -191,7 +191,7 @@ These runners do not establish behavior on the minimum macOS 13 release.
 | Pool deletion, retained history, generations and path preservation | `cargo test -p groove-core --test destruction --locked` and `cargo test -p groove-cli --test destruction --locked` |
 | Named namespaces, shared administration, root claims and CLI selection | `cargo test -p groove-core --test named_pools --test types --locked` and `cargo test -p groove-cli --test named_pools --test crashes --test git_child --all-features --locked` |
 | Capacity growth, retired-slot reuse, bounded descriptors and rejected unsafe infrastructure | `cargo test -p groove-core --test settings --locked`; CLI crash coverage includes fresh and reinitialized pools |
-| Durable keys, contention, inspection and finish | `cargo test -p groove-core --test coordination --locked` |
+| Durable keys, contention, inspection and release --save | `cargo test -p groove-core --test coordination --locked` |
 | Detached workspaces and lookup by task label | `cargo test -p groove-core --test tasks --locked` |
 | Fork/exec descriptor inheritance and harness failures | `cargo test -p groove-core --test fork_inheritance --test harness --locked` |
 | CLI execution, signals, timeout, logs and orphan recovery | `cargo test -p groove-cli --test execution --locked` |
@@ -284,7 +284,7 @@ coverage. Large-repository latency and concurrent throughput are separate from
 correctness regressions.
 
 Audit regressions cover log-cleanup preview/removal holding execution exclusion
-while another process attempts exec/finish, and maintenance between finish's saved
+while another process attempts exec or release --save, and maintenance between the saved
 snapshot and release. Socket checkpoints establish contention without timing
 assumptions; tests assert retryability, retained reservations, permanent lock
 identity, saved receipt reuse, and restored staging/working bytes. Protocol tests

@@ -2,11 +2,19 @@
 
 ## Unreleased
 
+### Changed
+
 - Every command's `--help` now includes its JSON output contract. Help derives
   result fields/types from the bundled conformance schema and root help derives
   error exit codes from the CLI mapping.
   Removed the duplicated Markdown protocol reference; repository access is no
   longer needed to discover the JSON interface.
+- Replace `groove finish` with `groove release --save`. Saving still pins a
+  local snapshot before release, retains the reservation on capture failure,
+  and supports durable retries by lease ID. Plain `release` keeps its existing
+  behavior. `--description` and `--max-file-bytes` require `--save`; the default
+  description is now `workspace saved`. Update scripts to use the new syntax;
+  JSON success results retain their existing shapes.
 
 ### Fixed
 

@@ -12,7 +12,7 @@ All linked worktrees share this catalog. Interrupted and deleted pools remain
 listed so their recovery state and retained history can be found.
 
 Capacity, cleanup, checkout roots, task labels, request keys, caches, history and
-finish receipts are scoped to each pool. Keys stay tombstoned across reinit of
+saved-release receipts are scoped to each pool. Keys stay tombstoned across reinit of
 that same pool. Snapshots, branches, Git objects and repository configuration are
 shared. Pools are not security sandboxes; slot numbers and derived project ports
 are pool-local. Managed commands receive GROOVE_POOL for explicit workflow use.

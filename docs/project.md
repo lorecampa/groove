@@ -2,7 +2,7 @@
 
 Groove provides permanent workspace slots for successive developer and agent tasks.
 Acquire protects a verified checkout; explicit setup makes it ready; managed commands
-run in it; finish preserves a result before the slot becomes reusable. Stable paths,
+run in it; `release --save` preserves a result before the slot becomes reusable. Stable paths,
 independent artifacts and recoverable task generations are the product's foundation.
 Each reservation can carry a task name (`acquire --task`) that later commands use
 to find it, while the slot itself stays a permanent, reusable environment.
@@ -89,7 +89,7 @@ configuration and compatibility inputs immediately before execution, without
 implicitly running setup. Reacquisition never inherits an earlier task's readiness.
 
 The setup supervisor retains the execution lock during cache operations and between
-steps. Live setup blocks release/finish/recovery. `stop` also cancels cache work and
+steps. Live setup blocks release/recovery. `stop` also cancels cache work and
 cache-lock contention; it keeps protection. SIGKILL leaves `preparing` and may leave
 an orphan execution record. Stop all writers, use `recover` if required, then retry.
 Age, a missing PID, or an existing directory never imply readiness or ownership.
@@ -194,12 +194,12 @@ The Codex example follows its [noninteractive invocation](https://learn.chatgpt.
 ## Getting results out
 
 ```sh
-groove finish --task issue-42
+groove release --save --task issue-42
 groove snapshot restore SNAPSHOT_ID --to ../recovered
 ```
 
-Finish captures and pins a snapshot before releasing the reservation. Capture
-failure retains protection. Retrying finish by lease ID returns the saved result,
+`release --save` captures and pins a snapshot before releasing the reservation. Capture
+failure retains protection. Retrying release --save by lease ID returns the saved result,
 even after slot reuse. Restore the snapshot into a new directory to recover its
 files and staging state without changing the successor's workspace. Nothing is
 pushed or merged.

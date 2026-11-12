@@ -585,7 +585,7 @@
       ],
       "type": "object"
     },
-    "finish_result": {
+    "saved_release_result": {
       "type": "object",
       "required": [
         "release",
@@ -1704,7 +1704,7 @@
               "$ref": "#/$defs/recover_result"
             },
             {
-              "$ref": "#/$defs/finish_result"
+              "$ref": "#/$defs/saved_release_result"
             },
             {
               "$ref": "#/$defs/pool_result"
@@ -1813,9 +1813,6 @@
       "execution_result",
       "preparation_result"
     ],
-    "finish": [
-      "finish_result"
-    ],
     "help": [
       "text"
     ],
@@ -1842,7 +1839,8 @@
       "recover_result"
     ],
     "release": [
-      "release"
+      "release",
+      "saved_release_result"
     ],
     "show": [
       "pool_result",

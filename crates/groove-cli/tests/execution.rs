@@ -127,18 +127,19 @@ fn captures_output_preserves_worker_exit_and_keeps_reservation() {
 }
 
 #[test]
-fn live_execution_blocks_release_finish_and_recovery_until_stop() {
+fn live_execution_blocks_release_with_or_without_save_and_recovery_until_stop() {
     let repo = Repo::new();
     let lease = reserve(&repo);
     let id = lease["lease_id"].as_str().unwrap();
     let worker = start(&repo, id, "echo ready > ready; while :; do sleep 1; done");
     wait_file(&repo.slot(1).join("ready"));
     // The running worker is seen as a process using the workspace ...
-    for operation in ["release", "finish"] {
-        let out = cli(&repo, &[operation, "--lease-id", id]);
-        assert!(!out.status.success(), "{operation}");
+    for mut args in [vec!["release"], vec!["release", "--save"]] {
+        args.extend(["--lease-id", id]);
+        let out = cli(&repo, &args);
+        assert!(!out.status.success(), "{args:?}");
         let error = checked(&out)["error"].clone();
-        assert_eq!(error["code"], "WORKSPACE_IN_USE", "{operation}");
+        assert_eq!(error["code"], "WORKSPACE_IN_USE", "{args:?}");
         assert!(error["details"]["processes"]
             .as_array()
             .is_some_and(|p| !p.is_empty()));
@@ -146,7 +147,7 @@ fn live_execution_blocks_release_finish_and_recovery_until_stop() {
     // ... and --force never bypasses the managed-execution lock.
     for args in [
         vec!["release", "--force", "--lease-id", id],
-        vec!["finish", "--force", "--lease-id", id],
+        vec!["release", "--save", "--force", "--lease-id", id],
         vec!["recover", "--lease-id", id],
     ] {
         let out = cli(&repo, &args);
@@ -286,8 +287,9 @@ fn failed_group_teardown_preserves_results_and_requires_explicit_recovery() {
         String::from_utf8_lossy(&out.stderr)
     );
     member.wait().unwrap();
-    for operation in ["release", "finish"] {
-        let out = cli(&repo, &[operation, "--force", "--lease-id", id]);
+    for mut args in [vec!["release"], vec!["release", "--save"]] {
+        args.extend(["--force", "--lease-id", id]);
+        let out = cli(&repo, &args);
         assert_eq!(checked(&out)["error"]["code"], "INVALID_LEASE");
     }
     assert!(!cli(&repo, &["acquire"]).status.success());
@@ -427,16 +429,23 @@ fn request_keys_retry_across_processes_and_finish_receipts_survive_reuse() {
     assert_eq!(assert_success(&again)["result"]["lease_id"], id);
     let failed = cli(
         &repo,
-        &["finish", "--lease-id", id, "--max-file-bytes", "1"],
+        &[
+            "release",
+            "--save",
+            "--lease-id",
+            id,
+            "--max-file-bytes",
+            "1",
+        ],
     );
     assert!(!failed.status.success());
-    let out = cli(&repo, &["finish", "--lease-id", id]);
+    let out = cli(&repo, &["release", "--save", "--lease-id", id]);
     assert_success(&out);
     let result = checked(&out)["result"].clone();
     assert_eq!(result["snapshot"]["pinned"], true);
     let next = assert_success(&cli(&repo, &["acquire"]))["result"].clone();
     assert_eq!(
-        assert_success(&cli(&repo, &["finish", "--lease-id", id]))["result"],
+        assert_success(&cli(&repo, &["release", "--save", "--lease-id", id]))["result"],
         result
     );
     assert!(!cli(

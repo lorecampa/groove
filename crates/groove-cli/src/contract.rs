@@ -215,12 +215,18 @@ mod tests {
     fn every_command_has_resolvable_output_types() {
         let schema = schema();
         let mapping = schema["x-groove-command-results"].as_object().unwrap();
-        fn visit(command: &clap::Command, prefix: &str, mapping: &serde_json::Map<String, Value>) {
+        fn visit(
+            command: &clap::Command,
+            prefix: &str,
+            mapping: &serde_json::Map<String, Value>,
+            paths: &mut BTreeSet<String>,
+        ) {
             let name = if prefix.is_empty() {
                 command.get_name().to_owned()
             } else {
                 format!("{prefix} {}", command.get_name())
             };
+            paths.insert(name.clone());
             if command.get_subcommands().next().is_none() || name == "history" {
                 assert!(
                     mapping.contains_key(&name),
@@ -228,13 +234,18 @@ mod tests {
                 );
             }
             for child in command.get_subcommands() {
-                visit(child, &name, mapping);
+                visit(child, &name, mapping, paths);
             }
         }
+        let mut paths = BTreeSet::new();
         for command in Args::command().get_subcommands() {
-            visit(command, "", mapping);
+            visit(command, "", mapping, &mut paths);
         }
         for (command, definitions) in mapping {
+            assert!(
+                paths.contains(command) || ["help", "version"].contains(&command.as_str()),
+                "stale output contract for {command}"
+            );
             assert!(!definitions.as_array().unwrap().is_empty(), "{command}");
             for name in definitions.as_array().unwrap() {
                 let mut pending = VecDeque::from([name.as_str().unwrap().to_owned()]);

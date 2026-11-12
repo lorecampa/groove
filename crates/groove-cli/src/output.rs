@@ -191,7 +191,7 @@ pub fn emit_error(
 fn error_hint(error: &Error, args: Option<&crate::args::Args>) -> Option<String> {
     let hint = match error.code {
         ErrorCode::UnsavedChanges if args.is_some_and(|args| matches!(args.command, crate::args::Command::Destroy { .. })) => Some(
-            "Export any wanted residual files from the reported path before deletion, including ignored caches (snapshots exclude them). Then preview `groove destroy --discard-changes --dry-run` and repeat without --dry-run to acknowledge their loss. Released tasks cannot be finished again to save new files.",
+            "Export any wanted residual files from the reported path before deletion, including ignored caches (snapshots exclude them). Then preview `groove destroy --discard-changes --dry-run` and repeat without --dry-run to acknowledge their loss. Released tasks cannot save new files through a release retry.",
         ),
         ErrorCode::InvalidLease if error.retryable => Some(
             "The execution lock may be held by maintenance or a worker. Retry the same operation with the original lease ID after contention clears. Inspect `groove show` with your selector; only stop/recover a managed execution if one is recorded. Never remove locks or protection.",
@@ -212,7 +212,7 @@ fn error_hint(error: &Error, args: Option<&crate::args::Args>) -> Option<String>
             "Inspect `groove list --slots` and `groove show` with your selector. If a managed run is present, request `groove stop` with that selector; for orphan recovery, stop every writer first and follow `groove recover --help`. Never delete lock or protection files.",
         ),
         ErrorCode::UnsavedChanges => Some(
-            "Preserve the changes before releasing. Stop all writers, then use `groove finish` with the same --task or --lease-id to save a snapshot and release the workspace.",
+            "Preserve the changes before releasing. Stop all writers, then use `groove release --save` with the same --task or --lease-id to save a snapshot and release the workspace.",
         ),
         ErrorCode::WorkspaceInUse => Some(
             "Stop the reported processes and all other workspace writers, then retry. For a managed run, use `groove stop` with the same selector and inspect until its execution record clears.",

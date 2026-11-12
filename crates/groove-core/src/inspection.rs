@@ -130,7 +130,7 @@ fn advice(
         ),
         (_, _, Some(PreparationStatus::Ready)) => (
             "Project setup completed for this reservation; named commands revalidate its definition",
-            "Run a task; finish after preserving results and stopping writers",
+            "Run a task; release after preserving results and stopping writers",
         ),
         (_, _, Some(PreparationStatus::Failed)) => (
             "Project setup failed; the reservation remains protected",
@@ -138,7 +138,7 @@ fn advice(
         ),
         (SlotStatus::Reserved, _, None) => (
             "Reserved checkout; project setup has not been requested",
-            "Explicitly run setup or a task; finish after saving results and stopping writers",
+            "Explicitly run setup or a task; release after saving results and stopping writers",
         ),
         (SlotStatus::Locked, _, None) => (
             "A descriptor owner is using or preparing this workspace",

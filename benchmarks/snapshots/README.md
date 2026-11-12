@@ -96,7 +96,7 @@ Multi-pool workers reuse task labels/request keys across namespaces, verify dist
 IDs/paths and the selected worker environment, and exhaust each pool independently.
 Their first registration measurements are separate from warm batch throughput.
 Deletion cases verify every configured path/native registration is removed and
-permanent lock inodes, snapshot recovery, finish receipts, request-key tombstones,
+permanent lock inodes, snapshot recovery, saved-release receipts, request-key tombstones,
 history/log bytes, root neighbors and a protected sibling survive. The external-cache
 case prepares 64 4 KiB files plus a 1 MiB artifact with the real setup/cache API;
 the dirty cases add tracked/untracked edits and 128 ignored files per slot. Fixture

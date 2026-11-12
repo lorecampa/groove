@@ -97,7 +97,7 @@ pub struct Snapshot {
     pub untracked_blob: String,
     /// Optional caller task or session identifier.
     pub session: Option<String>,
-    /// Whether `finish` pinned this snapshot; deleting it then requires `force`.
+    /// Whether `release --save` pinned this snapshot; deleting it then requires `force`.
     #[serde(default)]
     pub pinned: bool,
 }
@@ -703,7 +703,7 @@ impl Snapshots {
         self.capture(&options, &lock, true)
     }
     /// Pin a checkpoint with a dedicated reference, so `delete` requires `force`.
-    /// `finish` pins the snapshot it saves before releasing a workspace.
+    /// `release --save` pins the snapshot it saves before releasing a workspace.
     pub(crate) fn pin(&self, id: &str) -> Result<()> {
         let lock = self.lock()?;
         let s = self.load(id)?;
@@ -716,7 +716,7 @@ impl Snapshots {
         let s = self.load(id)?;
         if s.pinned && !force {
             return Err(invalid(
-                "Snapshot is pinned by finish; pass --force to delete it",
+                "Snapshot is pinned by release --save; pass --force to delete it",
             ));
         }
         let reference = self.reference(id)?;

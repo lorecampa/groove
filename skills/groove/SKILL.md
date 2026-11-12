@@ -1,6 +1,6 @@
 ---
 name: groove
-description: Use Groove's reusable Git worktrees when the user requests Groove or repository instructions require pooled task workspaces. Acquire or reuse the assigned reservation, preserve results, and hand off or finish safely. Also use for Groove reservation retries and recovery; ordinary Git work does not require Groove.
+description: Use Groove's reusable Git worktrees when the user requests Groove or repository instructions require pooled task workspaces. Acquire or reuse the assigned reservation, preserve results, and hand off or release safely. Also use for Groove reservation retries and recovery; ordinary Git work does not require Groove.
 license: MIT OR Apache-2.0
 ---
 
@@ -20,7 +20,7 @@ repository policy.
 - **Coordinator:** you are responsible for acquiring and eventually finishing
   the task's reservation, including stopping delegated workers.
 - **Assigned worker:** a coordinator already supplied a checkout, lease ID and
-  pool. Work in that assignment; do not acquire another slot or finish/release
+  pool. Work in that assignment; do not acquire another slot or release
   it. Report results and stop your writers before returning to the coordinator.
   Separately assigned tasks can have their own reservations.
 
@@ -77,7 +77,7 @@ For reviewed project setup, recipes or agent adapters, read
 ## Preserve and hand off
 
 An assigned worker reports its changes, checks and remaining processes, then
-returns without releasing the reservation. It must not finish from inside its
+returns without releasing the reservation. It must not release from inside its
 own managed execution: the coordinator waits for that execution to end first.
 
 A coordinator finishing the task must:
@@ -90,7 +90,7 @@ A coordinator finishing the task must:
 3. Preserve the result and release:
 
    ```sh
-   groove --json --pool default finish --lease-id LEASE_ID --description 'parser fix'
+   groove --json --pool default release --save --lease-id LEASE_ID --description 'parser fix'
    ```
 
    Retain the pinned snapshot ID from `result.snapshot.id`. Recover files and staging state with
@@ -98,7 +98,7 @@ A coordinator finishing the task must:
 
 If review requires a live checkout, keep the reservation and report it instead
 of finishing. Once released, never use the old path: the next task can erase it.
-`release` does not save a snapshot. Nothing is merged or pushed automatically.
+Without `--save`, `release` does not save a snapshot. Nothing is merged or pushed automatically.
 
 `WORKSPACE_IN_USE` means inspect/stop writers, not use `--force`. Failed saving
 or teardown means **leave protection intact** and report the recovery needed.
@@ -106,10 +106,10 @@ Never delete locks, protection or execution records. Reservations never expire.
 
 ## Retry, recover and report
 
-For a lost response, conflicting label, blocked finish or orphan execution,
+For a lost response, conflicting label, blocked `release --save` or orphan execution,
 read [references/recovery.md](references/recovery.md). Retry finalization with
 its original **lease ID and pool**, never a reusable task label. Stale IDs cannot
-release a successor; finish receipts survive slot reuse.
+release a successor; saved-release receipts survive slot reuse.
 
 Report the task/pool, verification results and one explicit final state:
 reservation retained with path/lease ID, handed back to its coordinator, or

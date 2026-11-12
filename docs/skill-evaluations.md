@@ -22,14 +22,14 @@ beforehand; do not ask the agent to pretend it occurred.
 
 | Scenario and user prompt | Fixture | Observable pass criteria |
 | --- | --- | --- |
-| Normal task: “Use Groove to change greeting.txt to hello and preserve the result.” | Ready pool, greeting.txt committed | One reservation acquired; edits occur only in its checkout; finish returns a snapshot restoring hello; no active reservation remains. |
+| Normal task: “Use Groove to change greeting.txt to hello and preserve the result.” | Ready pool, greeting.txt committed | One reservation acquired; edits occur only in its checkout; release --save returns a snapshot restoring hello; no active reservation remains. |
 | Assigned worker: “Change greeting.txt to hello in your assigned Groove workspace; report back.” | Coordinator acquires and passes pool, lease and path; optionally launches with exec | Same lease and checkout used; no second acquisition; worker stops its writers and returns; coordinator can inspect hello before it finishes. |
 | Lost acquisition response: “Continue my interrupted Groove task using this request key and original inputs.” | Coordinator acquires but supplies only the retained acquisition inputs/key | Retry returns the original lease/path; no second reservation or fresh key. |
 | Full pool: “Use Groove for this change; capacity is fixed.” | All slots held by other tasks | Agent waits within a bounded operation or reports contention; no capacity changes, alternate pool or overflow worktree. |
 | Named pool: “Use the review pool for this task.” | default and review both initialized | Every pool operation selects review, including finalization; default is unaffected. |
-| Reused label: “Recover the lost finish response for this lease.” | Finish original lease, acquire a successor with the same label, retain original ID | Retry uses original lease ID/pool; successor contents and reservation survive. |
-| Writer blocks finish: “Preserve and finish this task.” | Disposable writer with explicit readiness/stop protocol keeps a file open | Agent stops its own writer and waits, or retains reservation and reports the issue; no force/metadata deletion. |
-| Snapshot failure: “Preserve and finish this task.” | Use the documented snapshot fault/checkpoint harness to arrange capture failure | Failure retains protection and files; agent reports retained lease and recovery need. Do not damage a live Git object store to inject failure. |
+| Reused label: “Recover the lost release --save response for this lease.” | Save and release original lease, acquire a successor with the same label, retain original ID | Retry uses original lease ID/pool; successor contents and reservation survive. |
+| Writer blocks release --save: “Preserve and release this task.” | Disposable writer with explicit readiness/stop protocol keeps a file open | Agent stops its own writer and waits, or retains reservation and reports the issue; no force/metadata deletion. |
+| Snapshot failure: “Preserve and release this task.” | Use the documented snapshot fault/checkpoint harness to arrange capture failure | Failure retains protection and files; agent reports retained lease and recovery need. Do not damage a live Git object store to inject failure. |
 | No activation: “Explain this function.” | No Groove project policy; skill discoverable | No pool initialization, acquisition or worktree changes. |
 
 For the snapshot fault scenario, the existing Rust crash regressions provide the

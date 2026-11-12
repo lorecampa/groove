@@ -9,7 +9,7 @@ Snapshots save staged and working files, including deletions, modes, symlinks
 and non-ignored untracked files, without moving HEAD or touching the real index.
 Ignored files, empty folders and special files (pipes, sockets and devices) are
 excluded. Special files are not ordinary Git untracked content; export required
-artifacts separately before finish. No pool, remote or first commit is
+artifacts separately before release --save. No pool, remote or first commit is
 required. Stop writers first: capture detects common races but is not atomic.
 Actual bytes, executable bits and symlinks are preserved independently of Git's
 autocrlf/filemode/symlinks preferences. User ignore rules still apply.
@@ -21,7 +21,7 @@ content-converting attributes, intent-to-add and manual index flags are rejected
 Unused filter definitions, such as a global Git LFS installation, are harmless.
 Concurrent saves wait for the shared lock up to --git-timeout-ms (default 120000).
 
-Snapshots pinned by `finish` need `delete --force`. Deleting removes the ref;
+Snapshots pinned by `release --save` need `delete --force`. Deleting removes the ref;
 Git reclaims the space during its normal garbage collection.
 
 snapshot list --limit 20 --offset 20 bounds the returned page; defaults list all.
