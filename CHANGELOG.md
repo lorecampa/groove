@@ -39,6 +39,8 @@
 
 ### Added
 
+- Contributor coding, commit and review conventions, with PR prompts for concrete
+  validation evidence and compatibility or recovery effects.
 - Local advisory/source/license/review gates, an opt-in weekly security workflow,
   and bounded identifier/project parser fuzzing with an isolated lockfile.
   Exact-version Cargo Vet bootstrap exemptions explicitly record the review backlog.
