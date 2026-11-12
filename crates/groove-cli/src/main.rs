@@ -2,13 +2,14 @@
 
 mod args;
 mod commands;
+mod contract;
 mod logging;
 mod output;
 mod preferences;
 mod terminal;
 
 use args::{Args, Command};
-use clap::{error::ErrorKind, CommandFactory, Parser};
+use clap::{error::ErrorKind, FromArgMatches};
 use groove_core::{Error, ErrorCode, ExecutionSignals};
 use output::Format;
 use std::{process::ExitCode, time::Duration};
@@ -38,11 +39,11 @@ impl Partial {
                 })
                 .map(str::to_owned)
         });
-        let verbose = Args::command()
+        let verbose = crate::contract::command()
             .ignore_errors(true)
             .try_get_matches_from(raw)
             .map_or(0, |m| m.get_count("verbose"));
-        let quiet = Args::command()
+        let quiet = crate::contract::command()
             .ignore_errors(true)
             .try_get_matches_from(raw)
             .is_ok_and(|m| m.get_flag("quiet"));
@@ -66,7 +67,10 @@ fn requested_format(json_flag: bool) -> Format {
 
 fn main() -> ExitCode {
     let raw: Vec<_> = std::env::args_os().collect();
-    match Args::try_parse_from(&raw) {
+    match crate::contract::command()
+        .try_get_matches_from(&raw)
+        .and_then(|matches| Args::from_arg_matches(&matches))
+    {
         Ok(args) => ExitCode::from(run(&args)),
         Err(error) => ExitCode::from(reject(&raw, &error)),
     }

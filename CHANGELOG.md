@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Every command's `--help` now includes its JSON output contract. Help derives
+  result fields/types from the bundled conformance schema and root help derives
+  error exit codes from the CLI mapping.
+  Removed the duplicated Markdown protocol reference; repository access is no
+  longer needed to discover the JSON interface.
+
 ### Fixed
 
 - Agent installation instructions use the latest published CLI and let the

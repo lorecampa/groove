@@ -2,7 +2,7 @@
 
 `groove snapshot save` saves checkpoints without moving HEAD or changing working
 files or the real Git index. No pool initialization, remote, or first commit is
-needed. With `--json`, results use the normal envelope (see [protocol](protocol.md)).
+needed. Each snapshot command's `--help` explains its JSON envelope and result fields.
 
 Use `groove snapshot --help` and each subcommand's `--help` for command options,
 defaults and examples. This guide explains capture, recovery and retention.

@@ -1,0 +1,20 @@
+
+JSON OUTPUT CONTRACT (--json or GROOVE_OUTPUT=json):
+  Without JSON mode, stdout is human-readable and errors go to stderr.
+  Success: {"api_version":1,"request_id":null,"ok":true,"result":{...}}
+  Failure: {"api_version":1,"request_id":null,"ok":false,"error":{...}}
+  request_id is the supplied correlation string, or null. Success has result
+  and no error; failure has error and no result. Help/version use result.text.
+  Exactly one newline-terminated object is written to stdout. Stderr can contain
+  diagnostics and worker output; --quiet retains errors and captured worker logs.
+  A failed output stream, SIGKILL or OOM may prevent a complete response.
+  Reject unknown api_version values; accept additive fields. The v1 interface is
+  in development. Ordinary success exits 0. Check both ok AND exit status:
+  exec/setup can return ok:true
+  with a nonzero worker status. Timeout exits 124; cancellation 128+signal;
+  output limit 1. storage clean returns ok:true/exit 7 for per-entry failures.
+  Branch on error.code, not message/hint. retryable:true permits retry after
+  contention clears; details may retain lease/worktree, saved snapshot or run IDs.
+  Observations never grant ownership. Keep the same pool and lease ID on retries.
+  For lost acquisition responses, keep the original request key, task and base.
+  Result fields/types below are generated from the bundled conformance schema.

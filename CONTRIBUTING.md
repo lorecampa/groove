@@ -23,7 +23,7 @@ rendering (human text and `--json`) and exit codes, with one handler per command
 under `crates/groove-cli/src/commands/` and long help in `crates/groove-cli/help/`.
 Keep unsafe syscall boundaries small and document each safety
 argument. Changes to ownership/recovery need real-process regression tests.
-Protocol changes must update documentation, schemas and conformance tests together.
+Protocol changes must update CLI help, schemas and conformance tests together.
 Do not introduce implicit task execution, a system-wide daemon, or automatic
 result publishing into v1. All tests must use disposable repositories.
 
@@ -46,9 +46,11 @@ Public APIs require rustdoc, including ownership and error behavior. Keep descri
 alive explicitly; dropping an unprotected lease closes its descriptor. Durable
 protection survives handle closure and requires stopped-writer release.
 CLI help owns command syntax, options, defaults and command-specific recovery.
-Keep the README focused on installation and the basic workflow; guides explain
-concepts and operational boundaries. Update help, schemas and protocol contracts
-with behavior changes, and link to them instead of copying their reference tables.
+Keep the API contract in installed help and the bundled schema, not duplicated
+Markdown command/response tables. Keep the README focused on installation and the
+basic workflow; guides explain concepts and operational boundaries. Update help,
+schemas and conformance tests with behavior changes, and link to them instead of
+copying their reference tables.
 Document user-visible changes in [CHANGELOG.md](CHANGELOG.md). Use the
 [release checklist](docs/releasing.md) before publishing.
 

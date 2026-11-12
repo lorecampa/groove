@@ -30,23 +30,6 @@ Pool commands use default unless --pool NAME is given, from every checkout.
 Task labels/keys and capacity are pool-local; snapshots and branches are shared.
 Destroy requires an explicit selection when several pools exist; see pools --help.
 
-OUTPUT:
-  Human-readable text by default; errors go to stderr.
-  --json (or GROOVE_OUTPUT=json) prints exactly one versioned JSON object on
-  stdout for every outcome, including help, version and argument errors:
-  {"api_version":1,"ok":...}.
-  Exit 0: success; 2: arguments/unsupported; 3: capacity/wait;
-  4: uninitialized/configuration conflict/revision; 5: invalid/stale lease,
-  unsaved changes or workspace in use;
-  6: recovery/unhealthy pool; 7: I/O/Git/protocol.
-  exec and setup exit with the worker's status: 124 on timeout, 128+signal when
-  cancelled or killed, 1 when output exceeded its limit.
-  storage clean exits 7 if any per-run removal failed; inspect its report.
-  Stderr shows warnings, errors and live worker output in either output mode.
-  -v adds info diagnostics; -vv adds debug; -vvv adds trace.
-  --quiet hides warnings, progress and worker output, retaining errors/results.
-  Quiet and verbose conflict. Saved logs are independent of terminal verbosity.
-
 Linux or macOS 13+, Git 2.40+, local storage (APFS on macOS).
 Run groove COMMAND --help for examples,
 defaults and recovery rules.

@@ -2,7 +2,7 @@
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before editing. Use
 [architecture](docs/architecture.md) for ownership and locking changes,
-[protocol](docs/protocol.md) and [schemas](schemas/) for CLI changes,
+command `--help`, CLI help sources and [schemas](schemas/) for CLI changes,
 [snapshots](docs/snapshots.md) for checkpoints, and
 [testing](docs/testing.md) for regression coverage and known limitations.
 Follow its test-writing practices: assert intent and observable contracts, choose
@@ -37,7 +37,7 @@ this file describes developing it.
 - Every CLI command and option needs useful help. Include examples, defaults,
   destructive effects and recovery rules where relevant. Keep README concise;
   teach detailed usage through `--help` at each command level.
-- Update schemas, protocol docs and conformance tests together when wire behavior
+- Update schemas, installed help and conformance tests together when wire behavior
   changes. Record user-visible changes in `CHANGELOG.md`.
 - Use disposable repositories in tests. Ownership/recovery changes require real
   process regressions, including failure paths. Never benchmark or destructively

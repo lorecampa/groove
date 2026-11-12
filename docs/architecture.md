@@ -1,7 +1,8 @@
 # Architecture
 
 Groove provides repository-local pools of reusable Git worktrees. The development
-protocol is v1; [protocol](protocol.md) defines its wire contract and
+protocol is v1; each command's `--help` derives its output contract from the
+bundled response schema, and
 [testing](testing.md) records validation boundaries.
 
 ## Identity and ownership

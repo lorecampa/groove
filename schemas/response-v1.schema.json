@@ -1,23 +1,76 @@
 {
   "$defs": {
-    "pool_name": {"type": "string", "pattern": "^[a-z][a-z0-9_-]{0,63}$"},
+    "pool_name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+    },
     "pools_result": {
       "type": "object",
-      "required": ["pools"],
+      "required": [
+        "pools"
+      ],
       "properties": {
         "pools": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["name", "pool_id", "phase", "state_dir", "capacity", "cleanup_policy", "worktree_root"],
+            "required": [
+              "name",
+              "pool_id",
+              "phase",
+              "state_dir",
+              "capacity",
+              "cleanup_policy",
+              "worktree_root"
+            ],
             "properties": {
-              "name": {"$ref": "#/$defs/pool_name"},
-              "pool_id": {"anyOf": [{"$ref": "#/$defs/uuid"}, {"type": "null"}]},
-              "phase": {"enum": ["initializing", "ready", "deleting", "deleted"]},
-              "state_dir": {"type": "string", "pattern": "^/"},
-              "capacity": {"type": ["integer", "null"], "minimum": 1, "maximum": 4096},
-              "cleanup_policy": {"enum": ["pristine", "warm", null]},
-              "worktree_root": {"type": ["string", "null"], "pattern": "^/"}
+              "name": {
+                "$ref": "#/$defs/pool_name"
+              },
+              "pool_id": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/uuid"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "phase": {
+                "enum": [
+                  "initializing",
+                  "ready",
+                  "deleting",
+                  "deleted"
+                ]
+              },
+              "state_dir": {
+                "type": "string",
+                "pattern": "^/"
+              },
+              "capacity": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 1,
+                "maximum": 4096
+              },
+              "cleanup_policy": {
+                "enum": [
+                  "pristine",
+                  "warm",
+                  null
+                ]
+              },
+              "worktree_root": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^/"
+              }
             }
           }
         }
@@ -25,23 +78,71 @@
     },
     "destruction_result": {
       "type": "object",
-      "required": ["destruction"],
+      "required": [
+        "destruction"
+      ],
       "properties": {
         "destruction": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["pool_id", "dry_run", "deleted", "already_deleted", "resumed", "state_dir", "worktree_root", "slots", "artifacts"],
+          "required": [
+            "pool_id",
+            "dry_run",
+            "deleted",
+            "already_deleted",
+            "resumed",
+            "state_dir",
+            "worktree_root",
+            "slots",
+            "artifacts"
+          ],
           "properties": {
-            "pool_name": {"$ref": "#/$defs/pool_name"},
-            "pool_id": {"anyOf": [{"$ref": "#/$defs/uuid"}, {"type": "null"}]},
-            "dry_run": {"type": "boolean"},
-            "deleted": {"type": "boolean"},
-            "already_deleted": {"type": "boolean"},
-            "resumed": {"type": "boolean"},
-            "state_dir": {"type": "string", "pattern": "^/"},
-            "worktree_root": {"type": "string", "pattern": "^/"},
-            "slots": {"type": "array", "items": {"$ref": "#/$defs/slot"}},
-            "artifacts": {"type": "array", "items": {"type": "string", "pattern": "^/"}}
+            "pool_name": {
+              "$ref": "#/$defs/pool_name"
+            },
+            "pool_id": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "dry_run": {
+              "type": "boolean"
+            },
+            "deleted": {
+              "type": "boolean"
+            },
+            "already_deleted": {
+              "type": "boolean"
+            },
+            "resumed": {
+              "type": "boolean"
+            },
+            "state_dir": {
+              "type": "string",
+              "pattern": "^/"
+            },
+            "worktree_root": {
+              "type": "string",
+              "pattern": "^/"
+            },
+            "slots": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/slot"
+              }
+            },
+            "artifacts": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^/"
+              }
+            }
           }
         }
       }
@@ -234,8 +335,13 @@
         "details": {
           "type": "object",
           "properties": {
-            "program": {"type": "string"},
-            "run_id": {"type": "string", "format": "uuid"},
+            "program": {
+              "type": "string"
+            },
+            "run_id": {
+              "type": "string",
+              "format": "uuid"
+            },
             "path": {
               "type": "string"
             },
@@ -496,7 +602,9 @@
     },
     "init": {
       "properties": {
-        "pool_name": {"$ref": "#/$defs/pool_name"},
+        "pool_name": {
+          "$ref": "#/$defs/pool_name"
+        },
         "capacity": {
           "maximum": 4096,
           "minimum": 1,
@@ -881,77 +989,19 @@
     "snapshot_result": {
       "anyOf": [
         {
-          "type": "object",
-          "required": [
-            "snapshot"
-          ],
-          "properties": {
-            "snapshot": {
-              "$ref": "#/$defs/snapshot"
-            }
-          }
+          "$ref": "#/$defs/snapshot_one_result"
         },
         {
-          "type": "object",
-          "required": [
-            "snapshots"
-          ],
-          "properties": {
-            "snapshots": {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/snapshot"
-              }
-            }
-          }
+          "$ref": "#/$defs/snapshots_result"
         },
         {
-          "type": "object",
-          "required": [
-            "patch"
-          ],
-          "properties": {
-            "patch": {
-              "type": "string"
-            }
-          }
+          "$ref": "#/$defs/snapshot_diff_result"
         },
         {
-          "type": "object",
-          "required": [
-            "path",
-            "snapshot_id",
-            "safety_snapshot_id"
-          ],
-          "properties": {
-            "path": {
-              "type": "string"
-            },
-            "snapshot_id": {
-              "$ref": "#/$defs/uuid"
-            },
-            "safety_snapshot_id": {
-              "anyOf": [
-                {
-                  "type": "null"
-                },
-                {
-                  "$ref": "#/$defs/uuid"
-                }
-              ]
-            }
-          }
+          "$ref": "#/$defs/snapshot_restore_result"
         },
         {
-          "type": "object",
-          "required": [
-            "deleted"
-          ],
-          "properties": {
-            "deleted": {
-              "$ref": "#/$defs/uuid"
-            }
-          }
+          "$ref": "#/$defs/snapshot_delete_result"
         }
       ]
     },
@@ -1035,7 +1085,9 @@
     "pool_settings": {
       "type": "object",
       "properties": {
-        "pool_name": {"$ref": "#/$defs/pool_name"},
+        "pool_name": {
+          "$ref": "#/$defs/pool_name"
+        },
         "capacity": {
           "type": "integer",
           "minimum": 1,
@@ -1329,43 +1381,13 @@
     "history_result": {
       "oneOf": [
         {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "runs"
-          ],
-          "properties": {
-            "runs": {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/run_history"
-              }
-            }
-          }
+          "$ref": "#/$defs/history_list_result"
         },
         {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "run"
-          ],
-          "properties": {
-            "run": {
-              "$ref": "#/$defs/run_history"
-            }
-          }
+          "$ref": "#/$defs/history_show_result"
         },
         {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "deleted_run_id"
-          ],
-          "properties": {
-            "deleted_run_id": {
-              "$ref": "#/$defs/uuid"
-            }
-          }
+          "$ref": "#/$defs/history_delete_result"
         }
       ]
     },
@@ -1510,6 +1532,118 @@
           }
         }
       }
+    },
+    "snapshot_one_result": {
+      "type": "object",
+      "required": [
+        "snapshot"
+      ],
+      "properties": {
+        "snapshot": {
+          "$ref": "#/$defs/snapshot"
+        }
+      }
+    },
+    "snapshots_result": {
+      "type": "object",
+      "required": [
+        "snapshots"
+      ],
+      "properties": {
+        "snapshots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/snapshot"
+          }
+        }
+      }
+    },
+    "snapshot_diff_result": {
+      "type": "object",
+      "required": [
+        "patch"
+      ],
+      "properties": {
+        "patch": {
+          "type": "string"
+        }
+      }
+    },
+    "snapshot_restore_result": {
+      "type": "object",
+      "required": [
+        "path",
+        "snapshot_id",
+        "safety_snapshot_id"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "snapshot_id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "safety_snapshot_id": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/uuid"
+            }
+          ]
+        }
+      }
+    },
+    "snapshot_delete_result": {
+      "type": "object",
+      "required": [
+        "deleted"
+      ],
+      "properties": {
+        "deleted": {
+          "$ref": "#/$defs/uuid"
+        }
+      }
+    },
+    "history_list_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runs"
+      ],
+      "properties": {
+        "runs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/run_history"
+          }
+        }
+      }
+    },
+    "history_show_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run"
+      ],
+      "properties": {
+        "run": {
+          "$ref": "#/$defs/run_history"
+        }
+      }
+    },
+    "history_delete_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "deleted_run_id"
+      ],
+      "properties": {
+        "deleted_run_id": {
+          "$ref": "#/$defs/uuid"
+        }
+      }
     }
   },
   "$id": "https://github.com/lorecampa/groove/schemas/response-v1.schema.json",
@@ -1530,7 +1664,9 @@
             {
               "$ref": "#/$defs/destruction_result"
             },
-            {"$ref": "#/$defs/pools_result"},
+            {
+              "$ref": "#/$defs/pools_result"
+            },
             {
               "$ref": "#/$defs/init"
             },
@@ -1637,5 +1773,112 @@
     "ok"
   ],
   "title": "Groove CLI response v1",
-  "type": "object"
+  "type": "object",
+  "x-groove-command-results": {
+    "acquire": [
+      "lease"
+    ],
+    "completions": [
+      "text"
+    ],
+    "config global edit": [
+      "user_config"
+    ],
+    "config global path": [
+      "user_config"
+    ],
+    "config global set": [
+      "user_config"
+    ],
+    "config global show": [
+      "user_config"
+    ],
+    "config global unset": [
+      "user_config"
+    ],
+    "config project": [
+      "project_result",
+      "text"
+    ],
+    "config set": [
+      "pool_result"
+    ],
+    "config show": [
+      "pool_result"
+    ],
+    "destroy": [
+      "destruction_result"
+    ],
+    "exec": [
+      "execution_result",
+      "preparation_result"
+    ],
+    "finish": [
+      "finish_result"
+    ],
+    "help": [
+      "text"
+    ],
+    "history": [
+      "history_list_result"
+    ],
+    "history delete": [
+      "history_delete_result"
+    ],
+    "history show": [
+      "history_show_result"
+    ],
+    "init": [
+      "init"
+    ],
+    "list": [
+      "leases",
+      "inspection_result"
+    ],
+    "pools": [
+      "pools_result"
+    ],
+    "recover": [
+      "recover_result"
+    ],
+    "release": [
+      "release"
+    ],
+    "show": [
+      "pool_result",
+      "inspection_result",
+      "lease_result",
+      "slot_result"
+    ],
+    "snapshot delete": [
+      "snapshot_delete_result"
+    ],
+    "snapshot diff": [
+      "snapshot_diff_result"
+    ],
+    "snapshot list": [
+      "snapshots_result"
+    ],
+    "snapshot restore": [
+      "snapshot_restore_result"
+    ],
+    "snapshot save": [
+      "snapshot_one_result"
+    ],
+    "snapshot show": [
+      "snapshot_one_result"
+    ],
+    "stop": [
+      "stop_result"
+    ],
+    "version": [
+      "text"
+    ],
+    "storage show": [
+      "storage_result"
+    ],
+    "storage clean": [
+      "cleanup_result"
+    ]
+  }
 }

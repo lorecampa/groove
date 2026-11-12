@@ -85,6 +85,7 @@ retain the lease ID for subsequent retries; see the [agent workflow](docs/agents
 - [Execution and recovery](docs/execution.md): worker ownership, cancellation and logs.
 - [Operations](docs/operations.md): pools, deletion, shared state and supported repositories.
 - [Snapshots](docs/snapshots.md): capture, recovery and retention.
-- [Protocol](docs/protocol.md) and [contributing](CONTRIBUTING.md): integrations and development.
+- `groove COMMAND --help`: inputs, JSON output contracts and recovery for integrations.
+- [Contributing](CONTRIBUTING.md): development and validation.
 
 Licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE).

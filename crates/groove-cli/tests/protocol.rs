@@ -23,6 +23,148 @@ fn check(output: &std::process::Output) -> Value {
     assert!(errors.is_empty(), "{errors:?}: {v}");
     v
 }
+
+#[test]
+fn command_help_exposes_its_output_fields_without_repository_or_preferences() {
+    let temp = tempfile::tempdir().unwrap();
+    let preferences = temp.path().join("config/groove");
+    std::fs::create_dir_all(&preferences).unwrap();
+    std::fs::write(preferences.join("config.toml"), "invalid = [").unwrap();
+    let run = |args: &[&str], json: bool| {
+        support::groove_in(temp.path())
+            .env("XDG_CONFIG_HOME", temp.path().join("config"))
+            .env("GROOVE_OUTPUT", if json { "json" } else { "human" })
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    for (command, fields) in [
+        (
+            vec!["acquire"],
+            vec![
+                "acquire -> result: lease",
+                "lease_id: uuid",
+                "worktree_path: string",
+                "request_key (optional): string",
+            ],
+        ),
+        (
+            vec!["finish"],
+            vec![
+                "finish -> result: finish_result",
+                "release:",
+                "snapshot: snapshot",
+            ],
+        ),
+        (
+            vec!["exec"],
+            vec![
+                "exec -> result: execution_result | preparation_result",
+                "termination:",
+                "exit_code:",
+                "preparation:",
+            ],
+        ),
+        (
+            vec!["snapshot", "restore"],
+            vec![
+                "snapshot restore -> result: snapshot_restore_result",
+                "snapshot_id: uuid",
+                "safety_snapshot_id:",
+            ],
+        ),
+        (
+            vec!["history", "show"],
+            vec![
+                "history show -> result: history_show_result",
+                "run: run_history",
+            ],
+        ),
+    ] {
+        let mut args = command;
+        args.push("--help");
+        let human = run(&args, false);
+        assert!(human.status.success());
+        let human = String::from_utf8(human.stdout).unwrap();
+        for field in fields {
+            assert!(human.contains(field), "{args:?}: missing {field}");
+        }
+        for rule in [
+            "JSON OUTPUT CONTRACT",
+            "error: object",
+            "retryable: boolean",
+            "request_id",
+            "exit status",
+            "api_version",
+        ] {
+            assert!(human.contains(rule), "{args:?}: missing {rule}");
+        }
+        let json = check(&run(&args, true));
+        assert_eq!(json["result"]["text"], human);
+    }
+    let root = run(&["--help"], false);
+    assert!(root.status.success());
+    let root = String::from_utf8(root.stdout).unwrap();
+    for mapping in ["2: INVALID_ARGUMENT", "3: POOL_EXHAUSTED", "7: IO_ERROR"] {
+        assert!(root.contains(mapping));
+    }
+    assert!(!temp.path().join(".git").exists());
+}
+
+#[test]
+fn command_output_types_used_by_help_validate_real_responses() {
+    let repo = Repo::new();
+    let schema: Value =
+        serde_json::from_str(include_str!("../schemas/response-v1.schema.json")).unwrap();
+    let verify = |name: &str, args: &[&str]| {
+        let result = assert_success(&cli(&repo, args));
+        let variants: Vec<_> = schema["x-groove-command-results"][name]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|name| serde_json::json!({"$ref": format!("#/$defs/{}", name.as_str().unwrap())}))
+            .collect();
+        let contract = serde_json::json!({"$schema": schema["$schema"], "$defs": schema["$defs"], "anyOf": variants});
+        let validator = jsonschema::validator_for(&contract).unwrap();
+        let errors: Vec<_> = validator
+            .iter_errors(&result["result"])
+            .map(|error| error.to_string())
+            .collect();
+        assert!(errors.is_empty(), "{name}: {errors:?}");
+        result
+    };
+    verify("init", &["init", "--capacity", "1"]);
+    let lease = verify("acquire", &["acquire", "--task", "contract"]);
+    let id = lease["result"]["lease_id"].as_str().unwrap();
+    verify("exec", &["exec", "--lease-id", id, "--", "true"]);
+    verify("list", &["list"]);
+    verify("show", &["show", "--lease-id", id]);
+    let history = verify("history", &["history"]);
+    let run = history["result"]["runs"][0]["run_id"].as_str().unwrap();
+    verify("history show", &["history", "show", run]);
+    verify("storage show", &["storage", "show"]);
+    let finish = verify("finish", &["finish", "--lease-id", id]);
+    let snapshot = finish["result"]["snapshot"]["id"].as_str().unwrap();
+    verify("snapshot show", &["snapshot", "show", snapshot]);
+    verify("snapshot list", &["snapshot", "list"]);
+    let destination = repo.temp.path().join("restored");
+    verify(
+        "snapshot restore",
+        &[
+            "snapshot",
+            "restore",
+            snapshot,
+            "--to",
+            destination.to_str().unwrap(),
+        ],
+    );
+    verify(
+        "storage clean",
+        &["storage", "clean", "--logs", "--older-than", "0s"],
+    );
+    verify("history delete", &["history", "delete", run]);
+}
+
 #[test]
 fn every_output_path_is_one_json_response() {
     let r = Repo::new();
