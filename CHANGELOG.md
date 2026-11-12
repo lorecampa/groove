@@ -36,6 +36,26 @@ development experiments are omitted.
 
 ### Correctness and validation
 
+- Reftable repositories, `worktree.useRelativePaths` and relative registrations
+  written by `git worktree repair` work; a deleted slot with a relative
+  registration is rebuilt instead of blocking every acquisition.
+- `--base HEAD` (the default) resolves where the command runs, so a linked
+  worktree's caller gets its own commit rather than the main checkout's.
+- Release and finish detach HEAD, so branches created in a slot can be checked
+  out or deleted elsewhere immediately.
+- Task labels are unique among active reservations (a reuse names the existing
+  lease); labels and request keys reject control characters, and human output
+  escapes control characters in stored text.
+- `init` rejects a worktree root inside any checkout, where `git add -A` or
+  `git clean` there would capture or delete pooled work.
+- A reserved checkout deleted outside Groove reports `RECOVERY_FAILED` with its
+  path and an unhealthy slot; `release --force` discards it. A moved repository,
+  a deleted working directory and an unborn HEAD get specific errors.
+- Per-slot failure reasons include Git's own diagnostic line. Failed stdout
+  writes other than a closed pipe are explained on stderr (exit 7 as before).
+- Git maintenance children keep their leader unreaped until the process group is
+  signalled, so a group kill can never reach a process that reused its ID.
+
 - Snapshot benchmarks record Git step diagnostics, independently verify changed
   saves and restore dirty checkpoints in both modes. Report comparisons reject
   older measurement policies or missing dirty-recovery verification.

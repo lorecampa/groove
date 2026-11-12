@@ -18,7 +18,8 @@ Read `groove --help` and the relevant command's `--help` for details.
    never enlarge a pool to bypass contention.
 2. Pick a short task name and a unique request key, then run
    `groove acquire --task NAME --request-key KEY`. Later commands select the
-   reservation with `--task NAME`. Keep the key and
+   reservation with `--task NAME`; an active name cannot be reused (the error
+   names the existing reservation). Keep the key and
    `result.worktree_path` outside the checkout. The reservation survives exits.
 3. Do all file, Git and terminal work in the returned path. HEAD is detached;
    Groove never creates branches. Refs and configuration are shared with other

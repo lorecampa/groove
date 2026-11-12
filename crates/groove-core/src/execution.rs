@@ -243,34 +243,6 @@ impl Drop for Worker {
     }
 }
 
-fn exited(child: &Child) -> Result<bool> {
-    // Keep the leader unreaped until signalling is complete, preventing PID/PGID reuse.
-    // SAFETY: info is valid output storage for waitid and child is our unreaped child.
-    let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
-    // SAFETY: child.id identifies our child; WNOWAIT leaves its identity reserved.
-    let result = unsafe {
-        libc::waitid(
-            libc::P_PID,
-            child.id(),
-            &mut info,
-            libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
-        )
-    };
-    if result < 0 {
-        let e = std::io::Error::last_os_error();
-        if e.kind() == std::io::ErrorKind::Interrupted {
-            return Ok(false);
-        }
-        return Err(e.into());
-    }
-    #[cfg(target_os = "linux")]
-    // SAFETY: waitid initialized info; zero si_pid means no exited child.
-    let pid = unsafe { info.si_pid() };
-    #[cfg(target_os = "macos")]
-    let pid = info.si_pid;
-    Ok(pid != 0)
-}
-
 fn reap_group(pid: u32) {
     loop {
         // SAFETY: WNOHANG reaps only our children in this execution's process group.
@@ -439,7 +411,7 @@ impl Supervision<'_> {
             if self.logs.exceeds(self.options.max_log_bytes)? {
                 return Ok((Termination::OutputLimited, None));
             }
-            if exited(child)? {
+            if crate::platform::process::exited(child)? {
                 return Ok((Termination::Exited, None));
             }
             if let Some(signal) = self.cancellation()? {

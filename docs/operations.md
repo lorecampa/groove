@@ -124,6 +124,10 @@ request journals or finish receipts. See [execution](execution.md#history-and-ex
 | Orphan execution record | Follow [execution recovery](execution.md#crashes-and-recovery); stop all writers before `recover`. |
 | Live library `Lease` owner | Release through that handle after stopping writers; another process cannot unlock it. |
 | Failed preparation | Groove quarantines the slot; a later acquisition retries bounded repair. |
+| Reserved checkout deleted (`rm -rf`, `git worktree remove --force`) | `release`/`finish` report `RECOVERY_FAILED` with the path and the slot shows unhealthy. Its unsaved work is gone; `release --force` discards the reservation and the next acquisition rebuilds the slot. |
+| `CONFIG_CONFLICT` naming the original location | The repository was moved. Manifests, reservations and Git's own worktree registrations record absolute paths, so move it back to that location; Groove does not relocate pools. |
+| Error that the current directory no longer exists | The shell sat in a checkout that was rebuilt. `cd` to the repository (or pass `--repo`) and retry. |
+| `INVALID_ARGUMENT` for a reused `--task` | An active reservation already has that label; its lease ID and path are in the error details. Resume or finish it, or choose another label. |
 
 Recovery normalizes or rebuilds under slot/admin locks, then verifies the baseline.
 Native registrations use `git worktree add --lock` against external pruning,

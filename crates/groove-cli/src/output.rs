@@ -25,6 +25,8 @@ pub struct Output {
     pub result: Value,
     pub text: String,
     pub status: u8,
+    /// Data printed verbatim (a patch or a script), not composed Groove text.
+    pub raw: bool,
 }
 impl Output {
     /// A result whose text rendering is produced by `render`.
@@ -38,6 +40,7 @@ impl Output {
             result,
             text,
             status: 0,
+            raw: false,
         })
     }
     /// A result rendered as indented `key: value` lines.
@@ -48,6 +51,14 @@ impl Output {
     pub fn text(result: impl Serialize, text: impl Into<String>) -> Result<Self, Error> {
         let text = text.into();
         Self::new(result, |_| text)
+    }
+    /// A result whose human rendering is data that must reach stdout byte for byte,
+    /// such as a patch (which may contain CRLF) or a shell script. Like `git diff`,
+    /// file content is not escaped; Groove-composed text always is.
+    pub fn raw(result: impl Serialize, text: impl Into<String>) -> Result<Self, Error> {
+        let mut output = Self::text(result, text)?;
+        output.raw = true;
+        Ok(output)
     }
     pub fn with_status(mut self, status: u8) -> Self {
         self.status = status;
@@ -108,12 +119,31 @@ pub fn emit_success(
             request_id,
             json!({"ok": true, "result": output.result}),
         )),
-        Format::Human => write_text(&output.text),
+        Format::Human if output.raw => write_text(&output.text),
+        Format::Human => write_text(&printable(&output.text, true)),
     };
-    if written.is_err() {
-        EXIT_OUTPUT_FAILED
-    } else {
-        output.status
+    output_status(written, output.status)
+}
+
+/// Exit status after writing a response. Any failed write exits 7, so a caller
+/// learns its response was lost and can retry with the same request key. A reader
+/// that closed the pipe (`groove list | head -1`) is not told again, matching
+/// SIGPIPE in common Unix tools; other failures, such as a full disk, are reported.
+///
+/// The bounded stderr queue has already been drained by then, so the failure is
+/// written to stderr directly.
+fn output_status(written: io::Result<()>, status: u8) -> u8 {
+    match written {
+        Ok(()) => status,
+        Err(e) => {
+            if e.kind() != io::ErrorKind::BrokenPipe {
+                let _ = writeln!(
+                    io::stderr(),
+                    "error: could not write the response to stdout: {e}"
+                );
+            }
+            EXIT_OUTPUT_FAILED
+        }
     }
 }
 
@@ -136,7 +166,7 @@ pub fn emit_error(
     if let Some(hint) = hint {
         message.push_str(&format!("  Hint: {hint}\n"));
     }
-    terminal.write(message.as_bytes());
+    terminal.write(printable(&message, true).as_bytes());
     terminal.finish();
     if format == Format::Json {
         let mut body = json!({"ok": false, "error": {
@@ -148,9 +178,10 @@ pub fn emit_error(
         if let Some(hint) = hint {
             body["error"]["hint"] = json!(hint);
         }
-        if write_json(&envelope(request_id, body)).is_err() {
-            return EXIT_OUTPUT_FAILED;
-        }
+        return output_status(
+            write_json(&envelope(request_id, body)),
+            error_status(error.code),
+        );
     }
     error_status(error.code)
 }
@@ -193,13 +224,9 @@ pub fn emit_help(format: Format, request_id: Option<&str>, text: &str) -> u8 {
             request_id,
             json!({"ok": true, "result": {"text": text}}),
         )),
-        Format::Human => write_text(text),
+        Format::Human => write_text(&printable(text, true)),
     };
-    if written.is_err() {
-        EXIT_OUTPUT_FAILED
-    } else {
-        0
-    }
+    output_status(written, 0)
 }
 
 fn write_json(response: &Value) -> io::Result<()> {
@@ -207,6 +234,26 @@ fn write_json(response: &Value) -> io::Result<()> {
     serde_json::to_writer(&mut stdout, response)?;
     stdout.write_all(b"\n")?;
     stdout.flush()
+}
+
+/// Escape control characters so untrusted text (task labels, Git output, paths)
+/// cannot inject terminal escape sequences. With `keep_layout`, newlines and tabs
+/// pass through; table cells escape them too so one value stays on one row.
+pub fn printable(text: &str, keep_layout: bool) -> std::borrow::Cow<'_, str> {
+    let escape = |c: char| c.is_control() && !(keep_layout && matches!(c, '\n' | '\t'));
+    if !text.chars().any(escape) {
+        return text.into();
+    }
+    text.chars()
+        .map(|c| {
+            if escape(c) {
+                c.escape_default().collect()
+            } else {
+                c.to_string()
+            }
+        })
+        .collect::<String>()
+        .into()
 }
 
 fn write_text(text: &str) -> io::Result<()> {
@@ -262,6 +309,15 @@ pub fn scalar_text(value: &Value) -> String {
 
 /// Render rows as left-aligned columns under a header.
 pub fn table(header: &[&str], rows: &[Vec<String>]) -> String {
+    let rows: Vec<Vec<String>> = rows
+        .iter()
+        .map(|row| {
+            row.iter()
+                .map(|cell| printable(cell, false).into_owned())
+                .collect()
+        })
+        .collect();
+    let rows = rows.as_slice();
     let mut widths: Vec<usize> = header.iter().map(|h| h.len()).collect();
     for row in rows {
         for (width, cell) in widths.iter_mut().zip(row) {
@@ -306,6 +362,21 @@ mod tests {
     fn fields_skip_empty_values() {
         let text = fields(&json!({"a": 1, "b": null, "c": {"d": "e"}, "f": []}), 0);
         assert_eq!(text, "a: 1\nc:\n  d: e\n");
+    }
+
+    #[test]
+    fn untrusted_text_cannot_emit_terminal_controls() {
+        let label = "\u{1b}[31mred\u{1b}]0;title\u{7}";
+        let shown = printable(label, true);
+        assert!(!shown.chars().any(char::is_control), "{shown:?}");
+        assert!(shown.contains("red"));
+        assert_eq!(printable("a\tb\nc", true), "a\tb\nc");
+        let text = table(&["TASK"], &[vec!["a\nb".into()]]);
+        assert_eq!(
+            text.lines().count(),
+            2,
+            "a newline in a cell must not add a row: {text:?}"
+        );
     }
 
     #[test]

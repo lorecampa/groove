@@ -35,7 +35,7 @@ pub fn run(context: &Context<'_>, command: &ConfigCommand) -> Result<Output> {
             Output::text(result, text)
         }
         ConfigCommand::Project { example: true } => {
-            Output::text(json!({ "text": PROJECT_EXAMPLE }), PROJECT_EXAMPLE)
+            Output::raw(json!({ "text": PROJECT_EXAMPLE }), PROJECT_EXAMPLE)
         }
         ConfigCommand::Project { example: false } => {
             let (path, project) = Project::discover(context.repo, context.git_timeout)?;

@@ -11,9 +11,23 @@ use std::{
 pub(crate) struct Repository {
     pub common: PathBuf,
     pub root: PathBuf,
+    /// Directory the pool was discovered from. Revisions such as `HEAD` resolve
+    /// here, so a linked worktree's caller gets its own HEAD, not the main one's.
+    pub origin: PathBuf,
 }
 impl Repository {
     pub fn discover(repo: &Path, timeout: Duration) -> Result<Self> {
+        // A shell left inside a checkout that was later rebuilt has a deleted
+        // working directory; say so instead of surfacing Git's failure.
+        if repo.is_relative() {
+            if let Err(e) = std::env::current_dir() {
+                return Err(Error::new(
+                    crate::ErrorCode::InvalidArgument,
+                    "The current directory no longer exists (a released checkout may have been rebuilt); change to the repository or pass its path explicitly",
+                )
+                .with_source(e));
+            }
+        }
         let git = Git::new(timeout);
         let version = git.run(repo, &["--version"], &[])?;
         let version = String::from_utf8_lossy(&version);
@@ -48,9 +62,11 @@ impl Repository {
         utf8(&common)?;
         no_symlinks(&common)?;
         local_fs(&common)?;
+        let origin = fs::canonicalize(repo).unwrap_or_else(|_| repo.to_path_buf());
         Ok(Self {
             root: common.join("groove"),
             common,
+            origin,
         })
     }
     pub fn admin_lock_path(&self) -> PathBuf {

@@ -185,26 +185,35 @@ impl Git {
         let out_thread = thread::spawn(move || capture(stdout, scan_tree, limit));
         let err_thread = thread::spawn(move || capture(stderr, false, OUTPUT_LIMIT));
         let start = Instant::now();
-        let status = loop {
-            if let Some(status) = child.try_wait()? {
-                break Some(status);
+        // Observe exit without reaping: the unreaped leader reserves its PID and
+        // process-group ID, so the group kill below can never reach a process
+        // that reused that identity.
+        let timed_out = loop {
+            match crate::platform::process::exited(&child) {
+                Ok(true) => break false,
+                Ok(false) => (),
+                Err(e) => {
+                    // SAFETY: the leader is unreaped and owns the group created by process_group(0).
+                    unsafe {
+                        libc::kill(-(child.id() as i32), libc::SIGKILL);
+                    }
+                    let _ = child.wait();
+                    return Err(e);
+                }
             }
             if start.elapsed() >= self.timeout {
-                // SAFETY: the child was spawned into its own process group; negative pid targets it.
-                unsafe {
-                    libc::kill(-(child.id() as i32), libc::SIGKILL);
-                }
-                let _ = child.kill();
-                child.wait()?;
-                break None;
+                break true;
             }
             thread::sleep(Duration::from_millis(2));
         };
-        // Close pipe-owning descendants too; background processes are unsupported in maintenance.
-        // SAFETY: this is the dedicated process group established above.
+        // Stop a timed-out mutation, and close pipe-owning descendants too;
+        // background processes are unsupported in maintenance.
+        // SAFETY: the leader is still unreaped, so this is the dedicated group established above.
         unsafe {
             libc::kill(-(child.id() as i32), libc::SIGKILL);
         }
+        let status = child.wait()?;
+        let status = (!timed_out).then_some(status);
         let out = out_thread
             .join()
             .map_err(|_| Error::new(crate::ErrorCode::IoError, "stdout reader panicked"))??;

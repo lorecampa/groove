@@ -185,8 +185,18 @@ These runners do not establish behavior on the minimum macOS 13 release.
 | Single-slot inspection, optional Git status and refreshed pool growth | `cargo test -p groove-core --test inspection --locked` |
 | Deterministic crash boundaries | `cargo test -p groove-cli --test crashes --features test-hooks --locked` |
 | Surviving Git children keep slot and admin locks | `cargo test -p groove-cli --test git_child --locked` |
+| Repository layouts (reftable, separate Git dir, relative worktree links, linked-worktree HEAD) and out-of-band deletion/moves | `cargo test -p groove-core --test environments --locked` |
+| CLI contracts for deleted cwd/checkouts, label reuse/escaping and undeliverable responses | `cargo test -p groove-cli --test edge_cases --locked` |
 | Package/release tooling | `cargo test -p groove-release --locked` |
 | Snapshot scale and benchmark tooling | [Snapshot lab](../benchmarks/snapshots/README.md) |
+
+Layout tests that need newer Git (reftable 2.45, relative worktree links 2.48)
+print a skip note and return early on the minimum-Git CI job; the current-Git job
+runs them. `verification_rejects_writes_racing_in_place_cleanup` (test-hooks)
+writes into a slot between cleanup and verification, so a no-op verifier fails it.
+On macOS, `a_filesystem_monitor_daemon_neither_blocks_release_nor_goes_stale`
+starts Git's built-in monitor daemon in a slot (Linux Git has none) and checks
+that release is not blocked and the next reservation sees fresh status.
 
 `test-hooks` is disabled in production. At a named checkpoint, it connects to
 `GROOVE_TEST_SOCKET`; the harness chooses continuation or SIGKILL. Ownership and

@@ -100,7 +100,7 @@ impl Failure {
     fn keep<T>(&mut self, result: Result<T>) -> Option<T> {
         result
             .map_err(|error| {
-                self.0.get_or_insert(error.to_string());
+                self.0.get_or_insert(error.summary());
             })
             .ok()
     }
@@ -235,6 +235,13 @@ impl Pool {
                 true
             }
         };
+        if protected {
+            if let Some(lease) = &lease {
+                if let Err(error) = crate::quiescence::missing_checkout(&lease.worktree_path) {
+                    failure.note(&error.message);
+                }
+            }
+        }
         let execution = failure
             .keep(read_optional::<crate::ExecutionInfo>(
                 &self.repo.execution_path(slot),
@@ -351,7 +358,7 @@ impl Pool {
             slot.git = Some(
                 self.git_status(&slot.slot_id, &slot.worktree_path, timeout)
                     .unwrap_or_else(|error| WorkspaceGitStatus {
-                        error: Some(error.to_string()),
+                        error: Some(error.summary()),
                         ..WorkspaceGitStatus::default()
                     }),
             );

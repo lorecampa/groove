@@ -76,7 +76,7 @@ pub fn run(context: &Context<'_>, command: &SnapshotCommand) -> Result<Output> {
         SnapshotCommand::Show { id } => snapshot_output(service.show(id)?),
         SnapshotCommand::Diff { id, other } => {
             let patch = service.diff(id, other.as_deref())?;
-            Output::text(json!({ "patch": patch }), patch)
+            Output::raw(json!({ "patch": patch }), patch)
         }
         SnapshotCommand::Restore { id, to } => {
             let restored = service.restore(id, to.as_deref())?;

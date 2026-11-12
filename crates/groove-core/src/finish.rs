@@ -60,6 +60,7 @@ impl Lease {
                 ))
             }
             Err(e) if !path.exists() && e.code == ErrorCode::IoError => {
+                crate::quiescence::missing_checkout(&self.info.worktree_path)?;
                 let snapshots = Snapshots::open(&self.info.worktree_path, self.pool.git_timeout)?;
                 let mut snapshot = snapshots.save(options)?;
                 snapshots.pin(&snapshot.id)?;

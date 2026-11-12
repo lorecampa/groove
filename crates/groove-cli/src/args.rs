@@ -110,7 +110,7 @@ pub enum Command {
         /// Commit, branch or tag whose files the checkout starts from (HEAD detached there).
         #[arg(long, default_value = "HEAD")]
         base: String,
-        /// Name for this reservation (1..256 bytes); later commands can select it with --task.
+        /// Unique name for this reservation (1..256 bytes, no control characters); later commands select it with --task.
         #[arg(long)]
         task: Option<String>,
         /// Idempotency key: retrying the same key/base/task returns the same reservation.

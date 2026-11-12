@@ -312,7 +312,7 @@ impl Drop for TestChild {
 }
 
 /// Path of the groove binary under test; `GROOVE_CLI_BINARY` overrides the built one.
-fn groove_binary() -> std::ffi::OsString {
+pub fn groove_binary() -> std::ffi::OsString {
     std::env::var_os("GROOVE_CLI_BINARY").unwrap_or_else(|| {
         match option_env!("CARGO_BIN_EXE_groove") {
             Some(path) => path.into(),

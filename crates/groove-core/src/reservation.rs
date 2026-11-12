@@ -65,6 +65,18 @@ impl ReservationOptions {
                 "Task must be 1..256 bytes and request key 1..128 bytes",
             ));
         }
+        // Labels are shown in terminals and tables; control characters could
+        // forge output or run terminal escape sequences.
+        if [&self.task, &self.request_key]
+            .into_iter()
+            .flatten()
+            .any(|value| value.chars().any(char::is_control))
+        {
+            return Err(Error::new(
+                ErrorCode::InvalidArgument,
+                "Task and request key must not contain control characters",
+            ));
+        }
         Ok(())
     }
     /// Whether a recorded reservation was created from these same inputs.
@@ -122,11 +134,28 @@ impl Pool {
 
     /// Serialize all retries of one request key on its permanent lock file.
     fn lock_request_key(&self, key: &str, options: &AcquireOptions) -> Result<SlotGuard> {
-        let lock = self.request_path(key).with_extension("lock");
-        let file = locking::open(&lock, true)?;
+        self.lock_permanent(&self.request_path(key).with_extension("lock"), options)
+    }
+
+    /// Permanent lock serializing reservations that share one task label.
+    fn label_lock_path(&self, task: &str) -> PathBuf {
+        let digest = crate::project::hex(Sha256::digest(task.as_bytes()));
+        self.repo
+            .root
+            .join("requests")
+            .join(format!("task-{digest}.lock"))
+    }
+
+    /// Open (creating if needed) and wait for a permanent lock under `requests/`.
+    fn lock_permanent(
+        &self,
+        lock: &std::path::Path,
+        options: &AcquireOptions,
+    ) -> Result<SlotGuard> {
+        let file = locking::open(lock, true)?;
         file.sync_all()?;
         state::sync_dir(&self.repo.root.join("requests"))?;
-        SlotGuard::wait(&lock, Some(locking::identity(&file)?), options.git_timeout)
+        SlotGuard::wait(lock, Some(locking::identity(&file)?), options.git_timeout)
     }
 
     /// Return the existing reservation for a retried key, or `None` for a fresh key.
@@ -199,6 +228,30 @@ impl Pool {
                 let guard = self.lock_request_key(key, &options.acquire)?;
                 if let Some(info) = self.resume_request(key, &options)? {
                     return Ok(info);
+                }
+                Some(guard)
+            }
+            None => None,
+        };
+        // Task labels select reservations, so at most one active reservation may
+        // carry each label. A permanent per-label lock serializes the check with
+        // protection publication, so concurrent acquisitions cannot both pass.
+        let _label_guard = match &options.task {
+            Some(task) => {
+                let guard = self.lock_permanent(&self.label_lock_path(task), &options.acquire)?;
+                if let Some(existing) = self
+                    .protected_leases()?
+                    .into_iter()
+                    .find(|lease| lease.task.as_deref() == Some(task.as_str()))
+                {
+                    return Err(Error::new(
+                        ErrorCode::InvalidArgument,
+                        "An active reservation already has this task label; reuse it, finish it, or choose another label",
+                    )
+                    .with_details(|d| {
+                        d.lease_id = Some(existing.lease_id);
+                        d.worktree_path = Some(existing.worktree_path.clone());
+                    }));
                 }
                 Some(guard)
             }

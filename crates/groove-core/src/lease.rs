@@ -214,6 +214,17 @@ pub(crate) fn release(
             return Err(e);
         }
     };
+    // Free any branch the task left checked out here. Writers have stopped and
+    // both locks are held; the mutating child inherits the slot descriptor.
+    if let Err(error) = crate::recovery::detach_head(
+        &pool.repo,
+        &pool.config,
+        slot,
+        pool.git_timeout,
+        &[fd.as_raw_fd()],
+    ) {
+        tracing::warn!(slot = %slot, %error, "Could not detach HEAD in the released checkout; the next acquisition resets it");
+    }
     record.phase = crate::state::SlotPhase::Released;
     if let Some(info) = &record.lease {
         pool.record_request(info, true)?;

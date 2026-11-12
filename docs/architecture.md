@@ -79,6 +79,7 @@ can change through an atomic settings update.
   slots/finish-<lease-id>.json    # Checkpoint/release receipt
   requests/<key-hash>.json        # Active/completed request-key journal
   requests/<key-hash>.lock        # Permanent per-key serialization
+  requests/task-<label-hash>.lock # Permanent per-label serialization
   task-logs/<run-id>/             # Captured stdout/stderr and durable run.json
   worktrees/wt-0001/              # Default disposable checkout
   tmp/
@@ -119,6 +120,12 @@ Normalization removes the owned index and uses forced detached checkout plus
 residue and may be discarded during recovery. Branches created by tasks survive
 cleanup; detached commits without a durable ref may become unreachable.
 
+Verification asks Git whether HEAD is symbolic rather than reading the HEAD file,
+so reftable repositories work. Registrations are always written with absolute
+paths (`worktree.useRelativePaths=false` for Groove's own `worktree add`);
+relative links written later by Git are resolved lexically and must reach the
+same file through the kernel before they are trusted or removed.
+
 New slots register with `--no-checkout` before normalization, avoiding duplicate
 materialization. Administrative exclusion ends after registration; slot exclusion
 continues through checkout and verification and is inherited by mutating Git children.
@@ -143,8 +150,15 @@ existing journal never authorizes allocating a replacement lease. Completed keys
 remain tombstoned. The same key, base and label return the original active
 reservation, even if the base branch moved.
 
+At most one active reservation carries each task label. A permanent per-label
+lock (taken after any request-key lock) serializes the duplicate check with
+protection publication. Labels and keys reject control characters, and human
+output escapes them in any stored text.
+
 Release takes the slot lock, rechecks the generation and independent execution
-state, records a completed key, writes release metadata, removes protection and unlocks.
+state, detaches HEAD in a still-registered checkout (best effort, so a branch
+created there is no longer held), records a completed key, writes release
+metadata, removes protection and unlocks.
 Same-generation retries complete interrupted release; a successor rejects stale
 requests. A process holding a live `Lease` keeps its slot locked, so another
 process cannot release that reservation.

@@ -622,3 +622,47 @@ fn checkpoint_finish_ignores_parent_git_filters() {
     );
     assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
 }
+
+#[test]
+fn verification_rejects_writes_racing_in_place_cleanup() {
+    // Another fixture's fork could briefly keep this fixture's just-dropped lease.
+    if !support::in_subprocess("verification_rejects_writes_racing_in_place_cleanup") {
+        return;
+    }
+    // A straggling writer (for example an agent that was never stopped) can touch
+    // a released checkout after Git cleaned it. Verification, not cleanup, is
+    // what keeps that contamination from being handed to the next task.
+    for contamination in ["untracked", "modified"] {
+        let r = Repo::new();
+        Pool::init(
+            &r.path,
+            PoolOptions {
+                capacity: 1,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let pool = Pool::open(&r.path).unwrap();
+        drop(pool.acquire(Default::default()).unwrap());
+        let name = "normalized-in-place";
+        let (mut command, listener) = checkpoint_command(&r, name, &["acquire", "--task", "next"]);
+        let mut child = support::TestChild::spawn(&mut command);
+        let stream = child
+            .checkpoint(&listener, name, support::PROCESS_TIMEOUT)
+            .unwrap();
+        match contamination {
+            "untracked" => std::fs::write(r.slot(1).join("stray.txt"), "late write").unwrap(),
+            _ => std::fs::write(r.slot(1).join("tracked.txt"), "late write").unwrap(),
+        }
+        drop(stream);
+        let output = child.wait_with_output().unwrap();
+        let response = support::assert_success(&output);
+        assert_eq!(response["result"]["recovery"], "rebuilt", "{contamination}");
+        assert!(!r.slot(1).join("stray.txt").exists(), "{contamination}");
+        assert_eq!(
+            std::fs::read_to_string(r.slot(1).join("tracked.txt")).unwrap(),
+            "baseline\n",
+            "{contamination}"
+        );
+    }
+}

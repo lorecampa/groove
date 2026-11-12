@@ -69,6 +69,15 @@ impl Pool {
                 "Worktree root overlaps repository administration",
             ));
         }
+        if let Some(checkout) = enclosing_checkout(&repo, &requested, options.git_timeout)? {
+            return Err(Error::new(
+                crate::ErrorCode::InvalidArgument,
+                format!(
+                    "Worktree root is inside the checkout {}; `git add -A` or `git clean` there would capture or delete pooled work. Choose a directory outside every checkout",
+                    checkout.display()
+                ),
+            ));
+        }
         // Persist initialization intent before creating external storage. Conflicting
         // resumptions must fail, even when the ready manifest was never published.
         let intent = repo.root.join("initializing.json");
@@ -189,6 +198,29 @@ impl Pool {
                 "Unsafe manifest worktree root",
             ));
         }
+        if !config.worktree_root.exists() {
+            // Manifests and native worktree registrations record absolute paths,
+            // so a moved repository leaves them pointing at its old location.
+            // The default root is `<common>/groove/worktrees`.
+            let recorded_common = Some(config.worktree_root.as_path())
+                .filter(|root| root.file_name() == Some("worktrees".as_ref()))
+                .and_then(Path::parent)
+                .filter(|state| state.file_name() == Some("groove".as_ref()))
+                .and_then(Path::parent);
+            let message = match recorded_common {
+                Some(old) if old != repo.common => format!(
+                    "The pool was created for {} but the repository is now at {}; pools record absolute paths and cannot be moved. Move the repository back to its original location (see docs/operations.md)",
+                    old.display(),
+                    repo.common.display()
+                ),
+                _ => format!(
+                    "The pool's worktree root {} no longer exists; restore it at that path (see docs/operations.md)",
+                    config.worktree_root.display()
+                ),
+            };
+            return Err(Error::new(crate::ErrorCode::ConfigConflict, message)
+                .with_details(|d| d.path = Some(config.worktree_root.clone())));
+        }
         repository::owned_dir(&config.worktree_root)?;
         repository::owned_dir(&repo.root.join("locks"))?;
         repository::owned_dir(&repo.root.join("slots"))?;
@@ -237,9 +269,11 @@ impl Pool {
         }
         let git = Git::new(options.git_timeout);
         let revision = format!("{}^{{commit}}", options.base);
+        // Resolve where the caller discovered the pool: `HEAD` in a linked
+        // worktree (or inside a slot) names that checkout's HEAD.
         let bytes = git
             .run(
-                &self.repo.common,
+                &self.repo.origin,
                 &[
                     "rev-parse",
                     "--verify",
@@ -252,9 +286,17 @@ impl Pool {
             .map_err(|e| {
                 if e.code == crate::ErrorCode::GitError && e.git_exit_code() == Some(1) {
                     let details = e.details.clone();
+                    let unborn = options.base == "HEAD"
+                        && git
+                            .run(&self.repo.origin, &["symbolic-ref", "--quiet", "HEAD"], &[])
+                            .is_ok();
                     Error::new(
                         crate::ErrorCode::InvalidRevision,
-                        "Base does not resolve to a commit",
+                        if unborn {
+                            "HEAD has no commits yet; create a first commit or pass a base commit"
+                        } else {
+                            "Base does not resolve to a commit"
+                        },
                     )
                     .with_details(|d| *d = *details)
                     .with_source(e)
@@ -310,7 +352,7 @@ impl Pool {
                         continue;
                     }
                     Err(e) => {
-                        failed.insert(slot.clone(), e.to_string());
+                        failed.insert(slot.clone(), e.summary());
                         continue;
                     }
                 };
@@ -338,7 +380,7 @@ impl Pool {
                                     .insert(slot.clone(), "Invalid reuse protection record".into());
                             }
                             Err(e) => {
-                                failed.insert(slot.clone(), e.to_string());
+                                failed.insert(slot.clone(), e.summary());
                             }
                         }
                         tracing::debug!(event = "slot.protected", slot = %slot, "Slot protected; skipping");
@@ -394,10 +436,10 @@ impl Pool {
                             schema_version: state::SCHEMA_VERSION,
                             phase: crate::state::SlotPhase::Quarantined,
                             lease: None,
-                            failure: Some(e.to_string()),
+                            failure: Some(e.summary()),
                         };
                         let _ = state::write(&self.repo.record_path(slot), &record);
-                        failed.insert(slot.clone(), e.to_string());
+                        failed.insert(slot.clone(), e.summary());
                     }
                 }
             }
@@ -542,6 +584,29 @@ fn overlaps_administration(repo: &Repository, root: &Path) -> bool {
     root == repo.root
         || repo.common.starts_with(root)
         || (root.starts_with(&repo.common) && root != repo.default_worktree_root())
+}
+
+/// The registered working tree (main or linked) that would contain `root`, if any.
+/// The default root lives inside Git administration, which Git never scans.
+fn enclosing_checkout(
+    repo: &Repository,
+    root: &Path,
+    timeout: Duration,
+) -> Result<Option<std::path::PathBuf>> {
+    if root.starts_with(&repo.common) {
+        return Ok(None);
+    }
+    let listing = Git::new(timeout).run(
+        &repo.common,
+        &["worktree", "list", "--porcelain", "-z"],
+        &[],
+    )?;
+    use std::os::unix::ffi::OsStrExt;
+    Ok(listing
+        .split(|b| *b == 0)
+        .filter_map(|field| field.strip_prefix(b"worktree "))
+        .map(|path| std::path::PathBuf::from(std::ffi::OsStr::from_bytes(path)))
+        .find(|checkout| root.starts_with(checkout)))
 }
 
 /// Create (or adopt) a permanent lock file and durably record its identity.

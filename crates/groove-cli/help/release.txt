@@ -6,7 +6,9 @@ EXAMPLES:
 Returns the workspace to the pool. The next acquisition discards its contents
 (ignored files too, under the default pristine cleanup), so first use
 `groove finish` or save your work elsewhere, and stop ALL writers: workers,
-tests, watchers and dev servers.
+tests, watchers and dev servers. Release detaches HEAD in the checkout, so a
+branch you created there keeps its commits and can be checked out or deleted
+elsewhere; files are untouched until the next acquisition.
 
 Release refuses with UNSAVED_CHANGES if the workspace has staged, modified or
 untracked files, and with WORKSPACE_IN_USE if other processes still have their
@@ -14,6 +16,10 @@ working directory, executable or open files in it (your own shell is ignored).
 The process check only sees your processes and is best effort, so it does not
 replace stopping writers. --force skips both checks; it never bypasses a running
 `groove exec`, which must be stopped first.
+
+If the checkout itself was deleted (rm -rf, git worktree remove), release and
+finish fail with RECOVERY_FAILED because nothing can be inspected or saved;
+release --force discards the reservation and the next acquisition rebuilds it.
 
 A lost response can be retried with the same lease. Stale lease IDs can never
 release a later task's workspace.

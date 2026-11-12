@@ -26,8 +26,10 @@ groove acquire --task issue-42 --request-key issue-42-attempt-1
 
 Check `ok` before using `result.worktree_path`. The checkout is clean, with HEAD
 detached at the base; Groove never creates or switches branches. Follow-up
-commands use `--task issue-42`; `lease_id` is the unambiguous identifier if two
-reservations ever share a label. Work only in the returned checkout. Shared refs
+commands use `--task issue-42`. Only one active reservation may carry a label; a
+second `acquire` with it fails with `INVALID_ARGUMENT` whose details give the
+existing `lease_id` and `worktree_path`, so a lost response without a request key
+is recoverable. Work only in the returned checkout. Shared refs
 and configuration affect other worktrees.
 
 Use `groove exec --task issue-42 -- cargo test` for managed commands. It

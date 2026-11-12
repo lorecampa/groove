@@ -1,0 +1,280 @@
+//! CLI contracts for situations users and agents create outside Groove: deleted
+//! working directories and checkouts, reused labels, hostile label text and
+//! undeliverable responses. Each asserts the exit category, the versioned JSON
+//! error and the preserved reservation state.
+
+mod support;
+use serde_json::Value;
+use std::{fs, path::Path, process::Output};
+use support::{assert_success, Repo};
+
+fn cli(path: &Path, args: &[&str]) -> Output {
+    support::groove_in(path).args(args).output().unwrap()
+}
+
+fn checked(output: &Output) -> Value {
+    let response: Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|e| {
+        panic!(
+            "{e}: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        )
+    });
+    let schema: Value =
+        serde_json::from_str(include_str!("../schemas/response-v1.schema.json")).unwrap();
+    let validator = jsonschema::validator_for(&schema).unwrap();
+    let errors: Vec<_> = validator
+        .iter_errors(&response)
+        .map(|e| e.to_string())
+        .collect();
+    assert!(errors.is_empty(), "{errors:?}: {response}");
+    response
+}
+
+fn failure(output: &Output, exit: i32, code: &str) -> Value {
+    let response = checked(output);
+    assert_eq!(output.status.code(), Some(exit), "{response}");
+    assert_eq!(response["ok"], false);
+    assert_eq!(response["error"]["code"], code, "{response}");
+    response
+}
+
+#[test]
+fn a_deleted_working_directory_is_reported_plainly() {
+    let repo = Repo::new();
+    assert_success(&cli(&repo.path, &["init", "--capacity", "1"]));
+    let gone = repo.path.join("gone");
+    fs::create_dir(&gone).unwrap();
+    // The shell enters the directory, which is then removed underneath it, as when
+    // a released checkout is rebuilt while an agent's shell still sits inside.
+    let output = support::command(&gone, "sh")
+        .args(["-c", "rmdir \"$PWD\" && exec \"$0\" list"])
+        .arg(support::groove_binary())
+        .env("GROOVE_OUTPUT", "json")
+        .output()
+        .unwrap();
+    let response = failure(&output, 2, "INVALID_ARGUMENT");
+    assert!(
+        response["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("no longer exists"),
+        "{response}"
+    );
+}
+
+#[test]
+fn reusing_an_active_task_label_names_the_existing_reservation() {
+    let repo = Repo::new();
+    assert_success(&cli(&repo.path, &["init", "--capacity", "2"]));
+    let first = assert_success(&cli(&repo.path, &["acquire", "--task", "fix"]));
+    let response = failure(
+        &cli(&repo.path, &["acquire", "--task", "fix"]),
+        2,
+        "INVALID_ARGUMENT",
+    );
+    assert_eq!(
+        response["error"]["details"]["lease_id"],
+        first["result"]["lease_id"]
+    );
+    assert_eq!(
+        response["error"]["details"]["worktree_path"],
+        first["result"]["worktree_path"]
+    );
+    let listed = checked(&cli(&repo.path, &["list"]));
+    assert_eq!(listed["result"]["leases"].as_array().unwrap().len(), 1);
+    // The existing reservation is still selectable by its label.
+    assert_success(&cli(&repo.path, &["release", "--task", "fix"]));
+}
+
+#[test]
+fn labels_cannot_carry_terminal_control_sequences() {
+    let repo = Repo::new();
+    assert_success(&cli(&repo.path, &["init", "--capacity", "2"]));
+    failure(
+        &cli(&repo.path, &["acquire", "--task", "\u{1b}]0;title\u{7}"]),
+        2,
+        "INVALID_ARGUMENT",
+    );
+    // Labels stored before validation existed are still escaped in human output.
+    let lease = assert_success(&cli(&repo.path, &["acquire", "--task", "plain"]));
+    let slot = lease["result"]["slot_id"].as_str().unwrap();
+    let protection = repo.state().join(format!("slots/{slot}.protected.json"));
+    let mut record: Value = serde_json::from_slice(&fs::read(&protection).unwrap()).unwrap();
+    let hostile = "\u{1b}[31mred\u{1b}]0;pwned\u{7}\nfake row";
+    record["lease"]["task"] = hostile.into();
+    fs::write(&protection, serde_json::to_vec(&record).unwrap()).unwrap();
+    for args in [
+        &["list"][..],
+        &["list", "--slots"],
+        &["show", "--task", hostile],
+    ] {
+        let output = support::groove_in(&repo.path)
+            .env_remove("GROOVE_OUTPUT")
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{args:?}: {output:?}");
+        let text = String::from_utf8(output.stdout).unwrap();
+        assert!(
+            !text.contains(['\u{1b}', '\u{7}']),
+            "{args:?} emitted control characters: {text:?}"
+        );
+        assert!(text.contains("red"), "{text:?}");
+    }
+    // JSON keeps the exact stored value, escaped by the JSON encoder.
+    let listed = checked(&cli(&repo.path, &["list"]));
+    assert_eq!(listed["result"]["leases"][0]["task"], hostile);
+}
+
+#[test]
+fn a_reserved_checkout_deleted_by_hand_needs_an_explicit_forced_release() {
+    let repo = Repo::new();
+    assert_success(&cli(&repo.path, &["init", "--capacity", "1"]));
+    let lease = assert_success(&cli(&repo.path, &["acquire", "--task", "lost"]));
+    let path = lease["result"]["worktree_path"].as_str().unwrap();
+    fs::remove_dir_all(path).unwrap();
+
+    for args in [
+        &["release", "--task", "lost"][..],
+        &["finish", "--task", "lost"],
+    ] {
+        let response = failure(&cli(&repo.path, args), 6, "RECOVERY_FAILED");
+        assert_eq!(response["error"]["details"]["worktree_path"], path);
+        assert!(response["error"]["hint"].is_string());
+    }
+    let slots = checked(&cli(&repo.path, &["list", "--slots"]));
+    assert_eq!(
+        slots["result"]["inspection"]["slots"][0]["status"],
+        "unhealthy"
+    );
+    // The reservation was kept; --force acknowledges the lost work.
+    assert_success(&cli(&repo.path, &["release", "--force", "--task", "lost"]));
+    let next = assert_success(&cli(&repo.path, &["acquire", "--task", "next"]));
+    assert_eq!(next["result"]["worktree_path"], path);
+    assert!(Path::new(path).join("tracked.txt").exists());
+}
+
+#[test]
+fn undeliverable_responses_exit_seven_and_explain_real_write_failures() {
+    let repo = Repo::new();
+    assert_success(&cli(&repo.path, &["init", "--capacity", "1"]));
+    // A closed reader: the caller must learn the response was lost, quietly.
+    let closed = support::groove_in(&repo.path)
+        .arg("list")
+        .stdout(support::failed_output())
+        .output()
+        .unwrap();
+    assert_eq!(closed.status.code(), Some(7));
+    assert!(
+        !String::from_utf8_lossy(&closed.stderr).contains("could not write"),
+        "{closed:?}"
+    );
+    // Any other write failure is explained on stderr.
+    if Path::new("/dev/full").exists() {
+        for format in ["json", "human"] {
+            let full = support::groove_in(&repo.path)
+                .env("GROOVE_OUTPUT", format)
+                .arg("list")
+                .stdout(
+                    fs::OpenOptions::new()
+                        .write(true)
+                        .open("/dev/full")
+                        .unwrap(),
+                )
+                .output()
+                .unwrap();
+            assert_eq!(full.status.code(), Some(7), "{format}");
+            assert!(
+                String::from_utf8_lossy(&full.stderr).contains("could not write"),
+                "{format}: {full:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn human_patches_reach_stdout_byte_for_byte() {
+    // Escaping protects Groove-composed text, never file content: a patch with
+    // CRLF lines must still apply after `groove snapshot diff ID > file`.
+    let repo = Repo::new();
+    fs::write(repo.path.join("tracked.txt"), "crlf line\r\nsecond\r\n").unwrap();
+    let saved = assert_success(&cli(&repo.path, &["snapshot", "save", "crlf"]));
+    let id = saved["result"]["snapshot"]["id"].as_str().unwrap();
+    repo.git(&["checkout", "--", "tracked.txt"]);
+    let output = support::groove_in(&repo.path)
+        .env_remove("GROOVE_OUTPUT")
+        .args(["snapshot", "diff", id])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let json = checked(&cli(&repo.path, &["snapshot", "diff", id]));
+    let patch = json["result"]["patch"].as_str().unwrap();
+    assert!(patch.contains("\r\n"), "{patch:?}");
+    // Human output only completes a missing final newline.
+    let expected = if patch.ends_with('\n') {
+        patch.to_owned()
+    } else {
+        format!("{patch}\n")
+    };
+    assert_eq!(output.stdout, expected.as_bytes());
+    let file = repo.temp.path().join("crlf.patch");
+    fs::write(&file, &output.stdout).unwrap();
+    repo.git(&["apply", "-R", file.to_str().unwrap()]);
+    assert_eq!(
+        fs::read(repo.path.join("tracked.txt")).unwrap(),
+        b"crlf line\r\nsecond\r\n"
+    );
+}
+
+/// An agent's own `git status` with `core.fsmonitor=true` leaves a Git filesystem
+/// monitor daemon running for the slot. Git moves the daemon's working directory
+/// out of the checkout and watches it by path, so it must neither block release as a
+/// process still using the workspace nor serve stale state to the next reservation
+/// after in-place cleanup. Linux Git has no built-in monitor daemon.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_filesystem_monitor_daemon_neither_blocks_release_nor_goes_stale() {
+    struct Daemon<'a>(&'a Path);
+    impl Drop for Daemon<'_> {
+        fn drop(&mut self) {
+            let _ = support::command(self.0, "git")
+                .args(["fsmonitor--daemon", "stop"])
+                .output();
+        }
+    }
+
+    let repo = Repo::new();
+    assert_success(&cli(&repo.path, &["init", "--capacity", "1"]));
+    let lease = assert_success(&cli(&repo.path, &["acquire", "--task", "watched"]));
+    let path = Path::new(lease["result"]["worktree_path"].as_str().unwrap()).to_owned();
+    support::git(&path, &["fsmonitor--daemon", "start"]);
+    let _daemon = Daemon(&path);
+    assert!(
+        support::git(&path, &["fsmonitor--daemon", "status"]).contains("watching"),
+        "the daemon did not start"
+    );
+    fs::write(path.join("seen-by-daemon.txt"), "temporary\n").unwrap();
+    let monitored = [
+        "-c",
+        "core.fsmonitor=true",
+        "status",
+        "--porcelain",
+        "-uall",
+    ];
+    assert!(support::git(&path, &monitored).contains("seen-by-daemon.txt"));
+    fs::remove_file(path.join("seen-by-daemon.txt")).unwrap();
+
+    assert_success(&cli(&repo.path, &["release", "--task", "watched"]));
+
+    let next = assert_success(&cli(&repo.path, &["acquire", "--task", "next"]));
+    assert_eq!(
+        Path::new(next["result"]["worktree_path"].as_str().unwrap()),
+        path
+    );
+    assert_eq!(support::git(&path, &monitored), "");
+    fs::write(path.join("after-reuse.txt"), "new\n").unwrap();
+    assert_eq!(support::git(&path, &monitored), "?? after-reuse.txt");
+    fs::remove_file(path.join("after-reuse.txt")).unwrap();
+    assert_success(&cli(&repo.path, &["release", "--task", "next"]));
+}

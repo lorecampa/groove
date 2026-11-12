@@ -194,6 +194,26 @@ impl Error {
     pub fn git_exit_code(&self) -> Option<i32> {
         self.details.git.as_ref().and_then(|git| git.exit_code)
     }
+    /// One-line diagnostic for per-slot failure summaries: the message plus the
+    /// last line Git wrote to stderr, which usually names the real cause.
+    pub(crate) fn summary(&self) -> String {
+        const MAX_CHARS: usize = 400;
+        let cause = self.details.git.as_ref().and_then(|git| {
+            git.stderr
+                .lines()
+                .rev()
+                .map(str::trim)
+                .find(|l| !l.is_empty())
+        });
+        match cause {
+            Some(line) => {
+                // Truncate by characters, never by byte index, so multibyte text cannot panic.
+                let line: String = line.chars().take(MAX_CHARS).collect();
+                format!("{}: {line}", self.message)
+            }
+            None => self.message.clone(),
+        }
+    }
     pub(crate) fn retryable(mut self, retryable: bool) -> Self {
         self.retryable = retryable;
         self

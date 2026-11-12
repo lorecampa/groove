@@ -10,5 +10,5 @@ pub fn run(shell: clap_complete::Shell) -> Result<Output> {
     let text = String::from_utf8(script).map_err(|error| {
         Error::new(ErrorCode::ProtocolError, "Completion script is not UTF-8").with_source(error)
     })?;
-    Output::text(serde_json::json!({ "text": text }), text)
+    Output::raw(serde_json::json!({ "text": text }), text)
 }

@@ -53,7 +53,8 @@ groove finish --task fix-parser                 # snapshot the work, free the sl
 The checkout starts at `HEAD` (or `--base main`) with HEAD detached; Groove never
 creates or switches branches. `finish` pins a snapshot of everything you changed,
 so you can get it back with `groove snapshot restore ID --to DIR`.
-If you want to keep commits on a branch, create one yourself before releasing.
+If you want to keep commits on a branch, create one yourself before releasing;
+release detaches the checkout, so that branch is immediately usable elsewhere.
 `release --task NAME` frees a slot without a snapshot, and refuses if there are
 unsaved changes or other processes still using the workspace (`--force` overrides). The next acquisition
 cleans the slot, ignored files included by default, so stop every writer first.

@@ -108,6 +108,8 @@ impl Pool {
             .with_details(|d| d.processes = processes));
         }
         if require_saved {
+            let lease = self.lease_info(id)?;
+            missing_checkout(&lease.worktree_path)?;
             let changes = self.workspace_changes(id, timeout)?;
             if changes.has_changes() {
                 return Err(Error::new(
@@ -118,6 +120,23 @@ impl Pool {
             }
         }
         Ok(())
+    }
+}
+
+/// Reject a reservation whose checkout was removed outside Groove (for example
+/// `rm -rf` or `git worktree remove --force`). Nothing remains to inspect or save,
+/// so the caller must explicitly acknowledge the loss.
+pub(crate) fn missing_checkout(path: &std::path::Path) -> Result<()> {
+    match fs::symlink_metadata(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(Error::new(
+            ErrorCode::RecoveryFailed,
+            format!(
+                "The reserved checkout {} no longer exists, so its work cannot be inspected or saved; release with --force to discard the reservation",
+                path.display()
+            ),
+        )
+        .with_details(|d| d.worktree_path = Some(path.to_owned()))),
+        _ => Ok(()),
     }
 }
 

@@ -7,7 +7,8 @@ staged and working files, then releases the reservation. A snapshot failure
 keeps the reservation protected. finish refuses with WORKSPACE_IN_USE while other
 processes still use the workspace; --force skips that best-effort check (never a
 running `groove exec`). The pinned snapshot survives slot reuse:
-recover it with `groove snapshot restore ID --to PATH`.
+recover it with `groove snapshot restore ID --to PATH`. Like release, finish
+detaches HEAD so branches created in the checkout are free to use elsewhere.
 
 Finish receipts make retries by lease ID safe after a lost response or slot reuse.
 Parallel tasks wait for snapshot access up to --git-timeout-ms (default 120000).

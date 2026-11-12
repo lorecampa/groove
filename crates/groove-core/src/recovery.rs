@@ -59,6 +59,7 @@ pub(crate) fn prepare(
     if exists && registration(repo, &path).is_ok() && !interrupted(repo, &path)? {
         state::checkpoint("before-normalization");
         match normalize(&git, &path, oid, config.cleanup_policy, &[fd])
+            .inspect(|()| state::checkpoint("normalized-in-place"))
             .and_then(|()| verify(&git, repo, &path, oid, config.cleanup_policy))
         {
             Ok(()) => {
@@ -108,6 +109,10 @@ pub(crate) fn register(
     git.run(
         &repo.common,
         &[
+            // Groove validates registrations by their absolute paths; never let a
+            // repository's relative-path preference rewrite its own slots.
+            "-c",
+            "worktree.useRelativePaths=false",
             "worktree",
             "add",
             "--detach",
@@ -180,12 +185,17 @@ pub(crate) fn verify(
             "Unexpected worktree HEAD",
         ));
     }
-    let head_file = fs::read(registration(repo, path)?.join("HEAD"))?;
-    if trim(&head_file) != oid.as_str().as_bytes() {
-        return Err(Error::new(
-            crate::ErrorCode::RecoveryFailed,
-            "Worktree HEAD is not detached",
-        ));
+    // Ask Git rather than reading the HEAD file: reftable repositories keep a
+    // placeholder there and store the real per-worktree HEAD in their ref table.
+    match git.run(path, &["symbolic-ref", "--quiet", "HEAD"], &[]) {
+        Err(e) if e.code == crate::ErrorCode::GitError && e.git_exit_code() == Some(1) => (),
+        Err(e) => return Err(e),
+        Ok(_) => {
+            return Err(Error::new(
+                crate::ErrorCode::RecoveryFailed,
+                "Worktree HEAD is not detached",
+            ))
+        }
     }
     git.run(
         path,
@@ -215,6 +225,58 @@ pub(crate) fn verify(
             "Worktree is not at a clean baseline",
         ));
     }
+    Ok(())
+}
+/// Detach HEAD in a released checkout so a branch the task created or switched
+/// to is no longer "checked out" there, freeing it for `git switch` or deletion
+/// elsewhere. Only HEAD changes: files, index and the branch itself are kept.
+///
+/// Best effort: a missing, foreign or unborn checkout is left alone, because the
+/// next acquisition normalizes or rebuilds it anyway.
+pub(crate) fn detach_head(
+    repo: &Repository,
+    config: &Config,
+    slot: &crate::SlotId,
+    timeout: Duration,
+    fds: &[i32],
+) -> Result<()> {
+    let path = config.worktree_root.join(slot.as_str());
+    if validate_slot_path(repo, config, slot).is_err()
+        || !path.exists()
+        || registration(repo, &path).is_err()
+    {
+        return Ok(());
+    }
+    let git = Git::new(timeout);
+    match git.run(&path, &["symbolic-ref", "--quiet", "HEAD"], &[]) {
+        // Already detached.
+        Err(e) if e.code == crate::ErrorCode::GitError && e.git_exit_code() == Some(1) => {
+            return Ok(())
+        }
+        Err(e) => return Err(e),
+        Ok(_) => (),
+    }
+    let Ok(oid) = git.run(
+        &path,
+        &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"],
+        &[],
+    ) else {
+        // An unborn branch has no commit to detach at.
+        return Ok(());
+    };
+    let oid = String::from_utf8_lossy(trim(&oid)).into_owned();
+    git.run(
+        &path,
+        &[
+            "update-ref",
+            "--no-deref",
+            "-m",
+            "groove: detach HEAD on release",
+            "HEAD",
+            &oid,
+        ],
+        fds,
+    )?;
     Ok(())
 }
 pub(crate) fn validate_slot_path(
@@ -260,12 +322,7 @@ fn registration_from_file(path: &Path) -> Result<PathBuf> {
         .strip_prefix(b"gitdir: ")
         .ok_or_else(|| Error::new(crate::ErrorCode::RecoveryFailed, "Invalid .git pointer"))?;
     use std::os::unix::ffi::OsStrExt;
-    let raw = PathBuf::from(OsStr::from_bytes(pointer));
-    let admin = if raw.is_absolute() {
-        raw
-    } else {
-        path.join(raw)
-    };
+    let admin = resolve_link(path, OsStr::from_bytes(pointer))?;
     repository::no_symlinks(&admin)?;
     Ok(admin)
 }
@@ -280,8 +337,7 @@ pub(crate) fn registration(repo: &Repository, path: &Path) -> Result<PathBuf> {
     validate_admin_tree(&admin)?;
     repository::no_symlinks(&admin.join("gitdir"))?;
     let backlink = fs::read(admin.join("gitdir"))?;
-    use std::os::unix::ffi::OsStrExt;
-    if trim(&backlink) != path.join(".git").as_os_str().as_bytes() {
+    if !backlink_matches(&admin, &backlink, path) {
         return Err(Error::new(
             crate::ErrorCode::RecoveryFailed,
             "Worktree registration backlink does not match slot",
@@ -289,6 +345,7 @@ pub(crate) fn registration(repo: &Repository, path: &Path) -> Result<PathBuf> {
     }
     repository::no_symlinks(&admin.join("commondir"))?;
     let common = fs::read(admin.join("commondir"))?;
+    use std::os::unix::ffi::OsStrExt;
     let common_path = admin.join(OsStr::from_bytes(trim(&common)));
     if fs::canonicalize(common_path)? != repo.common {
         return Err(Error::new(
@@ -297,6 +354,59 @@ pub(crate) fn registration(repo: &Repository, path: &Path) -> Result<PathBuf> {
         ));
     }
     Ok(admin)
+}
+/// Resolve a worktree link that Git may record relative to `base`
+/// (`worktree.useRelativePaths`). `..` is resolved lexically, and the result
+/// must name the same file the kernel would reach, so a symlink cannot redirect it.
+fn resolve_link(base: &Path, raw: &OsStr) -> Result<PathBuf> {
+    let raw = Path::new(raw);
+    if raw.is_absolute() {
+        return Ok(raw.to_path_buf());
+    }
+    let resolved = lexical(&base.join(raw));
+    if fs::canonicalize(base.join(raw)).ok() != fs::canonicalize(&resolved).ok() {
+        return Err(Error::new(
+            crate::ErrorCode::RecoveryFailed,
+            "Relative worktree link does not resolve consistently",
+        ));
+    }
+    Ok(resolved)
+}
+/// Remove `.` and resolve `..` components without consulting the filesystem.
+fn lexical(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => (),
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other),
+        }
+    }
+    out
+}
+/// Whether a registration's `gitdir` backlink (absolute, or relative to its
+/// administrative directory) names `path/.git`.
+fn backlink_matches(admin: &Path, raw: &[u8], path: &Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    let expected = path.join(".git");
+    let raw = OsStr::from_bytes(trim(raw));
+    if Path::new(raw).is_absolute() {
+        return raw.as_bytes() == expected.as_os_str().as_bytes();
+    }
+    // A relative link whose target is gone (a deleted slot) still matches lexically,
+    // so stale registrations of an owned path can be removed.
+    let resolved = lexical(&admin.join(raw));
+    resolved == expected
+        && match (
+            fs::canonicalize(admin.join(raw)),
+            fs::canonicalize(&resolved),
+        ) {
+            (Ok(a), Ok(b)) => a == b,
+            (Err(_), Err(_)) => true,
+            _ => false,
+        }
 }
 fn validate_admin_tree(path: &Path) -> Result<()> {
     repository::no_symlinks(path)?;
@@ -350,8 +460,7 @@ pub(crate) fn remove_owned(repo: &Repository, path: &Path) -> Result<()> {
                 continue;
             }
             if let Ok(raw) = fs::read(backlink) {
-                use std::os::unix::ffi::OsStrExt;
-                if trim(&raw) == path.join(".git").as_os_str().as_bytes() {
+                if backlink_matches(&item.path(), &raw, path) {
                     repository::no_symlinks(&item.path())?;
                     fs::remove_dir_all(item.path())?;
                 }
