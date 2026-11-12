@@ -1,5 +1,11 @@
 # Contributing
 
+Bug reports, documentation fixes and code contributions are welcome. Search
+existing issues and pull requests before starting. For a substantial feature or
+compatibility change, open an issue to discuss the problem and approach first.
+Small fixes can go straight to a pull request. Report vulnerabilities through
+[SECURITY.md](SECURITY.md).
+
 Coding agents must also follow [AGENTS.md](AGENTS.md). The checked-in
 `rust-toolchain.toml` pins the contributor toolchain. Automatic GitHub CI is
 disabled while hosted compute is unavailable; run the required local checks.
@@ -32,11 +38,101 @@ changes are reviewed together and documented; protocol v1 has not yet been
 formally frozen. Unknown protocol major versions must be rejected. Submit a
 focused pull request describing the behavior and the checks you ran.
 
-Before submitting, run:
+## Coding and documentation style
+
+- Use the pinned toolchain's default rustfmt style (`cargo fmt --all`) and keep
+  Clippy warning-free. Follow [.editorconfig](.editorconfig) for other files.
+- Follow the [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/checklist.html)
+  for public APIs and the [Rust CLI book](https://rust-cli.github.io/book/) for
+  command-line conventions, preserving Groove's JSON response contract.
+- Follow nearby naming and module structure: `snake_case` functions/modules,
+  `UpperCamelCase` types/traits and `SCREAMING_SNAKE_CASE` constants. Prefer small,
+  explicit functions and types that express ownership and valid states.
+- Propagate expected failures with typed errors and preserve their underlying
+  sources. Reserve `expect` for explained internal invariants. Give every unsafe
+  block a local `SAFETY` comment explaining why its operations are valid.
+- Explain intent and constraints in comments; document public ownership, errors
+  and useful examples in rustdoc. Write documentation and diagnostics in clear
+  English, using existing command and error terminology.
+- Keep refactors and formatting unrelated to the behavior change separate.
+  Review new dependencies, features, lockfile changes and minimum Rust support.
+- Choose regression coverage by observable behavior, following
+  [the testing guide](docs/testing.md#writing-tests-intent-and-observable-contracts).
+  Keep ownership and recovery guarantees in real-process tests.
+
+## Commits
+
+Use a short, imperative English subject describing the result, without a trailing
+period. Aim for 72 characters or fewer; clarity matters more than a strict count.
+An area prefix such as `core:` or `cli:` is optional. For example:
+
+```text
+Preserve reservations when snapshot capture fails
+cli: Explain how to recover an orphaned worker
+Document the local validation workflow
+```
+
+For a nontrivial change, leave a blank line after the subject and explain the
+problem, why this approach fixes it, and any compatibility or recovery effects.
+Include issue references where useful. The message should make sense without
+the PR conversation. Conventional Commits (`feat:`, `fix:`, and similar type
+prefixes) are not required; releases use explicit versions and reviewed changelog
+entries.
+
+Keep each commit a coherent change that builds and passes its relevant checks,
+with the tests and documentation needed for that change. Separate independent
+refactors from fixes. Review follow-up commits are welcome while a PR is open;
+before merge, consolidate temporary `fixup`/`WIP` commits or ask a maintainer for
+help. Commit wording is reviewed by people; the hooks check formatting and
+validation rather than enforcing a message grammar.
+
+## Pull requests and review
+
+Create a topic branch from `main` and open the PR against `main`. Descriptive
+branch names such as `fix/snapshot-capture` or `docs/contributing` are useful.
+Use a draft PR when the approach or implementation still needs discussion.
+
+Use the same subject style as commits for the PR title. Fill in the
+[PR template](.github/pull_request_template.md) for a reviewer who has not read
+the issue or prior discussion:
+
+- Lead with the concrete problem and resulting behavior. Include a small
+  before/after example when it helps, and link related issues (`Closes #123`
+  only when the PR resolves the issue).
+- Explain significant tradeoffs and point out areas needing careful review.
+  Keep the description proportional to the change; a small fix can be brief.
+- Report exact validation commands, observed results, failures and skipped
+  coverage. For docs-only changes, state what was checked and why runtime tests
+  were unnecessary. Never present planned checks as completed checks.
+- Describe API, CLI/JSON, storage and supported-environment compatibility effects,
+  including migration or recovery steps. Update help, schemas, conformance tests
+  and the changelog when applicable.
+
+Before marking a code change ready for merge, run the local pre-push gate below.
+Hosted CI is not automatic; absence of a failed GitHub check is not validation.
+Maintainers review correctness, safety, compatibility, tests and clarity before
+merging. Reply to review feedback and keep the PR description current as the
+implementation changes. Maintainers may squash a small PR or preserve a useful
+commit series; contributors do not need to rewrite history merely to open a PR.
+
+These conventions draw on
+[Cargo's contribution workflow](https://doc.crates.io/contrib/process/working-on-cargo.html),
+[Git's commit-message guidance](https://github.com/git/git/blob/master/Documentation/SubmittingPatches#describe-changes)
+and [clap's atomic-commit guidance](https://github.com/clap-rs/clap/blob/master/CONTRIBUTING.md#preparing-the-pr),
+adapted to Groove's existing history and local validation requirements.
+
+## Validation
+
+Before submitting code changes, run:
 
 ```sh
 bash scripts/check.sh push
 ```
+
+This runs whitespace, dependency security, workspace/fuzz formatting, Clippy,
+the default-scheduled Rust suite, doctests and rustdoc checks. See
+[testing](docs/testing.md#required-checks) for the expanded commands and optional
+platform/security checks.
 
 Public APIs require rustdoc, including ownership and error behavior. Keep descriptor leases
 alive explicitly; dropping an unprotected lease closes its descriptor. Durable
