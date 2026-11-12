@@ -6,12 +6,25 @@ unavailable. Reviewed `vVERSION` tags explicitly invoke the release pipeline,
 including its CI matrix, and therefore still require hosted compute.
 The repository can remain private throughout preparation and rehearsal.
 
-GitHub Releases work independently of crates.io. Registry publication is **off by
-default**; it requires the repository variable `GROOVE_PUBLISH_CRATES_IO=true`
-and the separate account setup below. Do not enable it merely to test releases.
+GitHub Releases work independently of crates.io. The first `0.1.0` alpha is
+published from a maintainer's machine; it does not require GitHub compute or a
+public GitHub repository. Automatic registry publication is **off by default**;
+it requires the repository variable `GROOVE_PUBLISH_CRATES_IO=true` and the
+separate publisher setup below. Local publication uses the existing Cargo login
+and does not require that variable or a GitHub environment.
 Cargo is the only package-manager route for now; there are no Homebrew/npm jobs.
 
 ## Prepare a release
+
+For local crates.io publication, prepare and merge the release changes below,
+then create/validate the local version tag. Run
+`bash scripts/release.sh publish --tag vVERSION --execute`; this publishes core,
+then CLI, and installs/smoke-tests the registry version. Do not run `cargo logout`
+if using a maintainer's existing long-lived login; preserve their credentials.
+Before pushing a version tag without hosted compute, disable the Release workflow
+with `gh workflow disable publish.yml --repo lorecampa/groove`. Enable it again
+explicitly when hosted release builds are wanted. GitHub release/binary creation
+is a separate step; the first crate publication does not provide native archives.
 
 From a clean checkout, collect user-visible changes under `## Unreleased`, then:
 
@@ -158,14 +171,14 @@ existing authenticated Git access. Install the skill from that same revision;
 see [installation](install.md). Source archives supplied by GitHub are source,
 not the native binary archives produced by this workflow.
 
-## Deferred crates.io setup
+## Local crates.io publication and optional automation
 
 Two packages share the workspace version: `groove-core` (library) and
 `groove-cli` (installs `groove`). Internal tools declare `publish = false`.
 Publish core before CLI; users installing CLI resolve core automatically.
 Publishing crate source makes it public even if the GitHub repository is private.
 
-When ready, separately:
+For local publication:
 
 1. Create/verify the crates.io account and intended package ownership. Checking
    name availability does not reserve it. Review source archives and licenses.
@@ -181,6 +194,8 @@ When ready, separately:
    Use the actual release tag. Enter the token only at the local login prompt;
    revoke it after bootstrap. The tool checks propagation/checksums and installs
    and smoke-tests the exact registry version.
+The remaining setup is optional and only needed for future GitHub automation:
+
 3. Create the `crates-io` GitHub environment and configure each crate's Trusted
    Publisher: owner `lorecampa`, repository `groove`, workflow `publish.yml`,
    environment `crates-io`. Review tag deployment restrictions/approvals supported

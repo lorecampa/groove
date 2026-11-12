@@ -14,13 +14,13 @@ Requires Linux or macOS 13+, Git 2.40+ and local storage (APFS on macOS).
 Building from source requires Rust 1.89+.
 
 ```sh
-cargo install --git https://github.com/lorecampa/groove --locked groove-cli
+cargo install --locked groove-cli
 ```
 
 The package is `groove-cli`; the installed command is `groove`.
-This installs the development revision; crates.io publication is deferred.
-See [installation](docs/install.md) for release-pinned installation, updates and
-native binary downloads.
+Cargo builds the published source package locally. The first release is
+`0.1.0`, an alpha. See [installation](docs/install.md) for version-pinned and
+development installation, updates and the status of native binary downloads.
 
 ## Set up your coding agent
 

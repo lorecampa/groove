@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.1.0] - 2026-11-12
+
 Initial Linux/macOS alpha. These notes describe the current product; unpublished
 development experiments are omitted.
 
@@ -19,8 +21,6 @@ development experiments are omitted.
   candidate/manual rehearsals, byte-verified uploads and retries that preserve
   existing assets. Release notes include tag-pinned Cargo installation and platform
   downloads. A private-to-public launch checklist documents external prerequisites.
-
-### Fixed
 
 - Package verification builds extracted sources with fresh compiler outputs;
   earlier archives at the same version cannot supply stale library artifacts.
