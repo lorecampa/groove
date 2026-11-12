@@ -22,6 +22,8 @@
 
 ### Fixed
 
+- The agent skill explicitly directs agents to each command's installed help
+  for its JSON output contract before parsing responses, including nested commands.
 - Agent installation instructions use the latest published CLI and let the
   current agent choose its skill installation location. The README setup prompt
   no longer requires users to choose an installation scope or pin an alpha.
