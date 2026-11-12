@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.2.0] - 2026-11-12
+
 ### Changed
 
 - Consolidated documentation around installed CLI help, the portable skill,
