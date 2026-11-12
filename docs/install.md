@@ -10,29 +10,36 @@ Installing instructions does not initialize pools or run repository setup.
 Requires Git 2.40+, Rust 1.89+, and Linux or macOS 13+ with supported local storage
 (APFS on macOS). See [operations](operations.md) for repository limitations.
 
-Until the first release exists, the development installation is:
+Install the alpha from crates.io; Cargo compiles the executable locally:
 
 ```sh
-cargo install --git https://github.com/lorecampa/groove --locked groove-cli
+cargo install --locked groove-cli
 groove --version
 ```
 
-For a released version, select its actual tag from
-[GitHub Releases](https://github.com/lorecampa/groove/releases), and use the same
-source revision for both CLI and skill. For example, **after v0.1.0 exists**:
+To select the first alpha exactly:
+
+```sh
+cargo install --locked --version '=0.1.0' groove-cli
+```
+
+For a development revision, or to install from a reviewed Git tag, use
+authenticated Git access while the repository remains private:
 
 ```sh
 cargo install --git https://github.com/lorecampa/groove --tag v0.1.0 --locked groove-cli
 ```
 
-Crates.io publication is deferred. Do not advertise `cargo install groove-cli`
-until that package/version is published. Cargo is the only supported package
-manager route for now. GitHub releases also carry checksummed native archives;
-see [binary downloads](releasing.md#binary-downloads).
+Omit `--tag` only when intentionally installing the development revision.
+Use the same source revision for CLI and skill. Cargo is the only supported
+package-manager route for now. Native GitHub binary archives are deferred for
+the first alpha; their pipeline requires available hosted compute. See
+[binary downloads](releasing.md#binary-downloads) for the supported targets.
 
-While this repository is private, use existing authenticated Git access or a
-local checkout. Do not put credentials into prompts, URLs or committed files.
-An unauthenticated agent cannot fetch a private installation guide.
+Crates.io installation does not require access to the GitHub repository.
+For the skill and repository guides while they remain private, use existing
+authenticated Git access or a local checkout. Do not put credentials into prompts,
+URLs or committed files. An unauthenticated agent cannot fetch a private guide.
 
 ## Install the skill for your harness
 
