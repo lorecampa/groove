@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Changed
+
+- Development changes require a reserved Groove pool worktree and a pull request
+  to `main`, including fixes, tests and documentation. The primary checkout stays
+  available for coordination.
+
 ### Fixed
 
 - Snapshot reads and deletion refuse unreadable, corrupt or inconsistent pins.
