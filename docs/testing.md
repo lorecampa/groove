@@ -159,8 +159,12 @@ RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked
 ```
 
 Use default test scheduling; serial-only success does not establish concurrent
-correctness. CI also tests current stable, minimum Git and installed production
-binaries. Checked-in workflows are not evidence that remote CI has run.
+correctness. Automatic push, pull-request and scheduled GitHub CI runs are
+disabled while hosted compute is unavailable. Run `bash scripts/check.sh push`
+locally before pushing. CI remains available through deliberate manual dispatch
+and explicit release runs; it also tests current stable, minimum Git and
+installed production binaries. Those runs require available hosted compute.
+Checked-in workflows are not evidence that remote CI has run.
 
 The macOS matrix uses native Apple Silicon and Intel runners on macOS 15 with
 Rust 1.89 and stable. It runs the same full suite with default scheduling, APFS

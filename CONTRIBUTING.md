@@ -1,8 +1,9 @@
 # Contributing
 
 Coding agents must also follow [AGENTS.md](AGENTS.md). The checked-in
-`rust-toolchain.toml` pins the contributor toolchain; CI tests both the minimum
-supported Rust version and current stable.
+`rust-toolchain.toml` pins the contributor toolchain. Automatic GitHub CI is
+disabled while hosted compute is unavailable; run the required local checks.
+The optional manual/release CI matrix covers minimum Rust and current stable.
 
 Groove is a Linux/macOS Rust workspace. Install Rust 1.89+ and Git 2.40+; Node/npm are
 used only for the optional build-tool compatibility test. See
@@ -65,7 +66,8 @@ local-only opt-ins; see [the snapshot lab](benchmarks/snapshots/README.md).
 
 ## Releases
 
-PR merges run checks only. A maintainer releases by pushing a `vVERSION` tag for
+PR pushes and merges do not automatically run GitHub CI. Local checks remain
+required. A maintainer releases by pushing a `vVERSION` tag for
 a reviewed release commit on `main`; candidate tags stay drafts. GitHub releases
 do not require crates.io, whose publication is disabled by default.
 Prepare the version, internal dependency,

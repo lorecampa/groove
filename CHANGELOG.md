@@ -7,6 +7,10 @@ development experiments are omitted.
 
 ### Added
 
+- Hosted CI runs only on deliberate manual dispatch or release invocation while
+  GitHub compute is unavailable; routine pushes, pull requests and schedules do
+  not consume runners. Required local checks remain in place.
+
 - Agent-readable CLI/skill installation, scope, update and removal guidance;
   a prompt-based README entry point without a custom integration installer.
   The portable skill distinguishes coordinators from assigned workers and bundles

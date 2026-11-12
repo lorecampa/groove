@@ -25,7 +25,10 @@ when the GitHub repository is private. It is disabled by default here.
 
 ## Rehearse privately
 
-1. Push reviewed changes to a private branch/PR and obtain remote CI evidence.
+1. Push reviewed changes to a private branch/PR after the required local checks.
+   Routine hosted CI is disabled while compute is unavailable; this does not
+   block ordinary merges. Obtain remote evidence when deliberately rehearsing
+   a release after hosted compute becomes available.
 2. Prepare a candidate prerelease such as `0.1.0-rc.1` on a reviewed commit using
    the release guide. Push its tag when ready: candidate tags leave verified
    drafts and skip crates.io, while repository visibility stays unchanged.
@@ -99,6 +102,11 @@ The branch-protection API also returned HTTP 403 requiring GitHub Pro or public
 visibility. Resolve billing for private remote validation; configure protection
 when supported, without changing visibility merely to get a green check.
 
-These external limitations prevent claiming remote launch readiness. No crate
+Automatic push, pull-request and scheduled CI triggers were subsequently disabled
+at the maintainer's request. Local checks remain required; manual/release checks
+remain available when compute returns. Remote validation is not a merge gate
+while hosted compute is unavailable.
+
+These external limitations prevent claiming remote release readiness. No crate
 publication, release tag, release announcement or repository visibility change
 is part of the implementation verification.

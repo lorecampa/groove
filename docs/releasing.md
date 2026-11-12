@@ -1,7 +1,9 @@
 # Releases
 
 Groove is a Linux/macOS alpha. Keep one version across both public packages and
-GitHub assets. Merging a PR runs CI only; reviewed `vVERSION` tags drive releases.
+GitHub assets. Routine pushes and PRs do not run hosted CI while compute is
+unavailable. Reviewed `vVERSION` tags explicitly invoke the release pipeline,
+including its CI matrix, and therefore still require hosted compute.
 The repository can remain private throughout preparation and rehearsal.
 
 GitHub Releases work independently of crates.io. Registry publication is **off by
@@ -25,7 +27,9 @@ Preparation updates the workspace version, internal dependency, Cargo.lock and
 dated changelog. It does not commit, tag, push or upload. It supports the current
 version for the first release and rejects downgrades or duplicate release entries.
 Review the date if the release is delayed. Commit the changes, submit a release
-PR and merge after review and CI. Version, notes, source and binaries must agree.
+PR and merge after review and the required local checks. When hosted compute is
+available, run the optional CI matrix as well. The actual release pipeline still
+requires its remote checks. Version, notes, source and binaries must agree.
 
 Then select the reviewed commit on main and explicitly push its annotated tag:
 
