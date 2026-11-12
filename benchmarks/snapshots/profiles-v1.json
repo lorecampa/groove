@@ -3,6 +3,30 @@
   "fixture_version": 1,
   "profiles": [
     {
+      "id": "workspace-multi-pool", "version": 1,
+      "purpose": "First registration and warm acquire/execute/release throughput across named pools sharing Git administration, with independent repeated task labels/keys and catalog verification.",
+      "environment": "cli-linux-amd64-v4",
+      "sampling": {"blocks": 10, "warmup_blocks": 1},
+      "estimated_minutes": [1, 5],
+      "cases": [
+        {"id": "2-pools", "files": 1000, "contents": {"kind": "paths"}, "workload": {"kind": "workspace-multi-pool", "pools": 2, "workers_per_pool": 2}},
+        {"id": "4-pools", "files": 1000, "contents": {"kind": "paths"}, "workload": {"kind": "workspace-multi-pool", "pools": 4, "workers_per_pool": 2}}
+      ]
+    },
+    {
+      "id": "workspace-deletion", "version": 1,
+      "purpose": "Preview, ambiguity rejection, pool deletion/retry and reinitialization for lazy, populated, dirty and external cached checkouts; verify retained results/locks and an untouched protected sibling.",
+      "environment": "cli-linux-amd64-v4",
+      "sampling": {"blocks": 10, "warmup_blocks": 1},
+      "estimated_minutes": [2, 10],
+      "cases": [
+        {"id": "lazy-64", "files": 1000, "contents": {"kind": "paths"}, "workload": {"kind": "workspace-deletion", "slots": 64, "materialized": false, "dirty": false, "external": false, "artifact_files": 0, "artifact_file_bytes": 0, "artifact_binary_bytes": 0}},
+        {"id": "populated-4", "files": 10000, "contents": {"kind": "paths"}, "workload": {"kind": "workspace-deletion", "slots": 4, "materialized": true, "dirty": false, "external": false, "artifact_files": 0, "artifact_file_bytes": 0, "artifact_binary_bytes": 0}},
+        {"id": "dirty-4", "files": 1000, "contents": {"kind": "unique"}, "workload": {"kind": "workspace-deletion", "slots": 4, "materialized": true, "dirty": true, "external": false, "artifact_files": 0, "artifact_file_bytes": 0, "artifact_binary_bytes": 0}},
+        {"id": "external-cache-4", "files": 1000, "contents": {"kind": "unique"}, "workload": {"kind": "workspace-deletion", "slots": 4, "materialized": true, "dirty": true, "external": true, "artifact_files": 64, "artifact_file_bytes": 4096, "artifact_binary_bytes": 1048576}}
+      ]
+    },
+    {
       "id": "snapshot-incremental", "version": 1,
       "purpose": "Cost of saving small edits and repeated checkpoint history in a typical source repository.",
       "environment": "cli-linux-amd64-v4",

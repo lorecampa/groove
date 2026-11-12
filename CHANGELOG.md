@@ -7,6 +7,10 @@ development experiments are omitted.
 
 ### Added
 
+- Versioned `workspace-multi-pool` and `workspace-deletion` benchmark profiles,
+  covering cross-pool throughput, lazy/populated/dirty/external-cache removal,
+  retained results/locks and unaffected sibling reservations. Reports validate
+  exact operation counts and correctness evidence before aggregating measurements.
 - Named pools selected with `--pool NAME`, a `pools` catalog, independent capacity,
   cleanup, checkout roots, task labels, request keys, caches and retained history.
   The default pool keeps its layout and keys. Repository-wide coordination rejects

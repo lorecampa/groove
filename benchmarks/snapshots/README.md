@@ -19,6 +19,7 @@ cargo run -p groove-bench --locked -- benchmark all
 
 # Execute each profile's cases once, asserting correctness without statistical verdicts.
 cargo run -p groove-bench --locked -- check workspace-concurrency
+cargo run -p groove-bench --locked -- check workspace-multi-pool workspace-deletion
 cargo run -p groove-bench --locked -- check all
 
 # Validate the report and recompute its summary from raw evidence.
@@ -53,6 +54,8 @@ image preparation and depend on the host. Expensive profiles remain explicit.
 | `workspace-reuse` | 10k unique files under pristine and warm cleanup | First acquisition, clean reuse, dirty sanitation and release |
 | `workspace-setup` | 1k source files, 256 4 KiB artifacts and one 4 MiB artifact | Explicit setup/cache publication on miss and independent copy seeding on hit |
 | `workspace-concurrency` | 1k source files with 1, 2, 4 and 8 warm slots/workers | Acquire/no-op managed execution/release, per-worker latency, batch throughput and full-pool rejection |
+| `workspace-multi-pool` | 1k source files; 2 or 4 named pools with 2 workers each, repeated labels/keys across pools | Pool init, first/warm acquisition, managed execution/release, catalog, per-worker latency, batch throughput and per-pool exhaustion |
+| `workspace-deletion` | 64 lazy slots; 4 populated slots over 10k paths; 4 dirty slots; 4 external cached slots over 1k unique paths | Ambiguous-selection refusal, preview, deletion, completed retry and reinitialization while a protected sibling remains intact |
 
 One **repetition** runs a complete case on a fresh disposable repository: prepare
 the fixture, measure the declared operations, verify correctness and clean up.
@@ -89,6 +92,16 @@ compare every artifact with its independent source and verify hit/miss, skipped
 steps and seeded counters. Concurrent workers must have distinct lease IDs and
 paths, succeed, reject excess capacity with the typed CLI error/exit category, and
 release every reservation. Expected failures are asserted rather than discarded.
+Multi-pool workers reuse task labels/request keys across namespaces, verify distinct
+IDs/paths and the selected worker environment, and exhaust each pool independently.
+Their first registration measurements are separate from warm batch throughput.
+Deletion cases verify every configured path/native registration is removed and
+permanent lock inodes, snapshot recovery, finish receipts, request-key tombstones,
+history/log bytes, root neighbors and a protected sibling survive. The external-cache
+case prepares 64 4 KiB files plus a 1 MiB artifact with the real setup/cache API;
+the dirty cases add tracked/untracked edits and 128 ignored files per slot. Fixture
+setup, result preservation and recovery verification are outside deletion timings.
+Reinit uses a new checkout root, retaining the intentionally preserved root neighbor.
 Worker start phases use bounded readiness handshakes; startup failures disconnect
 waiting peers, and a worker panic retains the fixture for explicit recovery.
 
@@ -119,6 +132,8 @@ resamples of whole paired blocks), with a 5% practical threshold. Verdicts are
 characterization only. Intervals across many metrics are not familywise guarantees;
 inspect variability/outliers (which are retained) and use a quiet host. No timing
 threshold makes a correctness check pass or fail.
+Baselines for the multi-pool/deletion profiles must implement those CLI features;
+an older binary is reported as an operational failure, never a timing comparison.
 
 ## Pinned software and controlled runtime
 

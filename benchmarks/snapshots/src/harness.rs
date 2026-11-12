@@ -187,13 +187,30 @@ pub(crate) fn command(
     cli_command(runner, binary, repo, args, diagnostics, None)
 }
 pub(crate) fn reject_full_pool(runner: &Runner, binary: &Path, repo: &Path) -> Result<Value> {
+    reject(
+        runner,
+        binary,
+        repo,
+        &["acquire", "--task", "overflow"],
+        "POOL_EXHAUSTED",
+        3,
+    )
+}
+pub(crate) fn reject(
+    runner: &Runner,
+    binary: &Path,
+    repo: &Path,
+    args: &[&str],
+    code: &str,
+    status: i32,
+) -> Result<Value> {
     Ok(cli_command(
         runner,
         binary,
         repo,
-        &strings(&["acquire", "--task", "overflow"]),
+        &strings(args),
         false,
-        Some(("POOL_EXHAUSTED", 3)),
+        Some((code, status)),
     )?
     .1)
 }

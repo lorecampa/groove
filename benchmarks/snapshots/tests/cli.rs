@@ -33,6 +33,8 @@ fn profiles_are_discoverable_and_workload_overrides_are_rejected() {
         "workspace-reuse",
         "workspace-setup",
         "workspace-concurrency",
+        "workspace-multi-pool",
+        "workspace-deletion",
     ] {
         assert!(listing.contains(name));
     }
@@ -115,6 +117,8 @@ fn routine_profiles_verify_raw_evidence_and_preserve_host_configuration() {
             "workspace-reuse",
             "workspace-setup",
             "workspace-concurrency",
+            "workspace-multi-pool",
+            "workspace-deletion",
             "--host",
             "--binary",
         ])
@@ -140,7 +144,7 @@ fn routine_profiles_verify_raw_evidence_and_preserve_host_configuration() {
     assert_eq!(value["schema_version"], 4);
     assert_eq!(value["status"], "passed");
     assert_eq!(value["environment"]["canonical"], false);
-    assert_eq!(value["cases"].as_object().unwrap().len(), 13);
+    assert_eq!(value["cases"].as_object().unwrap().len(), 19);
     assert_eq!(fs::read_dir(&scratch).unwrap().count(), 0);
     let inspected = bench().arg("inspect").arg(&report).output().unwrap();
     assert!(inspected.status.success());

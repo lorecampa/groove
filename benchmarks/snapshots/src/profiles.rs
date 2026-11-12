@@ -62,6 +62,19 @@ pub(crate) enum Workload {
     WorkspaceConcurrency {
         workers: usize,
     },
+    WorkspaceMultiPool {
+        pools: usize,
+        workers_per_pool: usize,
+    },
+    WorkspaceDeletion {
+        slots: usize,
+        materialized: bool,
+        dirty: bool,
+        external: bool,
+        artifact_files: usize,
+        artifact_file_bytes: usize,
+        artifact_binary_bytes: usize,
+    },
 }
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
@@ -119,6 +132,13 @@ impl Case {
             Workload::WorkspaceConcurrency { workers } => format!(
                 "{workers} simultaneous acquire/execute/release workers and full-pool rejection"
             ),
+            Workload::WorkspaceMultiPool { pools, workers_per_pool } => format!(
+                "{pools} independent pools with {workers_per_pool} workers each; first/warm acquisition, execution, release and catalog"
+            ),
+            Workload::WorkspaceDeletion { slots, materialized, dirty, external, artifact_files, .. } => format!(
+                "delete {slots} {} slots, {} residue, {} checkout root, {artifact_files} cache files; retain protected sibling, snapshots/history/locks and reinitialize",
+                if materialized { "materialized" } else { "lazy" }, if dirty { "dirty" } else { "clean" }, if external { "external" } else { "default" }
+            ),
         };
         format!(
             "{} generated source paths ({contents}); {operations}",
@@ -126,16 +146,21 @@ impl Case {
         )
     }
     pub(crate) fn capacity(&self) -> usize {
-        if let Workload::WorkspaceConcurrency { workers } = self.workload {
-            workers
-        } else {
-            1
+        match self.workload {
+            Workload::WorkspaceConcurrency { workers } => workers,
+            Workload::WorkspaceMultiPool {
+                pools,
+                workers_per_pool,
+            } => pools * workers_per_pool,
+            Workload::WorkspaceDeletion { slots, .. } => slots,
+            _ => 1,
         }
     }
     pub(crate) fn scratch_budget(&self) -> (u64, u64) {
         let copies = match self.workload {
             Workload::SnapshotRestore => 3,
             Workload::SnapshotSave { .. } => 2,
+            Workload::WorkspaceDeletion { .. } => self.capacity() + 3,
             _ => self.capacity() + 1,
         } as u64;
         let binary = if let Contents::Binary { bytes } = self.contents {
@@ -147,9 +172,15 @@ impl Case {
             artifact_files,
             artifact_file_bytes,
             artifact_binary_bytes,
+        }
+        | Workload::WorkspaceDeletion {
+            artifact_files,
+            artifact_file_bytes,
+            artifact_binary_bytes,
+            ..
         } = self.workload
         {
-            (artifact_files * artifact_file_bytes + artifact_binary_bytes) as u64 * 4
+            (artifact_files * artifact_file_bytes + artifact_binary_bytes) as u64 * copies.max(4)
         } else {
             0
         };
@@ -196,6 +227,42 @@ pub(crate) fn validate(profile: &Profile) -> Result<()> {
             }
             Workload::WorkspaceConcurrency { workers } => {
                 require((1..=32).contains(workers), "Invalid worker count")?
+            }
+            Workload::WorkspaceMultiPool {
+                pools,
+                workers_per_pool,
+            } => require(
+                (2..=8).contains(pools)
+                    && (1..=8).contains(workers_per_pool)
+                    && pools * workers_per_pool <= 32,
+                "Invalid multi-pool worker count",
+            )?,
+            Workload::WorkspaceDeletion {
+                slots,
+                materialized,
+                dirty,
+                artifact_files,
+                artifact_file_bytes,
+                artifact_binary_bytes,
+                ..
+            } => {
+                require(
+                    (1..=4096).contains(slots) && (!dirty || *materialized),
+                    "Invalid deletion slot/residue policy",
+                )?;
+                require(
+                    (*artifact_files == 0
+                        && *artifact_file_bytes == 0
+                        && *artifact_binary_bytes == 0)
+                        || (*materialized
+                            && *dirty
+                            && *artifact_files > 0
+                            && *artifact_files <= 10000
+                            && *artifact_file_bytes > 0
+                            && *artifact_file_bytes <= 1024 * 1024
+                            && *artifact_binary_bytes <= 64 * 1024 * 1024),
+                    "Invalid deletion cache fixture",
+                )?;
             }
             Workload::WorkspaceSetup {
                 artifact_files,
@@ -293,7 +360,8 @@ mod tests {
     #[test]
     fn named_profiles_cover_distinct_user_workflows_with_real_sampling() {
         let all = select(&["all".into()]).unwrap();
-        assert_eq!(all.len(), 7);
+        let names: BTreeSet<_> = all.iter().map(|p| p.id.as_str()).collect();
+        assert!(names.contains("workspace-multi-pool") && names.contains("workspace-deletion"));
         let scale = all.iter().find(|p| p.id == "snapshot-scale").unwrap();
         assert!(scale.cases.iter().any(|c| c.files == 1_000_000));
         assert!(all.iter().all(|p| p.sampling.blocks >= 6));
@@ -303,5 +371,33 @@ mod tests {
         let mut changed = scale.clone();
         changed.sampling.blocks += 1;
         assert_ne!(scale.sha256().unwrap(), changed.sha256().unwrap());
+    }
+
+    #[test]
+    fn lifecycle_profiles_reject_impossible_residue_and_worker_definitions() {
+        let mut multi = select(&["workspace-multi-pool".into()]).unwrap().remove(0);
+        multi.cases[0].workload = Workload::WorkspaceMultiPool {
+            pools: 2,
+            workers_per_pool: 0,
+        };
+        assert!(validate(&multi).is_err());
+        let mut deletion = select(&["workspace-deletion".into()]).unwrap().remove(0);
+        if let Workload::WorkspaceDeletion { dirty, .. } = &mut deletion.cases[0].workload {
+            *dirty = true;
+        }
+        assert!(validate(&deletion).is_err());
+        let mut deletion = select(&["workspace-deletion".into()]).unwrap().remove(0);
+        if let Workload::WorkspaceDeletion {
+            materialized,
+            dirty,
+            artifact_binary_bytes,
+            ..
+        } = &mut deletion.cases[0].workload
+        {
+            *materialized = true;
+            *dirty = true;
+            *artifact_binary_bytes = 1;
+        }
+        assert!(validate(&deletion).is_err());
     }
 }
