@@ -159,6 +159,24 @@ fn required<'a>(value: &'a Value, key: &str) -> Result<&'a Value> {
         .get(key)
         .ok_or_else(|| Error::Invalid(format!("Missing report field: {key}")))
 }
+/// Fastest and slowest warm changed-save timing of one profile result.
+fn sample_range(result: &Value) -> Result<(f64, f64)> {
+    let samples: Vec<f64> = result["warm_changed_saves"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|t| t["seconds"].as_f64())
+        .collect();
+    require(
+        !samples.is_empty() && samples.iter().all(|s| *s > 0.0),
+        "Missing warm save samples",
+    )?;
+    Ok(samples
+        .iter()
+        .fold((f64::INFINITY, 0.0_f64), |(low, high), s| {
+            (low.min(*s), high.max(*s))
+        }))
+}
 pub(crate) fn compare(a: &Value, b: &Value) -> Result<Value> {
     require(
         a["schema_version"] == 2 && b["schema_version"] == 2,
@@ -240,9 +258,23 @@ pub(crate) fn compare(a: &Value, b: &Value) -> Result<Value> {
         let before = a["warm_median_seconds"].as_f64().unwrap_or(0.0);
         let after = b["warm_median_seconds"].as_f64().unwrap_or(0.0);
         require(before > 0.0 && after > 0.0, "Invalid median timing")?;
+        let (low_a, high_a) = sample_range(&a)?;
+        let (low_b, high_b) = sample_range(b)?;
+        // Separate runs drift with host load and CPU frequency. Only a change whose
+        // samples do not overlap at all gets a direction; otherwise the medians are
+        // within run-to-run noise and need repeated or interleaved runs.
+        let verdict = if low_b > high_a {
+            "slower"
+        } else if high_b < low_a {
+            "faster"
+        } else {
+            "within_noise"
+        };
         output.insert(
             name,
-            json!({"before_seconds": before, "after_seconds": after, "ratio": after / before}),
+            json!({"before_seconds": before, "after_seconds": after, "ratio": after / before,
+                "before_range_seconds": [low_a, high_a], "after_range_seconds": [low_b, high_b],
+                "verdict": verdict}),
         );
     }
     Ok(output.into())
@@ -257,7 +289,7 @@ mod tests {
         "environment":{"canonical":true,"tools":{"git":"2.40.0"},"kernel":"kernel",
         "architecture":"x86_64","cpu_model":"cpu","cpu_quota":"400000 100000",
         "memory_limit":"8589934592","filesystem":"ext2/ext3","packages_sha256":"packages","image_id":"old"},
-        "results":{"smoke":{"warm_median_seconds":2,"fixture_tree":"same","recovery_verified":true,"dirty_recovery_verified":true}}})
+        "results":{"smoke":{"warm_median_seconds":2,"warm_changed_saves":[{"seconds":1.9},{"seconds":2},{"seconds":2.2}],"fixture_tree":"same","recovery_verified":true,"dirty_recovery_verified":true}}})
     }
     #[test]
     fn comparisons_allow_new_code_but_reject_environment_or_workload_drift() {
@@ -268,6 +300,18 @@ mod tests {
         b["environment"]["image_id"] = json!("new");
         b["results"]["smoke"]["warm_median_seconds"] = json!(1);
         assert_eq!(compare(&a, &b).unwrap()["smoke"]["ratio"], 0.5);
+        // The median moved, but the samples overlap: not a measured change.
+        assert_eq!(compare(&a, &b).unwrap()["smoke"]["verdict"], "within_noise");
+        let mut slower = b.clone();
+        slower["results"]["smoke"]["warm_changed_saves"] =
+            json!([{"seconds": 2.3}, {"seconds": 2.5}]);
+        let compared = compare(&a, &slower).unwrap();
+        assert_eq!(compared["smoke"]["verdict"], "slower");
+        assert_eq!(compared["smoke"]["before_range_seconds"], json!([1.9, 2.2]));
+        assert_eq!(compare(&slower, &a).unwrap()["smoke"]["verdict"], "faster");
+        let mut empty = b.clone();
+        empty["results"]["smoke"]["warm_changed_saves"] = json!([]);
+        assert!(compare(&a, &empty).is_err());
         for key in [
             "tools",
             "kernel",

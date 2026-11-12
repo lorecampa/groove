@@ -70,6 +70,12 @@ cargo run -p groove-bench --locked -- compare \
   /path/to/results/baseline.json /path/to/results/candidate.json
 ```
 
+Each profile reports both medians, their ratio, each run's fastest-to-slowest warm
+save range and a `verdict`: `slower` or `faster` only when the two ranges do not
+overlap, otherwise `within_noise`. Separate runs drift with host load and CPU
+frequency, so treat a `within_noise` ratio as no measured change; rerun both sides
+(ideally alternating them) with more `--runs` before acting on it.
+
 The million-file cases need several million free inodes and roughly 13 GiB of free
 scratch space; preflight checks reject insufficient capacity. Canonical runs reject
 tmpfs and overlay scratch storage. The launcher removes its scratch directory after
