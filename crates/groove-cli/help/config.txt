@@ -9,9 +9,10 @@ EXAMPLES:
   groove config global unset logging.directory
   groove config global edit
 
-`show`/`set` read or change this repository's pool. Growth preserves existing
-reservations and locks; shrinking is unsupported. Cleanup changes apply to
-future acquisitions; in-flight preparation may finish with the old policy.
+`show`/`set` read or change the selected pool (--pool NAME; default: default).
+Growth preserves existing reservations and locks; shrinking is unsupported.
+Cleanup changes apply to future acquisitions; in-flight preparation may finish
+with the old policy.
 Updates publish atomically and unchanged values report updated: false.
 
 `project` validates the checkout's .groove.toml without running anything;

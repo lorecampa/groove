@@ -37,7 +37,7 @@ back to `~/.local/state/groove/logs`. File severity is controlled independently 
 `logging.level`, default `debug`. Terminal flags do not change file capture.
 
 These are CLI diagnostic logs. [Managed execution](execution.md) captures worker
-output separately under the repository's `groove/task-logs/`; the retention
+output separately under the selected pool's `task-logs/` directory; the retention
 settings below do not apply to those files. Use `groove history` to find them and
 `groove storage clean --logs --older-than 30d --dry-run` to preview their explicit cleanup.
 

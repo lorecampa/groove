@@ -50,6 +50,9 @@ development experiments are omitted.
 
 ### Correctness and validation
 
+- Command help describes named-pool checkout roots and reinitialization. Agent
+  guidance carries pool selection and the original lease ID through retries;
+  user guides defer command options and defaults to CLI help.
 - Reftable repositories, `worktree.useRelativePaths` and relative registrations
   written by `git worktree repair` work; a deleted slot with a relative
   registration is rebuilt instead of blocking every acquisition.

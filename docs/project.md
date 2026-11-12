@@ -129,9 +129,11 @@ To import an existing environment, stop its writers, then explicitly provide
 only approved ignored roots are read. This does not run commands in the source.
 The operator is responsible for its quiescence and artifact correctness.
 
-Entries live in `<GIT_COMMON_DIR>/groove/artifacts/<key>` with permanent sibling
-`<key>.lock` files. Publication verifies a private staging tree and atomically renames
-it after syncing. A crash before publication may leave an unused staging directory;
+Entries live in the selected pool's `artifacts/<key>` directory with permanent
+sibling `<key>.lock` files. Pool state is `<GIT_COMMON_DIR>/groove/` for `default`
+and `<GIT_COMMON_DIR>/groove/pools/<name>/` for named pools. Publication verifies a
+private staging tree and atomically renames it after syncing. A crash before
+publication may leave an unused staging directory;
 there is no automatic cache eviction in this release. Corruption fails closed;
 select a new explicit key after investigating. Never remove or replace cache locks
 while clients may run. Keep source caches, pool storage and published entries within
@@ -155,12 +157,13 @@ apply. To keep workspaces outside that directory hierarchy, initialize a new poo
 with a dedicated external root, for example:
 
 ```sh
-groove init --capacity 4 --worktree-root /absolute/workspaces/my-project
+groove --pool external init --capacity 4 --worktree-root /absolute/workspaces/my-project
 ```
 
-The root is fixed after initialization. Check missing dependencies, untrusted
-configuration and required environment files in worker logs when a program fails;
-the task remains reserved. Do not copy secrets or grant trust automatically.
+The root is fixed until the pool is deleted and reinitialized. Check missing
+dependencies, untrusted configuration and required environment files in worker
+logs when a program fails; the task remains reserved. Do not copy secrets or grant
+trust automatically.
 
 ### Workspace identity
 
@@ -201,20 +204,9 @@ even after slot reuse. Restore the snapshot into a new directory to recover its
 files and staging state without changing the successor's workspace. Nothing is
 pushed or merged.
 
-## Large repository features not yet supported
+## Repository compatibility
 
-Sparse checkout, LFS and submodules are future work. Existing checks still reject
-unsupported configurations; these items describe the required implementation:
-
-1. **Sparse checkout:** make the sparse profile an immutable pool identity;
-   preserve per-slot index independence; validate sparse index and changed-profile
-   invalidation. Snapshot recovery must retain destination rules.
-2. **LFS/content filters:** explicitly configure trusted managed hydration with
-   captured output, timeouts, cancellation and offline failures. Define pointer vs
-   hydrated result semantics and compatibility keys before enabling filters.
-3. **Submodules:** model recursive gitdirs, locks, writers and pinned commits; preserve
-   dirty/untracked nested results and recover interrupted recursive cleanup before
-   allowing automatic slot reuse.
-
-Each stage needs disposable large fixtures, failure/SIGKILL regressions and
-measurements. Removing a rejection alone is not support.
+Pool checkouts require full working trees without sparse checkout, submodules or
+configured content filters such as Git LFS. See [requirements](operations.md#requirements)
+for repository and filesystem compatibility, and [snapshots](snapshots.md#supported-boundaries)
+for checkpoint-specific boundaries.

@@ -4,6 +4,9 @@ A reservation controls reuse of a checkout. A managed execution controls one
 explicitly launched command and its participating descendants. Ending execution
 never releases the reservation.
 
+Use `groove exec --help`, `groove stop --help` and `groove recover --help` for
+command options and defaults. This guide explains ownership and recovery.
+
 ## Run and stop
 
 ```sh
@@ -25,7 +28,9 @@ explicit `bash -c` command. Repository-selection `GIT_*` overrides are removed.
 The worker uses your environment and normal tool configuration.
 
 stdout/stderr go to private files under
-`<GIT_COMMON_DIR>/groove/task-logs/<run-id>/`, outside the reusable checkout.
+the selected pool's `task-logs/<run-id>/` directory, outside the reusable checkout.
+The pool state directory is `<GIT_COMMON_DIR>/groove/` for `default` and
+`<GIT_COMMON_DIR>/groove/pools/<name>/` for a named pool.
 Both streams are also mirrored live to Groove's stderr in human and JSON modes;
 `--quiet` suppresses mirroring without changing captured files or execution status.
 Worker bytes are not classified by log level. Child buffering can delay output;

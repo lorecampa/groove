@@ -21,5 +21,6 @@ If the checkout itself was deleted (rm -rf, git worktree remove), release and
 finish fail with RECOVERY_FAILED because nothing can be inspected or saved;
 release --force discards the reservation and the next acquisition rebuilds it.
 
-A lost response can be retried with the same lease. Stale lease IDs can never
-release a later task's workspace.
+Retry a lost response with the original --lease-id and the same --pool selection.
+Task labels can be reused after release; retrying by --task could select a newer
+reservation. Stale lease IDs can never release a later task's workspace.

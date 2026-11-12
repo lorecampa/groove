@@ -2,13 +2,18 @@ EXAMPLES:
   groove init --capacity 4
   groove init --capacity 4 --worktree-root /absolute/empty/root
   groove init --resume --capacity 4
+  groove --pool frontend init --capacity 3 --cleanup warm
 
 Creates slot metadata and permanent locks; checkouts are created lazily on first
 acquisition. Running init on a ready pool fails with CONFIG_CONFLICT, even with
 identical settings: use `config show` or `config set` instead. An interrupted
 init must be resumed with --resume and the original settings.
 
-The checkout root defaults to <GIT_COMMON_DIR>/groove/worktrees and cannot be
-changed later. A custom root must start empty, be owned by you and lie outside
-Git administration; relative paths resolve from the current directory.
+Initializes the selected pool (--pool NAME; default: default). The checkout root
+defaults to <GIT_COMMON_DIR>/groove/worktrees for default and
+<GIT_COMMON_DIR>/groove/pools/<name>/worktrees for a named pool. It stays fixed for
+that pool generation; after destroy, init can choose another root and settings.
+A custom root must start empty, be owned by you and lie outside Git administration
+and every checkout. Roots cannot overlap another pool's root, including pending
+and retained deleted pools. Relative paths resolve from the current directory.
 Never delete permanent lock files to force setup or recovery.

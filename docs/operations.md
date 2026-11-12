@@ -1,5 +1,8 @@
 # Operating Groove
 
+Use `groove --help` and `groove COMMAND --help` for command options, defaults and
+examples. This guide covers persistent state, ownership and operator recovery.
+
 ## Requirements
 
 Linux or macOS 13+ (Apple Silicon/Intel), Git 2.40+, local storage, and cooperative processes running as the
@@ -47,7 +50,8 @@ groove --repo /other/repo init --capacity 4 --cleanup warm \
 ```
 
 Initialization creates fixed slot metadata; acquisition materializes worktrees.
-A ready pool rejects every repeated init. The checkout root cannot change.
+A ready pool rejects every repeated init. Its checkout root stays fixed until
+the pool is deleted and reinitialized.
 Use `groove config set --capacity 8 --cleanup warm` to grow/change future cleanup.
 Updates validate all values before publication; shrinking is unsupported. Active
 reservations and permanent locks survive. Retry matching interrupted init with
@@ -61,9 +65,10 @@ repurpose it while the pool exists. Stop all owners before moving/restoring a po
 Restoring permanent locks onto new inodes invalidates manifest identities;
 Groove refuses automatic replacement.
 
-Use one Groove version across the repository's pools. Every record uses schema 1; there is no
-migration between development versions, so recreate pools after upgrading a
-pre-release build. Current handles and acquisition waiters refresh settings, while
+Use one Groove version across the repository's pools. Groove checks durable format
+compatibility when opening records. Use a compatible binary for unsupported formats;
+never delete or rewrite coordination metadata to force an upgrade.
+Current handles and acquisition waiters refresh settings, while
 already-started preparation may use its observed policy.
 
 ## Workflow pools
@@ -83,7 +88,8 @@ even from a named checkout; missing pools never fall back to another namespace.
 Labels/keys can be reused independently across pools. Named state lives under
 `<common>/groove/pools/<name>/`; default retains its original layout and keys.
 All linked checkouts share the catalog. History/storage stay scoped to the selected
-pool even after deletion, while snapshots/branches/objects/configuration are shared.
+pool even after deletion, while snapshots/branches/objects and Git configuration
+are shared.
 
 Checkout roots cannot overlap another pool's published or pending root. Deleted
 pools retain their current root claim until reinitialized with a different root.
@@ -221,5 +227,4 @@ and `list --details` opt into local Git facts; ordinary inspection shows recorde
 setup state, reasons and explicit next actions. `show --task LABEL` requires one
 active match and shows the workspace path; inspecting never reserves it.
 
-Sparse/LFS/submodule support remains
-staged as documented in the project guide; existing unsupported checks remain.
+Repository compatibility is listed under [requirements](#requirements).

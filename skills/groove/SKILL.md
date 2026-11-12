@@ -12,15 +12,21 @@ Read `groove --help` and the relevant command's `--help` for details.
 
 ## Acquire and work
 
-1. If the repository has no pool, run `groove init --capacity 4` unless the user
+Keep pool selection explicit: omission of `--pool` selects `default`, including
+inside a named pool's checkout. Carry the same `--pool NAME` on every pool command
+and retry. Use `groove pools` to inspect the catalog; never switch pools to bypass
+contention. Labels and request keys are pool-local; Git refs and snapshots are shared.
+
+1. If the selected pool is not initialized, run `groove init --capacity 4` unless the user
    chose other settings. A ready pool rejects repeated init; inspect it with
    `groove config show`. Grow it explicitly with `groove config set --capacity N`;
    never enlarge a pool to bypass contention.
 2. Pick a short task name and a unique request key, then run
    `groove acquire --task NAME --request-key KEY`. Later commands select the
    reservation with `--task NAME`; an active name cannot be reused (the error
-   names the existing reservation). Keep the key and
-   `result.worktree_path` outside the checkout. The reservation survives exits.
+   names the existing reservation). Keep the pool name, request key,
+   `result.lease_id` and `result.worktree_path` outside the checkout. The reservation
+   survives exits.
 3. Do all file, Git and terminal work in the returned path. HEAD is detached;
    Groove never creates branches. Refs and configuration are shared with other
    worktrees.
@@ -57,9 +63,10 @@ Changed inputs and completed keys are rejected; use a new key for a new task.
 Without a key, inspect `groove list` before acquiring again. Listings, PIDs and
 timestamps never prove ownership or that writers stopped.
 
-If two reservations share a label, `--task` refuses to guess; use `--lease-id`
-from `groove list`. Lost release or finish responses can be retried with the same
-selector; stale IDs cannot release a later task. Reservations never expire.
+Retry a lost release or finish response with the original `--lease-id` and pool
+selection. Task labels can be reused after release, so retrying by `--task` can
+select a newer reservation. Stale lease IDs cannot release a later task.
+Reservations never expire.
 
 An orphaned managed execution keeps release blocked. Stop all external writers,
 then run the operator-only `groove recover --task NAME`. If ownership is

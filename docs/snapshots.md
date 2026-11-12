@@ -4,6 +4,9 @@
 files or the real Git index. No pool initialization, remote, or first commit is
 needed. With `--json`, results use the normal envelope (see [protocol](protocol.md)).
 
+Use `groove snapshot --help` and each subcommand's `--help` for command options,
+defaults and examples. This guide explains capture, recovery and retention.
+
 For a pooled task, `groove finish --task NAME` saves and pins a snapshot before
 releasing its checkout. It retains protection on capture failure and a durable
 retry receipt on success; see [finish and recovery](execution.md#checkpoint-and-release).
@@ -35,8 +38,8 @@ modification. This catches common races, but is not an atomic filesystem snapsho
 and cannot prove consistency against arbitrary writers. A detected race fails;
 the caller can retry after stopping writers.
 
-Changed files exceeding 100 MiB fail before publication. Use
-`--max-file-bytes BYTES` to change the threshold; `0` explicitly removes it.
+Changed files exceeding the capture limit fail before publication. See
+`groove snapshot save --help` for the limit and its override.
 Large binary edits can consume substantial space: Git initially writes whole new
 blobs, with possible delta compression during subsequent packing.
 
@@ -68,7 +71,7 @@ Snapshots live under `refs/groove/snapshots/<UUID>`, pins under
 `<GIT_COMMON_DIR>/groove-snapshots/`. All linked worktrees share this namespace.
 The manifest records the originating Git directory. This deliberately uses a
 repository-wide snapshot lock to coordinate save, delete and restore.
-Concurrent operations wait up to `--git-timeout-ms` (default 120000 ms) for this
+Concurrent operations wait up to `--git-timeout-ms` for this
 lock, including snapshots taken by `finish`. A lock timeout returns a retryable
 error and keeps task reservations and files protected; retry the same operation.
 Git mutation children inherit the lock so killing the parent cannot release it

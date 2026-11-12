@@ -28,7 +28,7 @@ assume cooperative same-user processes; worktrees are not security sandboxes.
 | --- | --- |
 | `groove-core` | Discovery, allocation, locks, controlled Git, recovery, reservations, execution and snapshots |
 | `groove-cli` | Parsing, human and JSON rendering, exit codes, preferences and logging |
-| `groove-release`, `groove-bench` | Unpublished Rust development tooling with Bash entry points |
+| `groove-release`, `groove-bench` | Unpublished release and benchmark tooling |
 
 Core never prints or installs global logging. It uses blocking operations and
 requires no async runtime.
@@ -46,11 +46,15 @@ backends. Descriptor ownership, durable protection and recovery policy are share
 | Module | Owns |
 | --- | --- |
 | `pool` | `Pool::init/open/acquire`, durable release, protected-lease listing |
+| `namespace` | Pool catalog, shared administration and checkout-root claims |
+| `lifecycle`, `destruction` | Generation admission, deletion and retained lock validation |
 | `reservation` | `Pool::reserve`, request-key journal, lookup by ID or task label |
 | `inspection` | Slot observations and optional Git status |
 | `execution` | Managed workers, stop sockets, orphan recovery |
 | `preparation` | Project setup runs and named commands |
 | `finish` | Pin a snapshot and release |
+| `snapshot` | Repository-wide checkpoint capture, recovery and retention |
+| `project`, `cache` | Project definitions and independent artifact publication/seeding |
 | `settings` | Capacity growth and cleanup changes |
 | `recovery` | Normalizing, rebuilding and verifying checkouts |
 | `git` | Bounded, isolated Git subprocesses (`Invocation`) |
@@ -71,6 +75,7 @@ change through an atomic settings update.
 <GIT_COMMON_DIR>/groove/
   config.json                     # Ready manifest (schema 1)
   lifecycle.json                  # Generation and initializing/ready/deleting/deleted phase
+  initializing.json               # Pending initialization settings and checkout-root claim
   locks/lifecycle.lock            # Permanent shared admission / exclusive lifecycle transitions
   locks/admin.lock                # Repository-wide Git registration/root-claim serialization
   locks/wt-0001.lock              # Permanent slot ownership
@@ -84,6 +89,7 @@ change through an atomic settings update.
   requests/<key-hash>.lock        # Permanent per-key serialization
   requests/task-<label-hash>.lock # Permanent per-label serialization
   task-logs/<run-id>/             # Captured stdout/stderr and durable run.json
+  artifacts/<key>/               # Disposable setup cache; permanent sibling <key>.lock
   worktrees/wt-0001/              # Default disposable checkout
   tmp/
   retired/<pool-id>.json           # Retained manifest for historical lock identities

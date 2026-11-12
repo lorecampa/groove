@@ -27,7 +27,7 @@ pub(crate) fn now_ms() -> u64 {
         .min(u64::MAX as u128) as u64
 }
 
-/// Durable reservation settings. Keys are scoped to one repository and never expire.
+/// Durable reservation settings. Keys are scoped to one pool namespace and never expire.
 ///
 /// ```no_run
 /// use groove_core::{Pool, ReservationOptions};

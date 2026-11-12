@@ -41,6 +41,10 @@ RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked
 Public APIs require rustdoc, including ownership and error behavior. Keep descriptor leases
 alive explicitly; dropping an unprotected lease closes its descriptor. Durable
 protection survives handle closure and requires stopped-writer release.
+CLI help owns command syntax, options, defaults and command-specific recovery.
+Keep the README focused on installation and the basic workflow; guides explain
+concepts and operational boundaries. Update help, schemas and protocol contracts
+with behavior changes, and link to them instead of copying their reference tables.
 Document user-visible changes in [CHANGELOG.md](CHANGELOG.md). Use the
 [release checklist](docs/releasing.md) before publishing.
 

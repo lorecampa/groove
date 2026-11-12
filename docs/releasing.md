@@ -1,6 +1,6 @@
 # Releases
 
-Groove is a Linux alpha. PR merges run CI only. Publishing is triggered
+PR merges run CI only. Publishing is triggered
 by explicitly pushing a `vVERSION` tag for a reviewed release commit on `main`.
 Local checks do not establish that remote CI or publishing credentials work.
 
@@ -30,7 +30,7 @@ Publishing source to crates.io does not change GitHub repository visibility.
 ## Before the first release
 
 The code and local package checks can be ready before account setup is complete.
-Before uploading the initial `0.1.0` Linux alpha:
+Before publishing the first version:
 
 1. Check that the intended source commit's full CI matrix, audit and package jobs
    have passed. Local tests alone do not establish remote CI success.

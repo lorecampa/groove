@@ -22,7 +22,7 @@ Omitting `--pool` always selects `default`. If a task names a workflow pool,
 carry `--pool NAME` alongside its lease ID/task label on every pool command,
 including retries, stop/recover, history and finish. Inspect `groove pools` when
 needed; never select another pool to bypass contention. Labels/keys are pool-local,
-but snapshots, branches and configuration remain shared. The managed worker
+but snapshots, branches and Git configuration remain shared. The managed worker
 environment exposes `GROOVE_POOL`; the CLI does not infer selection from it or cwd.
 
 ```sh
@@ -31,7 +31,8 @@ groove init --capacity 4
 groove acquire --task issue-42 --request-key issue-42-attempt-1
 ```
 
-Check `ok` before using `result.worktree_path`. The checkout is clean, with HEAD
+Check `ok` before using `result.worktree_path`. Keep `result.lease_id` and the pool
+selection outside the checkout for retries. The checkout is clean, with HEAD
 detached at the base; Groove never creates or switches branches. Follow-up
 commands use `--task issue-42`. Only one active reservation may carry a label; a
 second `acquire` with it fails with `INVALID_ARGUMENT` whose details give the
@@ -83,8 +84,9 @@ Interrupted initialization needs `init --resume`.
 
 Reservations survive crashes and never expire. Stop managed execution with `stop`;
 for an orphan, follow [operator recovery](execution.md#crashes-and-recovery).
-Lost
-release responses can be retried until the slot is reassigned; stale IDs cannot
+Retry lost release or finish responses with the original `--lease-id` and pool
+selection. A task label can identify a newer reservation after release, so do not
+retry by label. Release retries work until the slot is reassigned; stale IDs cannot
 release a successor. `finish` keeps a durable receipt that survives reassignment.
 
 If saving results or stopping writers fails, keep the reservation and report what

@@ -235,7 +235,8 @@ Lifecycle additions do not change existing manifest/slot formats or exit categor
 `init` creates capacity 1..4096 and rejects a ready pool with `CONFIG_CONFLICT`,
 even for identical settings. Interrupted initialization must be resumed with
 `--resume` and identical settings. A custom checkout root must be empty, owned by
-the user and outside Git administration, and cannot change later.
+the user and outside Git administration. The root stays fixed until that pool is
+deleted and reinitialized.
 
 `config set` grows capacity and/or changes cleanup for future acquisitions, in
 one atomic, validated update. Shrinking is unsupported. Growth preserves existing
@@ -333,7 +334,7 @@ never ownership inference. History deletion requires already-cleaned logs.
 `128 + signal` when cancelled or killed, and 1 when output exceeded its limit.
 The CLI computes these from the typed result (`ExecResult::shell_status`). Read
 `result.execution` to tell worker failures from Groove failures. Worker output is
-captured under `<GIT_COMMON_DIR>/groove/task-logs/`. See [execution](execution.md).
+captured under the selected pool's `task-logs/` directory. See [execution](execution.md).
 
 ## Rust API
 
