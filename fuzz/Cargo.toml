@@ -1,0 +1,33 @@
+[package]
+name = "groove-fuzz"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.89"
+publish = false
+license = "MIT OR Apache-2.0"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Keep libFuzzer and its C++ build dependencies out of published packages and
+# ordinary Cargo tests. Audit this separate lockfile in scripts/security.sh.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4.13"
+groove-core = { path = "../crates/groove-core", version = "0.1.0" }
+serde_json = "1"
+
+[[bin]]
+name = "identifiers"
+path = "fuzz_targets/identifiers.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "project"
+path = "fuzz_targets/project.rs"
+test = false
+doc = false
+bench = false

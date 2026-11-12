@@ -40,6 +40,7 @@ impl Fixture {
         env.insert("PATH".into(), path);
         env.insert("TEST_CARGO_LOG".into(), log.as_os_str().to_owned());
         executable(&tools.join("cargo"),"#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$TEST_CARGO_LOG\"\n[ \"${TEST_FAIL_CARGO:-}\" != \"$1\" ]\n");
+        executable(&tools.join("gitleaks"), "#!/bin/sh\nprintf 'gitleaks %s\\n' \"$*\" >> \"$TEST_CARGO_LOG\"\n[ \"${TEST_FAIL_SECRETS:-}\" != true ]\n");
         let f = Self {
             temp,
             repo,
@@ -55,6 +56,7 @@ impl Fixture {
             ".githooks/pre-commit",
             ".githooks/pre-push",
             "scripts/check.sh",
+            "scripts/security.sh",
             "scripts/install-hooks.sh",
         ] {
             fs::copy(root.join(path), f.repo.join(path)).unwrap();
@@ -140,24 +142,35 @@ fn precommit_blocks_staged_whitespace_before_cargo() {
 }
 #[test]
 fn prepush_blocks_failed_gate_without_updating_remote() {
-    let mut f = Fixture::new();
-    f.ok(&["git", "commit", "-qm", "first"]);
-    f.remote();
-    f.env.insert("TEST_FAIL_CARGO".into(), "clippy".into());
-    assert!(!f
-        .call(&["git", "push", "origin", "HEAD:refs/heads/main"])
-        .status
-        .success());
-    assert!(f
-        .ok(&["git", "ls-remote", "origin", "refs/heads/main"])
-        .stdout
-        .is_empty());
-    f.env.remove(&OsString::from("TEST_FAIL_CARGO"));
-    f.ok(&["git", "push", "origin", "HEAD:refs/heads/main"]);
-    let log = fs::read_to_string(&f.log).unwrap();
-    assert!(log.contains("test --workspace --all-targets --all-features --locked"));
-    assert!(!log.contains("test-threads=1"));
-    assert!(log.contains("doc --workspace --no-deps --locked"));
+    for gate in ["secrets", "audit", "deny", "vet", "clippy"] {
+        let mut f = Fixture::new();
+        f.ok(&["git", "commit", "-qm", "first"]);
+        f.remote();
+        f.env.insert("TEST_FAIL_CARGO".into(), gate.into());
+        if gate == "secrets" {
+            f.env.insert("TEST_FAIL_SECRETS".into(), "true".into());
+        }
+        assert!(!f
+            .call(&["git", "push", "origin", "HEAD:refs/heads/main"])
+            .status
+            .success());
+        assert!(f
+            .ok(&["git", "ls-remote", "origin", "refs/heads/main"])
+            .stdout
+            .is_empty());
+        f.env.remove(&OsString::from("TEST_FAIL_CARGO"));
+        f.env.remove(&OsString::from("TEST_FAIL_SECRETS"));
+        f.ok(&["git", "push", "origin", "HEAD:refs/heads/main"]);
+        let log = fs::read_to_string(&f.log).unwrap();
+        assert!(log.contains("test --workspace --all-targets --all-features --locked"));
+        assert!(!log.contains("test-threads=1"));
+        assert!(log.contains("doc --workspace --no-deps --locked"));
+        assert!(log.contains("audit --deny warnings"));
+        assert!(log.contains("gitleaks git --redact --no-banner --log-opts=--all"));
+        assert!(log.contains("deny --locked check"));
+        assert!(log.contains("vet --locked"));
+        assert!(log.contains("audit --file fuzz/Cargo.lock --deny warnings"));
+    }
 }
 #[test]
 fn installer_is_idempotent_and_preserves_custom_hooks() {

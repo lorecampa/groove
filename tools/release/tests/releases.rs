@@ -420,7 +420,7 @@ fn target_bundles_keep_independent_metadata_and_valid_checksums() {
             .collect()
     };
     let mut previous = Vec::new();
-    for target in ["fixture-a", "fixture-b"] {
+    for target in ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin"] {
         f.tool(
             &[
                 "bundle",
@@ -463,13 +463,23 @@ fn target_bundles_keep_independent_metadata_and_valid_checksums() {
             b"skill entrypoint\n"
         );
         let manifest = output.join(format!("{prefix}.manifest.json"));
+        let sbom = output.join(format!("{prefix}.cdx.json"));
+        let inventory: serde_json::Value =
+            serde_json::from_slice(&fs::read(&sbom).unwrap()).unwrap();
+        assert_eq!(inventory["bomFormat"], "CycloneDX");
+        assert_eq!(inventory["metadata"]["component"]["name"], "groove-cli");
+        assert_eq!(inventory["components"][0]["name"], "groove-core");
+        assert_eq!(
+            fs::read(extracted.join(&prefix).join("SBOM.cdx.json")).unwrap(),
+            fs::read(&sbom).unwrap()
+        );
         let value: serde_json::Value =
             serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
         assert_eq!(value["target"], target);
         assert_eq!(value["build_os"], std::env::consts::OS);
         let sums = output.join(format!("SHA256SUMS-{target}"));
         let checksums = fs::read_to_string(&sums).unwrap();
-        assert_eq!(checksums.lines().count(), 2);
+        assert_eq!(checksums.lines().count(), 3);
         for line in checksums.lines() {
             let (expected, name) = line.split_once("  ").unwrap();
             let bytes = fs::read(output.join(name)).unwrap();
@@ -479,7 +489,11 @@ fn target_bundles_keep_independent_metadata_and_valid_checksums() {
             value["artifacts"][archive.file_name().unwrap().to_str().unwrap()],
             checksum(fs::read(&archive).unwrap())
         );
-        for path in [archive, manifest, sums] {
+        assert_eq!(
+            value["artifacts"][sbom.file_name().unwrap().to_str().unwrap()],
+            checksum(fs::read(&sbom).unwrap())
+        );
+        for path in [archive, manifest, sbom, sums] {
             previous.push((path.clone(), fs::read(path).unwrap()));
         }
     }

@@ -138,7 +138,12 @@ Core code emits events without configuring global logging.
 Logs omit raw argument vectors, Git output, file contents and environment dumps.
 Event strings are bounded to 2048 UTF-8 bytes, and request IDs to 2048 characters.
 New log files use mode 0600 and new directories mode 0700. Existing directory
-permissions are unchanged. Logs are troubleshooting data, not an ownership
+permissions are unchanged; existing destinations must be owned by the current
+user, must not be writable by group/others, and cannot traverse symlinks.
+Cleanup locks must be regular, singly linked, owned files without group/other
+write permission. Invalid destinations disable logging without blocking the
+command, including when a FIFO occupies the lock pathname.
+Logs are troubleshooting data, not an ownership
 journal or audit log.
 
 ## Retention and failures

@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Diagnostic logging rejects unsafe directories and nonregular, multiply linked
+  or writable cleanup locks without blocking commands or deleting existing logs.
+  A FIFO at `.cleanup.lock` can no longer stall a CLI response.
 - Execution-lock contention from log/history maintenance now reports retryable
   `INVALID_LEASE` without claiming a worker is active. Finish retries preserve
   saved snapshots and staged/working files; no protection is bypassed.
@@ -18,6 +21,14 @@
 
 ### Added
 
+- Local advisory/source/license/review gates, an opt-in weekly security workflow,
+  and bounded identifier/project parser fuzzing with an isolated lockfile.
+  Exact-version Cargo Vet bootstrap exemptions explicitly record the review backlog.
+- Patched contributor/release Rust toolchain with the Rust 1.89 minimum retained;
+  unnecessary tracing attribute/formatting/ANSI dependency features are disabled.
+- Target-specific CycloneDX dependency inventories in binary bundles and checksum
+  assets, embedded binary dependency metadata for hosted native builds, and
+  build/SBOM attestations when supported by the repository's GitHub plan.
 - Optional `--limit` and `--offset` windows for history and snapshot listings;
   omitted limits preserve complete output and the existing response shapes.
 - CLI version output includes its build source revision, taken from the source

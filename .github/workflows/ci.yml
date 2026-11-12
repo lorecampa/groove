@@ -173,13 +173,6 @@ jobs:
           GROOVE_TEST_ROOT="$mount/scratch" TMPDIR="$mount/scratch" cargo test -p groove-cli --test execution --locked
           GROOVE_TEST_REFLINK_ROOT="$mount/scratch" cargo test -p groove-core --test preparation --locked -- --ignored reflink
   audit:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          ref: ${{ inputs.release_ref || github.ref }}
-          persist-credentials: false
-      - run: rustup toolchain install stable --profile minimal
-      - run: cargo +stable install cargo-audit --version 0.22.2 --locked
-      - run: cargo +stable audit --deny warnings
+    uses: ./.github/workflows/security.yml
+    with:
+      release_ref: ${{ inputs.release_ref || github.ref }}

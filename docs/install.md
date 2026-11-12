@@ -9,6 +9,8 @@ Installing instructions does not initialize pools or run repository setup.
 
 Requires Git 2.40+, Rust 1.89+, and Linux or macOS 13+ with supported local storage
 (APFS on macOS). See [operations](operations.md) for repository limitations.
+These are compatibility minimums. Use patched Rust/Cargo and Git releases;
+the contributor/release toolchain is pinned separately in `rust-toolchain.toml`.
 
 Install the alpha from crates.io; Cargo compiles the executable locally:
 

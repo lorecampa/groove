@@ -38,6 +38,9 @@ enum Action {
         /// Use Cargo's release profile.
         #[arg(long)]
         release: bool,
+        /// Embed dependency information using separately installed cargo-auditable.
+        #[arg(long)]
+        auditable: bool,
     },
     /// Write the current version's changelog section.
     Notes {
@@ -75,7 +78,8 @@ fn execute() -> Result<()> {
             allow_dirty,
             target,
             release: optimized,
-        } => release.packages(allow_dirty, target.as_deref(), optimized)?,
+            auditable,
+        } => release.packages(allow_dirty, target.as_deref(), optimized, auditable)?,
         Action::Notes { output } => fs::write(output, release.notes()?)?,
         Action::Publish { tag, execute } => release.publish(&tag, execute)?,
         Action::Bundle {

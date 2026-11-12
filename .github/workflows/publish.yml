@@ -61,19 +61,36 @@ jobs:
     env:
       MACOSX_DEPLOYMENT_TARGET: '13.0'
     timeout-minutes: 35
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
           ref: ${{ inputs.tag || github.ref }}
+      - name: Install the binary dependency metadata tool
+        run: cargo install --locked cargo-auditable@0.7.7
       - name: Build packaged release sources without test hooks
-        run: bash scripts/release.sh packages --release --target '${{ matrix.target }}'
+        run: bash scripts/release.sh packages --release --auditable --target '${{ matrix.target }}'
       - name: Bundle binaries, documentation and checksums
         run: >-
           bash scripts/release.sh bundle
           --bin-dir target/package-check/${{ matrix.target }}/release
           --target ${{ matrix.target }}
           --output target/distribution
+      - name: Attest build provenance
+        if: github.event.repository.private == false || vars.GROOVE_PRIVATE_ATTESTATIONS == 'true'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: target/distribution/*.tar.gz
+      - name: Attest the target's dependency inventory
+        if: github.event.repository.private == false || vars.GROOVE_PRIVATE_ATTESTATIONS == 'true'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: target/distribution/*.tar.gz
+          sbom-path: target/distribution/groove-${{ needs.validate.outputs.version }}-${{ matrix.target }}.cdx.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-binaries-${{ matrix.target }}

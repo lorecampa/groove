@@ -6,9 +6,9 @@ use std::{
     io::{self, Write},
     os::{
         fd::AsRawFd,
-        unix::fs::{DirBuilderExt, OpenOptionsExt},
+        unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
     },
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -57,21 +57,65 @@ fn directory() -> Option<PathBuf> {
         .or_else(|| std::env::var_os("HOME").map(|p| PathBuf::from(p).join(".local/state")))
         .map(|p| p.join("groove/logs"))
 }
+fn validate_directory(dir: &Path) -> io::Result<()> {
+    // Match managed-state policy: never traverse a symlink into a log destination.
+    // Same-user concurrent path replacement is outside Groove's trust boundary.
+    for path in dir.ancestors() {
+        match fs::symlink_metadata(path) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                return Err(io::Error::other("Symlink in log directory path"));
+            }
+            Ok(_) => (),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => (),
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+fn owned_directory(dir: &Path) -> io::Result<()> {
+    validate_directory(dir)?;
+    let meta = fs::symlink_metadata(dir)?;
+    // SAFETY: geteuid has no preconditions.
+    let uid = unsafe { libc::geteuid() };
+    if !meta.is_dir() || meta.uid() != uid || meta.mode() & 0o022 != 0 {
+        return Err(io::Error::other(
+            "Unsafe log directory ownership or permissions",
+        ));
+    }
+    Ok(())
+}
+fn regular_file(path: &Path, write: bool, create: bool) -> io::Result<File> {
+    // O_NONBLOCK also applies before fstat: opening an attacker-supplied FIFO
+    // must never wait for a reader/writer before logging can be disabled.
+    let file = OpenOptions::new()
+        .read(!write)
+        .write(write)
+        .create(create)
+        .truncate(false)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
+        .open(path)?;
+    let meta = file.metadata()?;
+    // SAFETY: geteuid has no preconditions.
+    let uid = unsafe { libc::geteuid() };
+    if !meta.is_file() || meta.nlink() != 1 || meta.uid() != uid || meta.mode() & 0o022 != 0 {
+        return Err(io::Error::other(
+            "Unsafe log file type, ownership or permissions",
+        ));
+    }
+    Ok(file)
+}
 fn open_log(dir: &PathBuf, id: &str, settings: &Logging) -> io::Result<Output> {
+    validate_directory(dir)?;
     fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
         .create(dir)?;
+    owned_directory(dir)?;
     let _ = prune(dir, settings);
     // Serialize publication with cleanup so a new file cannot be pruned before
     // its lifetime lock has been acquired. Contention only disables file logging.
-    let publication = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(dir.join(".cleanup.lock"))?;
+    let publication = regular_file(&dir.join(".cleanup.lock"), true, true)?;
     if !lock(&publication) {
         return Err(io::Error::other("Log cleanup in progress"));
     }
@@ -89,13 +133,8 @@ fn open_log(dir: &PathBuf, id: &str, settings: &Logging) -> io::Result<Output> {
 /// Only inactive files are eligible. Active files add at most max_file_mib each
 /// above the retained-directory budget. Cleanup never waits for another process.
 fn prune(dir: &PathBuf, settings: &Logging) -> io::Result<()> {
-    let guard = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(dir.join(".cleanup.lock"))?;
+    owned_directory(dir)?;
+    let guard = regular_file(&dir.join(".cleanup.lock"), true, true)?;
     if !lock(&guard) {
         return Ok(());
     }
@@ -123,11 +162,7 @@ fn prune(dir: &PathBuf, settings: &Logging) -> io::Result<()> {
         {
             continue;
         }
-        let Ok(file) = OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(&path)
-        else {
+        let Ok(file) = regular_file(&path, false, false) else {
             continue;
         };
         if lock(&file) && fs::remove_file(&path).is_ok() {
@@ -173,9 +208,10 @@ pub fn init(
             .as_bytes(),
         );
     }
+    let directory = if output.is_some() { dir } else { None };
     let sink = Arc::new(Sink {
         output: Mutex::new(output),
-        directory: dir,
+        directory,
         invocation: id,
         terminal,
         settings,
@@ -292,7 +328,7 @@ impl<S: Subscriber> Layer<S> for LogLayer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::SystemTime;
+    use std::{os::unix::fs::PermissionsExt, time::SystemTime};
     // Git fork/exec in the failed-sink test can briefly inherit another test's
     // flock descriptors before CLOEXEC runs. Keep these in-process fixtures
     // separate; cross-process contention is covered by the integration test.
@@ -301,6 +337,16 @@ mod tests {
     const TOTAL_LIMIT: u64 = 100 * 1024 * 1024;
     const COUNT_LIMIT: usize = 100;
     const MAX_AGE: Duration = Duration::from_secs(7 * 86400);
+    fn log_directory() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        dir
+    }
+    fn inactive_log(path: &Path, contents: &[u8]) -> File {
+        let mut file = regular_file(path, true, true).unwrap();
+        file.write_all(contents).unwrap();
+        file
+    }
     #[test]
     fn write_failure_disables_file_sink_without_interrupting_lease_operations() {
         let _test_lock = TEST_LOCK.lock().unwrap();
@@ -382,12 +428,12 @@ mod tests {
     #[test]
     fn retention_skips_active_files_and_preserves_unrelated_files() {
         let _test_lock = TEST_LOCK.lock().unwrap();
-        let dir = tempfile::tempdir().unwrap();
+        let dir = log_directory();
         let path = dir.path().to_path_buf();
         let active = open_log(&path, "active", &Logging::default()).unwrap();
         active.file.set_len(TOTAL_LIMIT + 1).unwrap();
         fs::write(path.join("unrelated.jsonl"), "keep").unwrap();
-        fs::write(path.join("groove-old.jsonl"), "old").unwrap();
+        inactive_log(&path.join("groove-old.jsonl"), b"old");
         prune(&path, &Logging::default()).unwrap();
         assert!(path.join("groove-active.jsonl").exists());
         assert!(path.join("unrelated.jsonl").exists());
@@ -399,13 +445,13 @@ mod tests {
     #[test]
     fn retention_enforces_count_and_age() {
         let _test_lock = TEST_LOCK.lock().unwrap();
-        let dir = tempfile::tempdir().unwrap();
+        let dir = log_directory();
         let path = dir.path().to_path_buf();
         for n in 0..105 {
-            fs::write(path.join(format!("groove-{n:03}.jsonl")), "{}\n").unwrap();
+            inactive_log(&path.join(format!("groove-{n:03}.jsonl")), b"{}\n");
         }
         let old = path.join("groove-expired.jsonl");
-        let file = File::create(&old).unwrap();
+        let file = inactive_log(&old, b"");
         file.set_modified(SystemTime::now() - MAX_AGE - Duration::from_secs(1))
             .unwrap();
         prune(&path, &Logging::default()).unwrap();
@@ -422,7 +468,7 @@ mod tests {
     #[test]
     fn file_logging_is_bounded_and_json_lines_remain_valid() {
         let _test_lock = TEST_LOCK.lock().unwrap();
-        let dir = tempfile::tempdir().unwrap();
+        let dir = log_directory();
         let id = "bounded";
         let sink = Arc::new(Sink {
             output: Mutex::new(Some(

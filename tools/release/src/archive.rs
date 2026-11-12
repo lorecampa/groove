@@ -90,6 +90,7 @@ impl Release {
         allow_dirty: bool,
         target: Option<&str>,
         release: bool,
+        auditable: bool,
     ) -> Result<()> {
         let version = self.validate(None, None)?;
         let scratch = tempfile::Builder::new()
@@ -130,6 +131,9 @@ impl Release {
                 "--target-dir",
                 build
             ];
+            if auditable {
+                command.insert(0, "auditable".into());
+            }
             if let Some(target) = target {
                 command.extend(args!["--target", target]);
             }
@@ -185,12 +189,21 @@ impl Release {
         self.smoke(binaries, &version)?;
         fs::create_dir_all(output)?;
         let prefix = format!("groove-{version}-{target}");
+        let sbom = output.join(format!("{prefix}.cdx.json"));
+        fs::write(
+            &sbom,
+            format!(
+                "{}\n",
+                serde_json::to_string_pretty(&self.cli_sbom(target)?)?
+            ),
+        )?;
         let archive = output.join(format!("{prefix}.tar.gz"));
         let mut tar = tar::Builder::new(GzEncoder::new(
             File::create(&archive)?,
             Compression::default(),
         ));
         tar.follow_symlinks(false);
+        tar.append_path_with_name(&sbom, Path::new(&prefix).join("SBOM.cdx.json"))?;
         for name in BINARIES {
             tar.append_path_with_name(binaries.join(name), Path::new(&prefix).join(name))?;
         }
@@ -216,15 +229,18 @@ impl Release {
         // Distinct names let all native targets share one release without
         // overwriting another target's metadata or checksums.
         let manifest = output.join(format!("{prefix}.manifest.json"));
+        let mut metadata = self.build_metadata(target, &archive)?;
+        metadata["artifacts"][sbom
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .as_ref()] = digest(&sbom)?.into();
         fs::write(
             &manifest,
-            format!(
-                "{}\n",
-                serde_json::to_string_pretty(&self.build_metadata(target, &archive)?)?
-            ),
+            format!("{}\n", serde_json::to_string_pretty(&metadata)?),
         )?;
         let mut sums = String::new();
-        for path in [&archive, &manifest] {
+        for path in [&archive, &manifest, &sbom] {
             sums.push_str(&format!(
                 "{}  {}\n",
                 digest(path)?,
