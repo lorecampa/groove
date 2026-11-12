@@ -223,7 +223,7 @@ fn deletion_excludes_new_operations_and_covers_finish_metadata_after_unlock() {
         let args = match point {
             "before-normalization" => vec!["acquire"],
             "before-pool-update" => vec!["config", "set", "--capacity", "2"],
-            _ => vec!["finish", "--lease-id", id.as_deref().unwrap()],
+            _ => vec!["release", "--save", "--lease-id", id.as_deref().unwrap()],
         };
         let (mut command, listener) = checkpoint_command(&repo, point, &args);
         let mut child = support::TestChild::spawn(&mut command);
@@ -997,7 +997,7 @@ fn finish_crash_retries_preserve_checkpoint_and_never_release_a_successor() {
         let id = lease["lease_id"].as_str().unwrap();
         std::fs::write(r.slot(1).join("tracked.txt"), "checkpoint results").unwrap();
         let (mut command, listener) =
-            checkpoint_command(&r, checkpoint, &["finish", "--lease-id", id]);
+            checkpoint_command(&r, checkpoint, &["release", "--save", "--lease-id", id]);
         kill_at_checkpoint(&mut command, listener, checkpoint);
         let receipt: serde_json::Value = serde_json::from_slice(
             &std::fs::read(r.state().join(format!("slots/finish-{id}.json"))).unwrap(),
@@ -1009,7 +1009,7 @@ fn finish_crash_retries_preserve_checkpoint_and_never_release_a_successor() {
             assert!(!cli(&["acquire"]).status.success());
             None
         };
-        let retry = support::assert_success(&cli(&["finish", "--lease-id", id]));
+        let retry = support::assert_success(&cli(&["release", "--save", "--lease-id", id]));
         assert_eq!(retry["result"]["snapshot"]["id"], receipt["snapshot"]["id"]);
         let recovered = r.temp.path().join("recovered");
         support::assert_success(&cli(&[
@@ -1344,7 +1344,7 @@ fn maintenance_contention_is_retryable_and_preserves_finish_results() {
             .unwrap()
             .ino();
         for operation in [
-            vec!["finish", "--lease-id", &id],
+            vec!["release", "--save", "--lease-id", &id],
             vec!["exec", "--lease-id", &id, "--", "true"],
         ] {
             let out = support::groove_in(&repo.path)
@@ -1374,7 +1374,7 @@ fn maintenance_contention_is_retryable_and_preserves_finish_results() {
         assert!(cleaner.wait().unwrap().success());
         let result = assert_success(
             &support::groove_in(&repo.path)
-                .args(["finish", "--lease-id", &id])
+                .args(["release", "--save", "--lease-id", &id])
                 .output()
                 .unwrap(),
         );
@@ -1432,7 +1432,7 @@ fn finish_retries_saved_snapshot_after_maintenance_blocks_release() {
     let (mut command, listener) = checkpoint_command(
         &repo,
         "finish-before-release",
-        &["finish", "--lease-id", &id],
+        &["release", "--save", "--lease-id", &id],
     );
     let mut finisher = support::TestChild::spawn(&mut command);
     let mut finish_stream = finisher
@@ -1474,7 +1474,7 @@ fn finish_retries_saved_snapshot_after_maintenance_blocks_release() {
     assert!(cleaner.wait().unwrap().success());
     let retried = assert_success(
         &support::groove_in(&repo.path)
-            .args(["finish", "--lease-id", &id])
+            .args(["release", "--save", "--lease-id", &id])
             .output()
             .unwrap(),
     );

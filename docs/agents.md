@@ -33,8 +33,8 @@ environment so every response is one JSON object (help included, in
 ## Acquire and work
 
 First distinguish the coordinator from an assigned worker. The coordinator
-acquires, delegates, waits for writers to stop and eventually finishes. A worker
-with a supplied pool/lease/path stays in that reservation and returns results
+acquires, delegates, waits for writers to stop and eventually releases the
+reservation. A worker with a supplied pool/lease/path stays in that reservation and returns results
 without acquiring another slot or releasing the coordinator's reservation.
 Managed workers receive `GROOVE_LEASE_ID`, `GROOVE_POOL`, `GROOVE_WORKTREE` and
 `GROOVE_TASK` as context; these values alone do not grant ownership. Confirm the
@@ -43,7 +43,7 @@ all edits to the returned checkout, relaunch/handoff there before making changes
 
 Omitting `--pool` always selects `default`. If a task names a workflow pool,
 carry `--pool NAME` alongside its lease ID/task label on every pool command,
-including retries, stop/recover, history and finish. Inspect `groove pools` when
+including retries, stop/recover, history and release --save. Inspect `groove pools` when
 needed; never select another pool to bypass contention. Labels/keys are pool-local,
 but snapshots, branches and Git configuration remain shared. The managed worker
 environment exposes `GROOVE_POOL`; the CLI does not infer selection from it or cwd.
@@ -70,17 +70,17 @@ than nesting another `exec` on the same reservation. Ordinary terminal commands
 also work, but their writers remain your
 responsibility. See [execution](execution.md) for descendant and crash boundaries.
 
-## Preserve and finish
+## Preserve and release
 
 Assigned workers stop their writers and hand results back without finalizing.
-The coordinator waits for their managed execution to end before finishing.
+The coordinator waits for their managed execution to end before releasing.
 Keep the reservation instead if review needs a live checkout, and report that
 state. Move coordinator terminals outside the slot before finalization.
 
 After all workers, tests, watchers and dev servers stop:
 
 ```sh
-groove finish --task issue-42 --description 'task complete'
+groove release --save --task issue-42 --description 'task complete'
 ```
 
 This saves and pins a local checkpoint, then releases the slot. It refuses while
@@ -114,10 +114,10 @@ Interrupted initialization needs `init --resume`.
 
 Reservations survive crashes and never expire. Stop managed execution with `stop`;
 for an orphan, follow [operator recovery](execution.md#crashes-and-recovery).
-Retry lost release or finish responses with the original `--lease-id` and pool
+Retry lost release responses with the original `--lease-id` and pool
 selection. A task label can identify a newer reservation after release, so do not
 retry by label. Release retries work until the slot is reassigned; stale IDs cannot
-release a successor. `finish` keeps a durable receipt that survives reassignment.
+release a successor. `release --save` keeps a durable receipt that survives reassignment.
 
 If saving results or stopping writers fails, keep the reservation and report what
 needs recovery. Use one Groove version across the repository's pools.
@@ -137,9 +137,9 @@ configure or pass noninteractive arguments for your installed tool. Do not enabl
 agent worktree hooks that delete or recreate permanent Groove slots.
 `groove show --task NAME` shows the path but grants no ownership.
 
-Finish returns the pinned snapshot ID. Recover its files and staging state with
+`release --save` returns the pinned snapshot ID. Recover its files and staging state with
 `groove snapshot restore ID --to /new/recovery-directory`, even after slot reuse.
-Retry finish by lease ID after a lost response. See [project workspaces](project.md)
+Retry release --save by lease ID after a lost response. See [project workspaces](project.md)
 for caches, environment and setup limits.
 
 ## Source installations

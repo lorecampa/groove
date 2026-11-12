@@ -52,7 +52,7 @@ backends. Descriptor ownership, durable protection and recovery policy are share
 | `inspection` | Slot observations and optional Git status |
 | `execution` | Managed workers, stop sockets, orphan recovery |
 | `preparation` | Project setup runs and named commands |
-| `finish` | Pin a snapshot and release |
+| `finish` | Pin a snapshot and release (`release --save` in the CLI) |
 | `snapshot` | Repository-wide checkpoint capture, recovery and retention |
 | `project`, `cache` | Project definitions and independent artifact publication/seeding |
 | `settings` | Capacity growth and cleanup changes |
@@ -142,7 +142,7 @@ inspection; in-flight preparation may use its earlier observed policy.
 
 Pool mutations first take shared admission on `locks/lifecycle.lock` and check
 their pool generation. This guard covers the entire operation, including request
-infrastructure before slot acquisition and finish receipts after slot release.
+infrastructure before slot acquisition and saved-release receipts after slot release.
 Nested shared admission is allowed; exclusive transitions use nonblocking admission
 so no queued exclusive waiter can deadlock a nested shared operation. The guard is
 not retained by an idle `Pool` handle. Normal slot/execution/admin locking and
@@ -247,7 +247,7 @@ Same-generation retries complete interrupted release; a successor rejects stale
 requests. A process holding a live `Lease` keeps its slot locked, so another
 process cannot release that reservation.
 
-## Managed execution and finish
+## Managed execution and release
 
 Managed execution uses a **separate** per-slot flock: it can run while a library caller retains
 the lease descriptor, and release must obtain both before succeeding. The durable
@@ -266,11 +266,11 @@ private directory on macOS); orphan recovery never
 signals a recorded PID. See [execution](execution.md) for the cooperative-process
 boundary and failure cases.
 
-`finish` obtains the same execution exclusion, ensures durable reuse protection,
+`release --save` obtains the same execution exclusion, ensures durable reuse protection,
 saves and pins a snapshot, persists a receipt, then releases.
 A saved receipt makes retries stable across crashes and slot reuse.
 Snapshot failure retains the reservation; capture still requires stopped writers.
-Neither execution nor finish merges, pushes or publishes task results.
+Neither execution nor release merges, pushes or publishes task results.
 
 `history` persists diagnostic run records beside captured streams. Execution writes
 an unresolved record before spawning and a terminal outcome after teardown/log sync,

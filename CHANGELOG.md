@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Changed
+
+- Replace `groove finish` with `groove release --save`. Saving still pins a
+  local snapshot before release, retains the reservation on capture failure,
+  and supports durable retries by lease ID. Plain `release` keeps its existing
+  behavior. `--description` and `--max-file-bytes` require `--save`; the default
+  description is now `workspace saved`. Update scripts to use the new syntax;
+  JSON success results retain their existing shapes.
+
 ### Fixed
 
 - Agent installation instructions use the latest published CLI and let the

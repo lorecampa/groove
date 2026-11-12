@@ -122,7 +122,7 @@ impl Pool {
             if changes.has_changes() {
                 return Err(Error::new(
                     ErrorCode::UnsavedChanges,
-                    "The workspace has unsaved changes; run finish to snapshot them, or pass --force to discard them",
+                    "The workspace has unsaved changes; run release --save to snapshot them, or pass --force to discard them",
                 )
                 .with_details(|d| d.changes = Some(changes)));
             }

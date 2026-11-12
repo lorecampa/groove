@@ -2,7 +2,7 @@ WORKFLOW:
   groove init --capacity 4
   groove acquire --task fix-parser            # prints the path; work there
   groove exec --task fix-parser -- cargo test
-  groove finish --task fix-parser             # snapshot, then free the slot
+  groove release --save --task fix-parser     # snapshot, then free the slot
 
 INSPECTION AND SETTINGS:
   groove pools                     all pool namespaces and lifecycle states
@@ -20,7 +20,7 @@ INSPECTION AND SETTINGS:
   groove storage clean --logs --older-than 30d --dry-run
                                    preview explicit captured-log cleanup
 
-Stop ALL writers, then finish (snapshot, then release) or release. To keep
+Stop ALL writers, then release --save (snapshot, then release) or release. To keep
 commits on a branch, create one yourself first; Groove never manages branches.
 Reservations survive exits and crashes until explicitly released: there is no
 expiry, daemon or implicit task execution. No command pushes or merges.

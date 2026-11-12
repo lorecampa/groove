@@ -9,10 +9,10 @@ original pool selection. Never infer ownership from a listing or PID.
 | Acquisition used no key | Inspect `list` and establish which reservation belongs to the task before attempting another acquisition. |
 | Active task label already exists | Inspect the lease/path in the error; determine whether it is this task's lost response or another task. Do not take over another reservation. |
 | Changed inputs or completed key | Do not repurpose that key. A genuinely new task needs a new key; finishing a prior task does not free its key. |
-| Lost finish/release response | Retry the original lease ID and pool. Labels can already refer to a newer task. Finish has a durable receipt; a release retry can become stale after reassignment. |
+| Lost release response | Retry the original lease ID, pool and `--save` setting. Labels can already refer to a newer task. `release --save` has a durable receipt; a plain release retry can become stale after reassignment. |
 | `WORKSPACE_IN_USE` | Inspect `error.details.processes`, stop the task's writers and wait for them to exit. Detection is best effort and covers your own processes only. |
-| `UNSAVED_CHANGES` on release | Use `finish` to preserve the task's result, or retain the reservation. Discard only when explicitly requested. |
-| Snapshot failure or lock timeout | Keep the reservation, resolve the reported cause, and retry finish with the same lease ID. |
+| `UNSAVED_CHANGES` on release | Use `release --save` to preserve the task's result, or retain the reservation. Discard only when explicitly requested. |
+| Snapshot failure or lock timeout | Keep the reservation, resolve the reported cause, and retry release --save with the same lease ID. |
 | Orphaned managed execution | Keep protection. Stop external writers; operator recovery is explicit and separate from normal task completion. |
 
 `stop` requests managed cancellation. Process groups cannot contain descendants

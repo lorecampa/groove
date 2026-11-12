@@ -332,7 +332,7 @@ fn command_help_is_available_without_a_repository_or_valid_config() {
         &["exec"],
         &["stop"],
         &["recover"],
-        &["finish"],
+        &["release", "--save"],
         &["config"],
         &["config", "show"],
         &["config", "set"],
@@ -366,6 +366,7 @@ fn command_help_is_available_without_a_repository_or_valid_config() {
             assert!(help.contains("Usage:"), "{command:?}: {help}");
             if *command == ["release"] {
                 assert!(help.contains("groove release --lease-id UUID"));
+                assert!(help.contains("groove release --save"));
                 assert!(!help.contains("--writers-stopped"));
                 assert!(help.contains("next acquisition"));
             }
@@ -384,6 +385,58 @@ fn command_help_is_available_without_a_repository_or_valid_config() {
     assert!(help.contains("safety snapshot"));
     assert!(help.contains("must not exist"));
     assert!(help.contains("HEAD must equal the"));
+}
+
+#[test]
+fn release_save_options_require_save_and_rejections_keep_the_reservation() {
+    let repo = Repo::new();
+    assert_success(&cli(&repo, &["init", "--capacity", "1"]));
+    let lease = assert_success(&cli(&repo, &["acquire", "--task", "unfinished"]));
+    let id = lease["result"]["lease_id"].as_str().unwrap();
+    let workspace = std::path::Path::new(lease["result"]["worktree_path"].as_str().unwrap());
+    std::fs::write(workspace.join("tracked.txt"), "work in progress").unwrap();
+    for args in [
+        vec!["finish", "--lease-id", id],
+        vec!["release", "--lease-id", id, "--description", "unfinished"],
+        vec!["release", "--lease-id", id, "--max-file-bytes", "0"],
+    ] {
+        let output = cli(&repo, &args);
+        assert_eq!(output.status.code(), Some(2), "{args:?}");
+        assert_eq!(check(&output)["error"]["code"], "INVALID_ARGUMENT");
+        assert_eq!(
+            assert_success(&cli(&repo, &["show", "--lease-id", id]))["result"]["lease"]["lease_id"],
+            id
+        );
+        assert_eq!(
+            std::fs::read(workspace.join("tracked.txt")).unwrap(),
+            b"work in progress"
+        );
+    }
+    let output = cli(&repo, &["release", "--save", "--force", "--lease-id", id]);
+    assert!(output.status.success(), "{output:?}");
+    let saved = check(&output);
+    assert_eq!(saved["result"]["release"]["released"], true);
+    assert_eq!(saved["result"]["snapshot"]["pinned"], true);
+    assert_eq!(
+        saved["result"]["snapshot"]["description"],
+        "workspace saved"
+    );
+    let snapshot = saved["result"]["snapshot"]["id"].as_str().unwrap();
+    let recovered = repo.path.join("recovered");
+    assert_success(&cli(
+        &repo,
+        &[
+            "snapshot",
+            "restore",
+            snapshot,
+            "--to",
+            recovered.to_str().unwrap(),
+        ],
+    ));
+    assert_eq!(
+        std::fs::read(recovered.join("tracked.txt")).unwrap(),
+        b"work in progress"
+    );
 }
 
 #[test]
@@ -532,7 +585,7 @@ fn common_failures_have_the_same_advice_in_human_and_json_output() {
         &["release", "--task", "busy"],
         "UNSAVED_CHANGES",
         5,
-        "groove finish",
+        "groove release --save",
     );
     assert_eq!(
         check(&cli(&r, &["list"]))["result"]["leases"][0]["task"],
@@ -861,7 +914,7 @@ fn history_and_storage_commands_preserve_json_contract_and_retention_semantics()
 }
 
 #[test]
-fn copied_advice_keeps_pool_selection_and_destroy_does_not_suggest_finish() {
+fn copied_advice_keeps_pool_selection_and_destroy_does_not_suggest_saving_released_tasks() {
     let repo = Repo::new();
     let missing = cli(&repo, &["--pool", "review", "list"]);
     assert_eq!(missing.status.code(), Some(4));
@@ -892,7 +945,8 @@ fn copied_advice_keeps_pool_selection_and_destroy_does_not_suggest_finish() {
         &[
             "--pool",
             "review",
-            "finish",
+            "release",
+            "--save",
             "--lease-id",
             lease["result"]["lease_id"].as_str().unwrap(),
         ],
@@ -903,7 +957,7 @@ fn copied_advice_keeps_pool_selection_and_destroy_does_not_suggest_finish() {
     let hint = result["error"]["hint"].as_str().unwrap();
     assert!(hint.contains("ignored"));
     assert!(hint.contains("--discard-changes"));
-    assert!(!hint.contains("`groove finish"));
+    assert!(!hint.contains("`groove release --save"));
     assert_eq!(
         std::fs::read(workspace.join("ignored/cache")).unwrap(),
         b"keep me"

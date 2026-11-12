@@ -57,10 +57,10 @@ clients still branch on `code` and inspect typed `details`. Commands mentioned i
 hints apply to the same repository (`--repo`) and reservation selector as the
 failed invocation. Suggested commands retain explicit repository and pool
 selection. Destroy hints describe exporting residual/ignored artifacts rather
-than finishing released tasks. Execution-lock contention uses `INVALID_LEASE`,
+than saving new files through released tasks. Execution-lock contention uses `INVALID_LEASE`,
 exit 5 and `retryable:true`: it may be maintenance, not a managed worker. Retry the
 original operation/lease ID; recorded executions still require stop/recovery.
-Finish may report an already-pinned `snapshot_id` on contention. No lock or
+`release --save` may report an already-pinned `snapshot_id` on contention. No lock or
 protection is bypassed; all other codes and exit categories remain unchanged.
 
 ## Commands
@@ -77,7 +77,7 @@ groove [global options] exec SELECTOR [limits] -- PROGRAM [ARG...]
 groove [global options] exec SELECTOR [limits] --setup PROFILE [--retry] [--cache-source PATH]
 groove [global options] exec SELECTOR [limits] --recipe NAME|--agent NAME [-- ARG...]
 groove [global options] stop|recover|release SELECTOR
-groove [global options] finish SELECTOR [--description TEXT] [--max-file-bytes N]
+groove [global options] release --save SELECTOR [--description TEXT] [--max-file-bytes N]
 groove [global options] list [--slots] [--details]
 groove [global options] show [SELECTOR | --slot SLOT] [--details]
 groove [global options] completions bash|zsh|fish|powershell|elvish
@@ -98,7 +98,7 @@ appear before or after a subcommand. `--repo` defaults to `.` and discovery work
 from subdirectories and linked worktrees. `--request-id` only correlates responses
 and logs. `--git-timeout-ms` is positive, defaults to 120000, and bounds each Git
 operation and administrative/snapshot-lock wait, including discovery and snapshots
-taken by `finish`. Snapshot-lock timeout keeps the existing `INVALID_ARGUMENT`
+taken by `release --save`. Snapshot-lock timeout keeps the existing `INVALID_ARGUMENT`
 code, exit 2 and `retryable:true`; it never releases a task reservation.
 
 ### Selecting a pool
@@ -115,7 +115,7 @@ deleting and retained deleted pools. Each entry has `name`, nullable `pool_id`,
 It is a nontransactional, read-only observation and creates no pool storage.
 
 Capacity/settings, slots, labels, request keys/tombstones, setup/cache data,
-history/logs and finish receipts are pool-scoped. The same label or key can be
+history/logs and saved-release receipts are pool-scoped. The same label or key can be
 used independently in different pools. The original default layout and its keys
 are unchanged; named state lives in `<common>/groove/pools/<name>/`. Checkout-root
 claims cannot overlap other pools, including pending and retained deleted pools.
@@ -132,7 +132,7 @@ numbers and project-derived ports remain pool-local, without automatic port isol
 `--task LABEL` selects the single active reservation whose task label equals
 `LABEL`; zero matches fail with `LEASE_MISMATCH`, several with
 `INVALID_ARGUMENT` (use `--lease-id`). `--lease-id` is passed to core unresolved,
-so retries of `release` and `finish` keep working for a generation that a
+so retries of `release` and `release --save` keep working for a generation that a
 successor has since superseded. Slot IDs name reusable directories; lease IDs
 name one reservation of a slot and never release a later one.
 
@@ -178,7 +178,7 @@ retrying. Task labels are 1..256 bytes and never prove ownership.
 capacity, not preparation. Each failing slot is attempted at most once per
 acquisition. There is no FIFO fairness.
 
-### release and finish
+### release
 
 `release` returns the slot to the pool. Save results and stop all writers first.
 Unless `--force` is given, release first refuses with `UNSAVED_CHANGES` (staged,
@@ -186,7 +186,7 @@ modified or untracked files, found by one read-only `git status` without rename
 detection, ignored-file scan or ahead/behind work) and with `WORKSPACE_IN_USE`
 (other processes whose working directory, executable or open files are inside the
 workspace, found through `/proc` on Linux or libproc on macOS; the invoking process and its ancestors are
-excluded). `finish` applies only the process check. Both checks are best effort
+excluded). `release --save` applies only the process check. Both checks are best effort
 and skipped for an inactive reservation, so retries are never blocked; `--force`
 never bypasses a running managed execution. Error details carry `changes` or
 `processes`. Release takes the slot and
@@ -201,15 +201,23 @@ an empty process list. Individual inaccessible/exited processes remain best-effo
 observations. `control_name` in execution/setup records is an opaque endpoint name;
 its transport is platform-specific, and clients request cancellation through `stop`.
 
-`finish` saves and pins a snapshot, writes a receipt, then releases. A snapshot
-failure keeps the reservation. Retrying finish by lease ID reuses the receipt
+`release --save` saves and pins a snapshot, writes a receipt, then releases. A snapshot
+failure keeps the reservation. Retrying release --save by lease ID reuses the receipt
 even after the slot was reused. Recover saved results with
-`snapshot restore ID --to DIRECTORY`; finish and restore do not export patches.
+`snapshot restore ID --to DIRECTORY`; release --save and restore do not export patches.
+
+`--description` (default: `workspace saved`) and `--max-file-bytes` (default:
+104857600; 0 removes the limit) require `--save`. `--force` skips the convenience
+checks in either form, but with `--save` it still captures and pins the snapshot
+and retains the reservation on capture failure. Retry with the same `--save`
+setting and pool. The former `finish` command is no longer accepted. JSON result
+shapes are unchanged: plain release returns release fields; `release --save`
+returns `release` and `snapshot` objects. Existing on-disk receipts are preserved.
 
 ### Pool settings
 
 `destroy` removes an idle pool's configured checkouts, their exact native Git
-registrations and disposable artifact/cache staging directories. Finish/release all
+registrations and disposable artifact/cache staging directories. Release all
 reservations and stop every writer first. Live slot/execution descriptors,
 protection/execution records (including malformed ones) and observed processes
 always refuse deletion. Unlike release's convenience scan, destroy also checks
@@ -228,10 +236,10 @@ removal. Inspection is bounded and fails closed, including for oversized Git out
 `--dry-run` validates and returns the plan without removing data or changing the
 lifecycle record; it can briefly exclude concurrent operations. Both preview and
 execution fail when preconditions are unmet. Permanent locks, request journals and
-completed-key tombstones, finish receipts, logs/history, snapshots, branches and
+completed-key tombstones, saved-release receipts, logs/history, snapshots, branches and
 checkout-root directories remain. Unknown root contents are retained; unknown
 artifact entries refuse removal. History/storage and snapshot commands remain
-usable after deletion; explicit finish retries by lease ID can return retained
+usable after deletion; explicit release --save retries by lease ID can return retained
 receipts. New work requires a fresh init, which may choose different capacity/root.
 
 Deletion durably transitions `ready` to `deleting` to `deleted`. Normal pool use
@@ -278,7 +286,7 @@ part of the verified baseline and a rebuild can discard them.
 | exec | `execution` (below), or `preparation` with `--setup` |
 | stop | `stop_requested` (execution record) or `preparation_stop_requested` |
 | recover | `execution_recovered` |
-| finish | `release`, `snapshot` (pinned) |
+| release --save | `release`, `snapshot` (pinned) |
 | release | `slot_id`, `lease_id`, `released: true`, `cleanup: "deferred"` |
 | list | `leases`; with `--slots`/`--details`, `inspection` |
 | show | `pool` and `inspection`; with a task/lease selector, `lease` and `slot`; with `--slot`, `slot` |

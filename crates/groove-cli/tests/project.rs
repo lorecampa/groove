@@ -159,10 +159,13 @@ fn explicit_setup_cache_recipe_agent_navigation_and_handoff_conform() {
         "task result\n",
     )
     .unwrap();
-    let finish = success(&cli(&repo, &["finish", "--lease-id", id]));
+    let finish = success(&cli(&repo, &["release", "--save", "--lease-id", id]));
     assert!(finish.get("patch_path").is_none());
     success(&cli(&repo, &["acquire", "--task", "successor"]));
-    assert_eq!(success(&cli(&repo, &["finish", "--lease-id", id])), finish);
+    assert_eq!(
+        success(&cli(&repo, &["release", "--save", "--lease-id", id])),
+        finish
+    );
     let recovered = repo.temp.path().join("recovered");
     success(&cli(
         &repo,
@@ -263,7 +266,8 @@ fn removed_patch_flags_fail_before_finishing_or_restoring() {
     let failed = checked(&cli(
         &repo,
         &[
-            "finish",
+            "release",
+            "--save",
             "--lease-id",
             id,
             "--patch",
@@ -281,7 +285,7 @@ fn removed_patch_flags_fail_before_finishing_or_restoring() {
         .as_array()
         .unwrap()
         .is_empty());
-    let finished = success(&cli(&repo, &["finish", "--lease-id", id]));
+    let finished = success(&cli(&repo, &["release", "--save", "--lease-id", id]));
     let outside = repo.temp.path().join("recovered.patch");
     let rejected = checked(&cli(
         &repo,

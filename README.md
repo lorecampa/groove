@@ -6,7 +6,7 @@ Reusable Git worktrees for parallel coding tasks.
 
 Groove gives each task its own checkout from a bounded pool. Reserve a workspace,
 run commands, and save the result before returning it. Reservations survive shell
-exits and crashes until you explicitly finish or release them. No daemon is required.
+exits and crashes until you explicitly release them. No daemon is required.
 
 ## Install
 
@@ -38,12 +38,12 @@ From a Git repository with at least one commit:
 groove init --capacity 4
 groove acquire --task fix-parser
 groove exec --task fix-parser -- cargo test
-groove finish --task fix-parser
+groove release --save --task fix-parser
 ```
 
 Acquisition returns a checkout path with detached HEAD. Work in that path, stop
-all writers, then finish. `finish` pins a local snapshot and frees the slot;
-recover its files and staging state with:
+all writers, then run `groove release --save` to pin a local snapshot and free the
+slot. Recover its files and staging state with:
 
 ```sh
 groove snapshot restore SNAPSHOT_ID --to ../recovered-parser

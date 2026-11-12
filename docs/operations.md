@@ -80,7 +80,7 @@ groove --pool frontend init --capacity 3 --cleanup warm
 groove --pool backend init --capacity 2 --cleanup pristine
 groove pools
 groove --pool frontend acquire --task fix-navigation --request-key navigation-1
-groove --pool frontend finish --task fix-navigation
+groove --pool frontend release --save --task fix-navigation
 ```
 
 Pass the same `--pool` on later pool commands. Omission always selects `default`,
@@ -100,7 +100,7 @@ project port ranges or derive workflow-specific behavior explicitly.
 
 ## Deleting and recreating a pool
 
-Finish/release every task and stop all writers, then run from outside the pool:
+Release every task and stop all writers, then run from outside the pool:
 
 ```sh
 groove destroy --dry-run
@@ -125,7 +125,7 @@ removed even for warm pools. Unknown files beside slots are retained, and unknow
 artifact entries cause an error before removal starts.
 
 Deletion removes configured workspaces, exact native registrations and disposable
-artifact caches. Permanent locks, journals, finish receipts, execution history/logs,
+artifact caches. Permanent locks, journals, saved-release receipts, execution history/logs,
 branches, snapshots and the checkout root itself survive. `history`, `storage` and
 `snapshot` remain available; logs/history use their existing explicit cleanup rules.
 No Git object collection is run. Keeping a small coordination area is intentional:
@@ -142,7 +142,7 @@ before deletion; discard never authorizes removing foreign paths.
 
 ## Task lifecycle
 
-[Agent workflow](agents.md) covers acquire, retry, work and finish. Normal commands
+[Agent workflow](agents.md) covers acquire, retry, work and release --save. Normal commands
 select a reservation with `--task` (its label) or `--lease-id`; slot IDs
 identify reusable directories for diagnostics.
 Reservations survive process exit and restart, with no TTL or automatic reclamation.
@@ -165,7 +165,7 @@ logs. External editors, watchers and commands remain your responsibility.
 a slot busy indefinitely. Closing a descriptor while continuing to write creates
 the opposite risk. Never explicitly unlock until all writers stop.
 
-`finish` saves a pinned local checkout snapshot before releasing. Otherwise save
+`release --save` saves a pinned local checkout snapshot before releasing. Otherwise save
 results outside all slots (for example on a branch you create), then `release`.
 Neither publishes results. The next acquisition may discard all files in the slot.
 
@@ -180,12 +180,12 @@ Worktrees share Git objects, refs and configuration. Branches created by agents
 remain in the repository; Groove does not manage/delete them. Coordinate shared
 state changes and avoid branch-name collisions. Worktrees are not security sandboxes.
 Snapshots survive slot reuse but remain local; ordinary branch pushes do not back
-them up. Task logs, request journals and finish receipts have no automatic expiry.
+them up. Task logs, request journals and saved-release receipts have no automatic expiry.
 Use `groove storage show` for logical usage and `groove storage clean --logs
 --older-than 30d --dry-run` to preview explicit captured-log removal. Cleanup
 retains history; `history delete RUN_ID` separately forgets a terminal run after
 its logs are cleaned. Neither operation removes workspaces, caches, snapshots,
-request journals or finish receipts. See [execution](execution.md#history-and-explicit-log-cleanup).
+request journals or saved-release receipts. See [execution](execution.md#history-and-explicit-log-cleanup).
 
 ## Recovery
 
@@ -198,10 +198,10 @@ request journals or finish receipts. See [execution](execution.md#history-and-ex
 | Orphan execution record | Follow [execution recovery](execution.md#crashes-and-recovery); stop all writers before `recover`. |
 | Live library `Lease` owner | Release through that handle after stopping writers; another process cannot unlock it. |
 | Failed preparation | Groove quarantines the slot; a later acquisition retries bounded repair. |
-| Reserved checkout deleted (`rm -rf`, `git worktree remove --force`) | `release`/`finish` report `RECOVERY_FAILED` with the path and the slot shows unhealthy. Its unsaved work is gone; `release --force` discards the reservation and the next acquisition rebuilds the slot. |
+| Reserved checkout deleted (`rm -rf`, `git worktree remove --force`) | `release`/`release --save` report `RECOVERY_FAILED` with the path and the slot shows unhealthy. Its unsaved work is gone; `release --force` discards the reservation and the next acquisition rebuilds the slot. |
 | `CONFIG_CONFLICT` naming the original location | The repository was moved. Manifests, reservations and Git's own worktree registrations record absolute paths, so move it back to that location; Groove does not relocate pools. |
 | Error that the current directory no longer exists | The shell sat in a checkout that was rebuilt. `cd` to the repository (or pass `--repo`) and retry. |
-| `INVALID_ARGUMENT` for a reused `--task` | An active reservation already has that label; its lease ID and path are in the error details. Resume or finish it, or choose another label. |
+| `INVALID_ARGUMENT` for a reused `--task` | An active reservation already has that label; its lease ID and path are in the error details. Resume or release it, or choose another label. |
 
 Recovery normalizes or rebuilds under slot/admin locks, then verifies the baseline.
 Native registrations use `git worktree add --lock` against external pruning,

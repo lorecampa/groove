@@ -176,28 +176,23 @@ pub enum Command {
         #[command(flatten)]
         lease: LeaseSelector,
     },
-    /// Save and pin a snapshot of the workspace, then release it.
-    #[command(after_help = help!("finish"))]
-    Finish {
-        #[command(flatten)]
-        lease: LeaseSelector,
-        /// Description recorded with the pinned snapshot.
-        #[arg(long, default_value = "task complete")]
-        description: String,
-        /// Largest changed file to capture, in bytes; 0 removes the limit.
-        #[arg(long, default_value = DEFAULT_MAX_FILE_BYTES)]
-        max_file_bytes: u64,
-        /// Finish even if other processes are still using the workspace.
-        #[arg(long)]
-        force: bool,
-    },
-    /// Return a workspace to the pool; commit or finish and stop writers first.
+    /// Return a workspace to the pool; optionally save a pinned snapshot first.
     #[command(after_help = help!("release"))]
     Release {
         #[command(flatten)]
         lease: LeaseSelector,
-        /// Release even with unsaved changes or processes still using the workspace;
-        /// the next acquisition discards its contents.
+        /// Save and pin a snapshot before release; a save failure keeps the reservation.
+        #[arg(long)]
+        save: bool,
+        /// Description recorded with the pinned snapshot.
+        #[arg(long, requires = "save", default_value = "workspace saved")]
+        description: String,
+        /// Largest changed file to capture, in bytes; 0 removes the limit.
+        #[arg(long, requires = "save", default_value = DEFAULT_MAX_FILE_BYTES)]
+        max_file_bytes: u64,
+        /// Skip unsaved-change and process checks (with --save, still save changes).
+        /// Never bypasses a running managed execution. Without --save, unsaved
+        /// contents are discarded on the next acquisition.
         #[arg(long)]
         force: bool,
     },
@@ -261,7 +256,7 @@ pub enum HistoryCommand {
     },
     /// Permanently forget a terminal run after its logs have been cleaned.
     #[command(
-        after_help = "First run storage clean --logs. Active or unresolved runs cannot be deleted.\nThis never releases a reservation or deletes finish receipts or snapshots."
+        after_help = "First run storage clean --logs. Active or unresolved runs cannot be deleted.\nThis never releases a reservation or deletes saved-release receipts or snapshots."
     )]
     Delete {
         /// Run UUID to forget; deletion cannot be undone.
@@ -413,7 +408,7 @@ pub enum SnapshotCommand {
     Delete {
         /// Snapshot ID.
         id: String,
-        /// Also delete a snapshot pinned by `finish`.
+        /// Also delete a snapshot pinned by `release --save`.
         #[arg(long)]
         force: bool,
     },
@@ -476,7 +471,6 @@ impl Command {
             Self::Exec { .. } => "exec",
             Self::Stop { .. } => "stop",
             Self::Recover { .. } => "recover",
-            Self::Finish { .. } => "finish",
             Self::Release { .. } => "release",
             Self::List { .. } => "list",
             Self::Show { .. } => "show",

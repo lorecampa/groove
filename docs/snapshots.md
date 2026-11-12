@@ -7,9 +7,9 @@ needed. With `--json`, results use the normal envelope (see [protocol](protocol.
 Use `groove snapshot --help` and each subcommand's `--help` for command options,
 defaults and examples. This guide explains capture, recovery and retention.
 
-For a pooled task, `groove finish --task NAME` saves and pins a snapshot before
+For a pooled task, `groove release --save --task NAME` saves and pins a snapshot before
 releasing its checkout. It retains protection on capture failure and a durable
-retry receipt on success; see [finish and recovery](execution.md#checkpoint-and-release).
+retry receipt on success; see [release --save and recovery](execution.md#checkpoint-and-release).
 
 ```sh
 groove snapshot save "before refactor"
@@ -26,7 +26,7 @@ symlinks, and untracked non-ignored files. Ignored files and empty directories
 are excluded, including custom user/system Git ignore rules. Special files such as
 FIFOs, sockets and devices are also excluded: Git does not enumerate them as
 ordinary untracked content. Export needed special/ignored artifacts separately
-before finish; a successful snapshot does not preserve them. Root paths must be UTF-8;
+before release --save; a successful snapshot does not preserve them. Root paths must be UTF-8;
 Linux filenames may contain arbitrary non-NUL bytes. macOS APFS requires valid UTF-8
 filenames. A description and optional `--session ID` associate work with a task.
 
@@ -65,10 +65,10 @@ against process death: use the safety checkpoint to recover interrupted work.
 ## Deletion and storage
 
 ```sh
-groove snapshot delete ID                # snapshots pinned by finish need --force
+groove snapshot delete ID                # snapshots pinned by release --save need --force
 ```
 
-`finish` pins the snapshot it saves, so deleting it needs `--force`.
+`release --save` pins the snapshot it saves, so deleting it needs `--force`.
 
 Snapshots live under `refs/groove/snapshots/<UUID>`, pins under
 `refs/groove/snapshot-pins/<UUID>`, and the lock under
@@ -76,7 +76,7 @@ Snapshots live under `refs/groove/snapshots/<UUID>`, pins under
 The manifest records the originating Git directory. This deliberately uses a
 repository-wide snapshot lock to coordinate save, delete and restore.
 Concurrent operations wait up to `--git-timeout-ms` for this
-lock, including snapshots taken by `finish`. A lock timeout returns a retryable
+lock, including snapshots taken by `release --save`. A lock timeout returns a retryable
 error and keeps task reservations and files protected; retry the same operation.
 Git mutation children inherit the lock so killing the parent cannot release it
 while a child is still writing. Scratch indexes left by a killed process are

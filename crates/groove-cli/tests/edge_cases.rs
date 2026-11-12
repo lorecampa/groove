@@ -137,7 +137,7 @@ fn a_reserved_checkout_deleted_by_hand_needs_an_explicit_forced_release() {
 
     for args in [
         &["release", "--task", "lost"][..],
-        &["finish", "--task", "lost"],
+        &["release", "--save", "--task", "lost"],
     ] {
         let response = failure(&cli(&repo.path, args), 6, "RECOVERY_FAILED");
         assert_eq!(response["error"]["details"]["worktree_path"], path);

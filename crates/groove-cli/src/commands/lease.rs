@@ -1,4 +1,4 @@
-//! Reservation lifecycle: acquire, exec, stop, recover, finish and release.
+//! Reservation lifecycle: acquire, exec, stop, recover and release.
 
 use super::{select_id, Context};
 use crate::{
@@ -188,7 +188,7 @@ pub fn recover(context: &Context<'_>, selector: &LeaseSelector) -> Result<Output
     Output::text(json!({ "execution_recovered": info }), text)
 }
 
-pub fn finish(
+fn release_saved(
     context: &Context<'_>,
     selector: &LeaseSelector,
     save: SaveOptions,
@@ -197,7 +197,7 @@ pub fn finish(
     let pool = context.retained_pool()?;
     let id = select_id(&pool, selector)?;
     if !force {
-        // Saving changes is finish's job; only other writers block it.
+        // --save preserves changes; only other writers block it.
         pool.ensure_quiescent(id, false, context.git_timeout)?;
     }
     let save = SaveOptions {
@@ -217,7 +217,15 @@ fn describe_finish(result: &FinishResult) -> String {
     )
 }
 
-pub fn release(context: &Context<'_>, selector: &LeaseSelector, force: bool) -> Result<Output> {
+pub fn release(
+    context: &Context<'_>,
+    selector: &LeaseSelector,
+    save: Option<SaveOptions>,
+    force: bool,
+) -> Result<Output> {
+    if let Some(save) = save {
+        return release_saved(context, selector, save, force);
+    }
     let pool = context.pool()?;
     let id = select_id(&pool, selector)?;
     if !force {

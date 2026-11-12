@@ -10,7 +10,7 @@ Lists all known runs newest first, including setup steps, recipes and agents.
 return everything. Metadata is still enumerated/sorted; concurrent additions can
 shift offset pages. Use task/lease filters for task-specific views.
 Task labels can be reused: filter by lease ID to select one reservation generation.
-History survives release, finish, reuse and log cleanup. It records program names,
+History survives release, reuse and log cleanup. It records program names,
 not arguments or environment values. Run logs can contain sensitive worker output.
 
 An unresolved outcome means no terminal outcome was durably recorded; it may be

@@ -15,7 +15,7 @@ groove stop --task fix-parser
 ```
 
 Run `stop` from another terminal. It requests cancellation; inspect
-until the execution record disappears before finishing or releasing. Only one
+until the execution record disappears before releasing. Only one
 managed command runs per reservation. Other reservations can execute concurrently.
 `stop` waits for a bounded acknowledgement from the authenticated supervisor.
 An interrupted or unacknowledged request is not proof that execution stopped;
@@ -34,7 +34,7 @@ cannot set these prefixes.
 
 Execution locks are also used briefly by history/log maintenance. Contention
 returns retryable `INVALID_LEASE` (exit 5); it does not prove a worker is active.
-Retry the same operation and lease ID after contention clears. Finish reuses any
+Retry the same operation and lease ID after contention clears. `release --save` reuses any
 saved `error.details.snapshot_id` receipt. A recorded execution still requires
 normal stop/recovery; never remove protection or locks.
 
@@ -89,7 +89,7 @@ member owned by another parent, causes an error and retains durable protection.
 ## Crashes and recovery
 
 Execution has a separate permanent flock and a durable execution record written
-before spawn. A live worker inherits that lock. Release/finish reject either a
+before spawn. A live worker inherits that lock. Release rejects either a
 live execution lock or a remaining record, including after supervisor death.
 Protection is never cleared by a timeout, PID disappearance or age.
 
@@ -98,7 +98,7 @@ Protection is never cleared by a timeout, PID disappearance or age.
 3. For an orphaned run, independently stop **every** writer. Then run
    `groove recover --task NAME` to clear the execution record. A live execution
    lock rejects recovery.
-4. Preserve results and `finish`, or explicitly `release`.
+4. Preserve results and `release --save`, or explicitly `release`.
 
 `recover` is an operator assertion that external writers stopped; it does not
 search for or signal a possibly reused PID. It clears the execution prohibition
@@ -111,7 +111,7 @@ protection or execution records by hand to force reuse.
 Every managed execution, including setup steps, recipes and agents, writes
 `task-logs/<run-id>/run.json` before spawning. A successful teardown syncs logs
 and publishes the outcome before clearing execution protection. History survives
-release, finish and slot reuse. Setup steps skipped on a cache hit create no run.
+release and slot reuse. Setup steps skipped on a cache hit create no run.
 Only the program name is recorded, not arguments or environment values.
 
 ```sh
@@ -138,26 +138,26 @@ forgets one terminal record only after its logs have been cleaned.
 
 Unknown/legacy directories without run history are reported as untracked and
 never automatically deleted. Cache eviction, workspace contents, snapshots,
-reservation records, finish receipts and CLI diagnostic logs are outside this
+reservation records, saved-release receipts and CLI diagnostic logs are outside this
 cleanup command. Storage sizes count logical lengths; reflinks and hardlinks can
 share blocks, so reported sizes do not predict actual disk space reclaimed.
 
 ## Checkpoint and release
 
-`groove finish --task NAME` saves and pins a snapshot, persists its receipt,
+`groove release --save --task NAME` saves and pins a snapshot, persists its receipt,
 then releases. A failed snapshot leaves the reservation protected; a release error
 reports the saved snapshot ID in `error.details`. Retry the same command after
 resolving the error. Once a checkpoint receipt exists, retries reuse it, even if
-the description changes; do not edit more files between a partial finish and retry.
+the description changes; do not edit more files between a partial release --save and retry.
 The receipt survives a crash and later slot reuse without touching the successor.
 
 Snapshots preserve staged, working and non-ignored untracked files, with the
 [documented exclusions](snapshots.md). All writers must stop before capture;
 this is not an atomic filesystem snapshot. Explicitly unpin/delete finished
-snapshots when no longer needed. Request-key journals and finish receipts do not
+snapshots when no longer needed. Request-key journals and saved-release receipts do not
 expire and survive explicit pool deletion, together with execution history/logs.
 After `destroy`, history/storage and snapshot commands remain available; completed
-finish receipts can still be retrieved by lease ID. A replacement pool with fewer
+saved-release receipts can still be retrieved by lease ID. A replacement pool with fewer
 slots retains the execution-lock identities needed to clean older logs safely.
 
 ## Project commands

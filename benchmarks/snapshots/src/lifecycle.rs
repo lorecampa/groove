@@ -708,7 +708,12 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
                 "printf retained-log",
             ],
         )?;
-        let (finished, _) = call(runner, binary, repo, &["finish", "--task", "slot-0"])?;
+        let (finished, _) = call(
+            runner,
+            binary,
+            repo,
+            &["release", "--save", "--task", "slot-0"],
+        )?;
         require(
             finished["snapshot"]["pinned"] == true,
             "Finished result was not pinned",
@@ -894,7 +899,7 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
             binary,
             repo,
             "default",
-            &["finish", "--lease-id", lease_id],
+            &["release", "--save", "--lease-id", lease_id],
         )?;
         require(
             finished["snapshot"]["id"] == saved["id"],

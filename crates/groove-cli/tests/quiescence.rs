@@ -1,6 +1,11 @@
 mod support;
 use serde_json::Value;
-use std::{fs, path::Path, process::Output};
+use std::{
+    fs,
+    path::Path,
+    process::{Output, Stdio},
+    time::{Duration, Instant},
+};
 use support::Repo;
 
 fn cli(repo: &Repo, args: &[&str]) -> Output {
@@ -26,7 +31,7 @@ fn acquire(repo: &Repo, task: &str) -> String {
 }
 
 #[test]
-fn release_refuses_unsaved_changes_unless_forced_and_finish_saves_them() {
+fn release_refuses_unsaved_changes_unless_forced_and_save_preserves_them() {
     let repo = Repo::new();
     ok(&cli(&repo, &["init", "--capacity", "2"]));
     let path = acquire(&repo, "dirty");
@@ -51,8 +56,8 @@ fn release_refuses_unsaved_changes_unless_forced_and_finish_saves_them() {
             .len(),
         1
     );
-    // finish is how unsaved changes are kept, so it does not refuse them.
-    let finished = ok(&cli(&repo, &["finish", "--task", "dirty"]));
+    // --save is how unsaved changes are kept, so it does not refuse them.
+    let finished = ok(&cli(&repo, &["release", "--save", "--task", "dirty"]));
     let id = finished["release"]["lease_id"].as_str().unwrap().to_owned();
     // Retrying a completed release is not blocked by files left on disk.
     ok(&cli(&repo, &["release", "--lease-id", &id]));
@@ -62,21 +67,38 @@ fn release_refuses_unsaved_changes_unless_forced_and_finish_saves_them() {
 }
 
 #[test]
-fn processes_using_the_workspace_block_release_and_finish_but_not_the_invoking_shell() {
+fn processes_using_the_workspace_block_release_with_or_without_save_but_not_the_invoking_shell() {
     let repo = Repo::new();
     ok(&cli(&repo, &["init", "--capacity", "1"]));
     let path = acquire(&repo, "busy");
+    let ready = repo.temp.path().join("watcher-ready");
+    // Signal readiness after exec initialization, then block in a shell builtin
+    // so there is no further exec transition during the process checks.
     let mut watcher = support::TestChild::spawn(
-        std::process::Command::new("sleep")
-            .arg("60")
-            .current_dir(&path),
+        support::command(Path::new(&path), "bash")
+            .args(["-c", "printf ready > \"$1\"; read -r _", "watcher"])
+            .arg(&ready)
+            .stdin(Stdio::piped()),
     );
-    for operation in ["release", "finish"] {
-        let refused = error(&cli(&repo, &[operation, "--task", "busy"]));
-        assert_eq!(refused["code"], "WORKSPACE_IN_USE", "{operation}");
+    let deadline = Instant::now() + support::PROCESS_TIMEOUT;
+    while !ready.exists() {
+        assert!(
+            watcher.try_wait().unwrap().is_none(),
+            "watcher exited before readiness"
+        );
+        assert!(
+            Instant::now() < deadline,
+            "watcher did not signal readiness"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    for mut args in [vec!["release"], vec!["release", "--save"]] {
+        args.extend(["--task", "busy"]);
+        let refused = error(&cli(&repo, &args));
+        assert_eq!(refused["code"], "WORKSPACE_IN_USE", "{args:?}");
         let processes = refused["details"]["processes"].as_array().unwrap().clone();
         assert!(processes.iter().any(|p| {
-            p["pid"] == watcher.id() && p["command"] == "sleep" && p["uses"] == "working_directory"
+            p["pid"] == watcher.id() && p["command"] == "bash" && p["uses"] == "working_directory"
         }));
     }
     watcher.kill().unwrap();
