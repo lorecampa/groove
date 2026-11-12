@@ -8,7 +8,7 @@ command `--help`, CLI help sources and [schemas](schemas/) for CLI changes,
 Follow its test-writing practices: assert intent and observable contracts, choose
 the smallest suitable test layer, and use the documented libraries and process harness.
 Use [execution](docs/execution.md) for managed-worker teardown and orphan recovery.
-`docs/agents.md` and `skills/groove/SKILL.md` describe using the product;
+[The portable skill](skills/groove/SKILL.md) describes using the product;
 this file describes developing it.
 
 ## Boundaries and invariants
@@ -58,12 +58,7 @@ conventions, preserving Groove's documented JSON response contract under `--json
 The pinned toolchain includes rustfmt and Clippy. Before completing code changes:
 
 ```sh
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-cargo test --workspace --all-targets --all-features --locked
-cargo test --workspace --doc --locked
-RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked
-git diff --check
+bash scripts/check.sh push
 ```
 
 Run focused checks while iterating. CI also tests current stable and minimum Git.

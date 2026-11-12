@@ -117,7 +117,7 @@ the publishing job; untrusted PR code must never receive them. Enable secret
 scanning/push protection and verify private vulnerability reporting where
 available. These are hosted settings, not properties established by checked-in
 YAML. Do not change repository visibility or buy a plan to work around a denial.
-See the [launch checklist](launch.md) for remaining external prerequisites.
+See [public availability](releasing.md#public-availability) for publication review.
 
 ## References
 

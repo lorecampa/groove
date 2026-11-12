@@ -142,8 +142,8 @@ before deletion; discard never authorizes removing foreign paths.
 
 ## Task lifecycle
 
-[Agent workflow](agents.md) covers acquire, retry, work and release --save. Normal commands
-select a reservation with `--task` (its label) or `--lease-id`; slot IDs
+[The portable skill](../skills/groove/SKILL.md) covers acquire, retry, work and
+release --save. Normal commands select a reservation with `--task` (its label) or `--lease-id`; slot IDs
 identify reusable directories for diagnostics.
 Reservations survive process exit and restart, with no TTL or automatic reclamation.
 
@@ -189,19 +189,17 @@ request journals or saved-release receipts. See [execution](execution.md#history
 
 ## Recovery
 
-| Situation | Action |
-| --- | --- |
-| `POOL_EXHAUSTED` / `ACQUIRE_TIMEOUT` | Wait or inspect tasks. Protected reservations count as busy and are retryable. |
-| `POOL_UNHEALTHY` | Inspect per-slot failures; malformed state or failed preparation prevents safe reuse. |
-| Lost acquire response | Retry the same request key/base/label; without a key, identify ownership in `list`. |
-| Active managed run | Request `stop`; wait for execution to clear. |
-| Orphan execution record | Follow [execution recovery](execution.md#crashes-and-recovery); stop all writers before `recover`. |
-| Live library `Lease` owner | Release through that handle after stopping writers; another process cannot unlock it. |
-| Failed preparation | Groove quarantines the slot; a later acquisition retries bounded repair. |
-| Reserved checkout deleted (`rm -rf`, `git worktree remove --force`) | `release`/`release --save` report `RECOVERY_FAILED` with the path and the slot shows unhealthy. Its unsaved work is gone; `release --force` discards the reservation and the next acquisition rebuilds the slot. |
-| `CONFIG_CONFLICT` naming the original location | The repository was moved. Manifests, reservations and Git's own worktree registrations record absolute paths, so move it back to that location; Groove does not relocate pools. |
-| Error that the current directory no longer exists | The shell sat in a checkout that was rebuilt. `cd` to the repository (or pass `--repo`) and retry. |
-| `INVALID_ARGUMENT` for a reused `--task` | An active reservation already has that label; its lease ID and path are in the error details. Resume or release it, or choose another label. |
+Inspect the affected reservation with `list --slots` or `show` and follow the
+reported next action. Command `--help` owns error-specific recovery instructions;
+[execution recovery](execution.md#crashes-and-recovery) explains how to stop
+managed/orphaned writers. Retry a lost acquisition with its original key and
+inputs; retry a saved release with its original lease ID and pool. Never infer
+ownership from labels, PIDs or age.
+
+If a repository was moved, restore its recorded location: pool manifests and Git
+registrations contain absolute paths. Groove does not relocate pools. Restore
+missing worktrees or explicitly acknowledge lost contents through the relevant
+command; never repair by deleting protection.
 
 Recovery normalizes or rebuilds under slot/admin locks, then verifies the baseline.
 Native registrations use `git worktree add --lock` against external pruning,

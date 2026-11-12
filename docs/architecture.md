@@ -42,24 +42,8 @@ Core supports Linux and macOS and fails with an explicit `compile_error!` elsewh
 qualification and reflink creation; `quiescence` has OS-specific process-inspection
 backends. Descriptor ownership, durable protection and recovery policy are shared.
 
-`groove-core` modules, by concern:
-
-| Module | Owns |
-| --- | --- |
-| `pool` | `Pool::init/open/acquire`, durable release, protected-lease listing |
-| `namespace` | Pool catalog, shared administration and checkout-root claims |
-| `lifecycle`, `destruction` | Generation admission, deletion and retained lock validation |
-| `reservation` | `Pool::reserve`, request-key journal, lookup by ID or task label |
-| `inspection` | Slot observations and optional Git status |
-| `execution` | Managed workers, stop sockets, orphan recovery |
-| `preparation` | Project setup runs and named commands |
-| `finish` | Pin a snapshot and release (`release --save` in the CLI) |
-| `snapshot` | Repository-wide checkpoint capture, recovery and retention |
-| `project`, `cache` | Project definitions and independent artifact publication/seeding |
-| `settings` | Capacity growth and cleanup changes |
-| `recovery` | Normalizing, rebuilding and verifying checkouts |
-| `git` | Bounded, isolated Git subprocesses (`Invocation`) |
-| `state`, `locking`, `repository` | Durable records, permanent locks, path validation |
+Browse [the core source](../crates/groove-core/src/) for module ownership;
+public API behavior lives in rustdoc beside its implementation.
 
 The CLI keeps one handler per command in `src/commands/`, rendering through
 `src/output.rs`; exit codes come from typed results, never from rendered JSON.
@@ -68,34 +52,15 @@ The CLI keeps one handler per command in `src/commands/`, rendering through
 
 The common Git directory identifies the namespace catalog shared by ordinary,
 linked and bare checkouts. `default` keeps its original directory; named pools
-use `<common>/groove/pools/<name>/` with the same layout below. Per-pool checkout
+use `<common>/groove/pools/<name>/`. Per-pool checkout
 roots are immutable until deletion/reinitialization. Capacity and cleanup can
 change through an atomic settings update.
 
-```text
-<GIT_COMMON_DIR>/groove/
-  config.json                     # Ready manifest (schema 1)
-  lifecycle.json                  # Generation and initializing/ready/deleting/deleted phase
-  initializing.json               # Pending initialization settings and checkout-root claim
-  locks/lifecycle.lock            # Permanent shared admission / exclusive lifecycle transitions
-  locks/admin.lock                # Repository-wide Git registration/root-claim serialization
-  locks/wt-0001.lock              # Permanent slot ownership
-  locks/wt-0001.execution.lock    # Permanent execution ownership
-  slots/wt-0001.json              # Current generation and phase
-  slots/wt-0001.protected.json    # Durable prohibition on reuse
-  slots/wt-0001.execution.json    # Active/orphan managed run
-  slots/wt-0001.setup.json        # Setup readiness for the current generation
-  slots/finish-<lease-id>.json    # Checkpoint/release receipt
-  requests/<key-hash>.json        # Active/completed request-key journal
-  requests/<key-hash>.lock        # Permanent per-key serialization
-  requests/task-<label-hash>.lock # Permanent per-label serialization
-  task-logs/<run-id>/             # Captured stdout/stderr and durable run.json
-  artifacts/<key>/               # Disposable setup cache; permanent sibling <key>.lock
-  worktrees/wt-0001/              # Default disposable checkout
-  tmp/
-  retired/<pool-id>.json           # Retained manifest for historical lock identities
-  pools/<name>/                   # Named pool: independent lifecycle, slots, journals, caches/history
-```
+[State paths](../crates/groove-core/src/state.rs) and
+[namespace administration](../crates/groove-core/src/namespace.rs) define the
+storage layout. Treat it as coordination state, never as a manual cleanup API.
+Permanent locks, durable reservations, saved-release receipts and request journals
+survive task exit; checkout contents and approved artifact caches are disposable.
 
 Every manifest references the original permanent `<common>/groove/locks/admin.lock`;
 named pools do not create independent Git-administration locks. Pool-local lifecycle
@@ -119,8 +84,8 @@ Git's native worktree administration stays in `<GIT_COMMON_DIR>/worktrees/`.
 Snapshots use separate `groove-snapshots` administration and
 `refs/groove/snapshots/`; see [snapshots](snapshots.md).
 
-Every record carries `schema_version: 1`, the only format this release reads or
-writes. Manifests always contain execution-lock identities for every slot.
+Durable records carry versioned formats and permanent lock identities; readers
+reject incompatible formats instead of guessing or replacing locks.
 
 `init` is create-only; interrupted setup needs an explicit resume with identical
 settings. Growth/settings updates hold administrative exclusion, validate all

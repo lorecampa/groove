@@ -15,46 +15,16 @@ adapt it to your toolchain, then commit it and its compatibility inputs.
 checkout's configuration without running commands. Unknown fields/versions fail.
 Missing configuration means no setup, recipes, agents or custom environment.
 
-```toml
-schema_version = 1
-
-[workspace]
-port_base = 8000
-[workspace.environment]
-WORKSPACE_NAME = "{slot}"
-
-[caches.dependencies]
-paths = ["node_modules"]
-inputs = ["package-lock.json"]
-key = "node-22-linux-x86_64"
-mode = "copy"
-
-[setup.dev]
-cache = "dependencies"
-[[setup.dev.steps]]
-name = "dependencies"
-command = ["npm", "ci"]
-when = "cache_miss"
-[[setup.dev.steps]]
-name = "check"
-command = ["npm", "run", "check", "--if-present"]
-
-[recipes.test]
-command = ["npm", "test"]
-requires_setup = "dev"
-
-[agents.codex]
-command = ["codex", "exec", "--sandbox", "workspace-write"]
-requires_setup = "dev"
-timeout_ms = 0
-```
+The generated starter includes setup, caches, recipes and agent adapters.
+The [project types](../crates/groove-core/src/project.rs) define validation and
+configuration defaults.
 
 Commands are direct argv, with closed stdin and captured logs. An explicit shell
 such as `["bash", "-c", "..."]` opts into shell syntax. Configuration is trusted
 project code; managed execution controls lifetimes, not application privileges.
-Setup/recipe commands default to 600000 ms per command; `timeout_ms = 0` disables
-that deadline. A positive `exec --timeout-ms` overrides the configured per-command
-deadline. It is not a deadline for the entire sequence. Setup has at most 256 steps.
+`timeout_ms = 0` disables a configured command's deadline. A positive
+`exec --timeout-ms` overrides the configured per-command deadline; it is not a
+deadline for the entire sequence.
 Readiness checks use the configuration in the **leased checkout**, which can differ
 from the checkout used to inspect project configuration.
 
@@ -77,8 +47,8 @@ Setup records `preparing` before artifacts/commands, runs steps in order, and re
 publication. Failure stops later steps and records `failed`. Every outcome retains
 the reservation. `acquire --setup` returns the lease identifiers alongside the setup
 result even when a command fails; inspect `error.details` on an operational failure.
-Worker failure uses the worker exit code; timeout uses 124, cancellation 128+signal,
-output limit or other recorded setup failure 7.
+See the output contract in `groove acquire --help` and `groove exec --help` for
+setup/worker exit categories and result fields.
 
 Repeating a ready setup with the same definition returns its receipt without rerunning
 commands. Readiness describes that successful attempt, not a continuous filesystem
@@ -118,8 +88,8 @@ FICLONE or macOS APFS cloning across artifact/workspace storage and fails withou
 Neither mode uses hardlinks.
 Executable bits, file modification times and safe relative internal symlinks are
 preserved. Ownership, ACLs and extended attributes are not copied. Special files,
-escaping symlinks and symlink roots are rejected. Defaults are 20 GiB and one million
-entries per snapshot, configurable as positive `max_bytes`/`max_files`. Every read
+escaping symlinks and symlink roots are rejected. Positive `max_bytes`/`max_files`
+bound each artifact snapshot. Every read
 and duplicate verifies content; seeding still traverses and hashes the artifact tree.
 Artifact paths must be UTF-8 and at most 128 components deep; manifests are bounded
 to 128 MiB, so very large path lists can reach that limit before the entry quota.

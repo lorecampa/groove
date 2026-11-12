@@ -1,5 +1,5 @@
 //! Help's output reference comes from the schema exercised by conformance tests.
-use crate::{args::Args, output};
+use crate::{args::Args, output, preferences};
 use clap::CommandFactory;
 use groove_core::ErrorCode;
 use serde_json::Value;
@@ -22,6 +22,14 @@ fn decorate(mut command: clap::Command, path: &str, schema: &Value) -> clap::Com
         .get_after_help()
         .map(ToString::to_string)
         .unwrap_or_default();
+    if path == "config" || path == "config global" || path.starts_with("config global ") {
+        text.push_str(include_str!("../help/config-global.txt"));
+        text.push_str("\nPREFERENCE DEFAULTS (TOML, before environment overrides):\n");
+        text.push_str(
+            &toml::to_string_pretty(&preferences::Config::default())
+                .expect("built-in preferences must serialize as TOML"),
+        );
+    }
     text.push_str(include_str!("../help/json.txt"));
     let mut definitions = BTreeSet::new();
     if !path.is_empty() {

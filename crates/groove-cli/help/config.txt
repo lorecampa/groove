@@ -17,11 +17,3 @@ Updates publish atomically and unchanged values report updated: false.
 
 `project` validates the checkout's .groove.toml without running anything;
 --example prints a starter to review before committing.
-
-`global` manages user preferences in $XDG_CONFIG_HOME/groove/config.toml (or
-~/.config/groove/config.toml). `set` validates every KEY=VALUE and saves once,
-preserving comments. `edit` runs VISUAL, EDITOR or vi without a shell. `path`
-and `edit` work even when the file is broken. Logging defaults: enabled,
-level=debug (error/warn/info/debug/trace), 5 MiB/file, 100 MiB total, 100 files,
-7 days. File severity is independent of -v/--quiet. GROOVE_LOG_ENABLED=true|false and
-GROOVE_LOG_DIR override the file.

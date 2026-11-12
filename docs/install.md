@@ -45,5 +45,33 @@ a new session, tell the user to restart rather than claiming it is already loade
 Report the CLI version and installed skill location. Do not initialize a project
 pool or start a task as part of installation.
 
-For source builds and Cargo/Git authentication problems, see the
-[agent guide](agents.md#source-installations).
+## Project policy
+
+The skill teaches the workflow; project instructions decide when to require it.
+For repositories that use Groove, add a short policy to the agent's project
+instruction file, for example:
+
+> Use the Groove skill for coding task workspaces in this repository. Workers
+> already assigned a reservation reuse it and hand results back; the coordinator
+> owns acquisition and finalization.
+
+Commit project instructions before acquiring if workers need them in their
+checkouts. Uncommitted files do not propagate to a new checkout.
+
+## Source installations
+
+For development, build from an existing checkout:
+
+```sh
+cargo install --path /path/to/groove/crates/groove-cli --locked
+```
+
+If Git authenticates but Cargo's built-in Git transport fails, use the configured
+Git transport for that invocation:
+
+```sh
+CARGO_NET_GIT_FETCH_WITH_CLI=true cargo install --git ssh://git@github.com/lorecampa/groove --locked groove-cli
+```
+
+This installs the development revision using existing Git credentials. Keep
+credentials out of URLs and install the skill from the matching revision.

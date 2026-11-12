@@ -126,14 +126,8 @@ Git 2.40+, matching Groove's platform contract.
 
 ## Testing and benchmarks
 
-```sh
-cargo test -p groove-core --test snapshots --locked
-cargo test -p groove-cli --test snapshots --all-features --locked
-cargo build -p groove-cli --release --locked
-cargo run -p groove-bench --locked -- profiles
-cargo run -p groove-bench --locked -- benchmark snapshot-incremental
-cargo run -p groove-bench --locked -- check snapshot-scale
-```
+See [testing](testing.md) for validation gates. Discover benchmark workloads with
+`cargo run -p groove-bench --locked -- profiles`.
 
 The lab uses complete versioned profiles with disposable deterministic repositories,
 independent Git oracles, repeated restore/save measurements and paired baseline

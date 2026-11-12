@@ -25,6 +25,47 @@ fn check(output: &std::process::Output) -> Value {
 }
 
 #[test]
+fn preference_defaults_in_help_can_be_used_as_a_real_configuration() {
+    let temp = tempfile::tempdir().unwrap();
+    let config_home = temp.path().join("config");
+    let run = |args: &[&str]| {
+        support::groove_in(temp.path())
+            .env("XDG_CONFIG_HOME", &config_home)
+            .env_remove("GROOVE_LOG_DIR")
+            .env_remove("GROOVE_LOG_ENABLED")
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let original = run(&["config", "global", "show"]);
+    assert_success(&original);
+    let expected = check(&original)["result"]["config"].clone();
+    for command in [
+        vec!["config", "--help"],
+        vec!["config", "global", "--help"],
+        vec!["config", "global", "set", "--help"],
+    ] {
+        let output = run(&command);
+        assert_success(&output);
+        let response = check(&output);
+        let help = response["result"]["text"].as_str().unwrap();
+        let defaults = help
+            .split_once("PREFERENCE DEFAULTS (TOML, before environment overrides):\n")
+            .unwrap()
+            .1
+            .split_once("\nJSON OUTPUT CONTRACT")
+            .unwrap()
+            .0;
+        let directory = config_home.join("groove");
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("config.toml"), defaults).unwrap();
+        let configured = run(&["config", "global", "show"]);
+        assert_success(&configured);
+        assert_eq!(check(&configured)["result"]["config"], expected);
+    }
+}
+
+#[test]
 fn command_help_exposes_its_output_fields_without_repository_or_preferences() {
     let temp = tempfile::tempdir().unwrap();
     let preferences = temp.path().join("config/groove");
