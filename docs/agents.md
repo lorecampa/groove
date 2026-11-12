@@ -8,9 +8,8 @@ or extra registration is required.
 
 Ask your agent to follow the [installation guide](install.md). It installs the
 CLI and the entire [portable skill](../skills/groove/SKILL.md), including its
-references, in the harness's supported discovery directory. The guide explains
-user/project scopes, verification, updates and removal. No native agent plugin
-or Groove-specific installer command is required.
+references, where the current agent discovers skills. By default, the skill is
+available across projects, including newly acquired worktrees.
 
 The skill teaches the procedure; project instructions decide when it is required.
 For a repository that uses Groove, add a short policy to the harness's project
@@ -142,3 +141,21 @@ Finish returns the pinned snapshot ID. Recover its files and staging state with
 `groove snapshot restore ID --to /new/recovery-directory`, even after slot reuse.
 Retry finish by lease ID after a lost response. See [project workspaces](project.md)
 for caches, environment and setup limits.
+
+## Source installations
+
+For development, build from an existing checkout:
+
+```sh
+cargo install --path /path/to/groove/crates/groove-cli --locked
+```
+
+If Git authenticates but Cargo's built-in Git transport fails, use the configured
+Git transport for that invocation:
+
+```sh
+CARGO_NET_GIT_FETCH_WITH_CLI=true cargo install --git ssh://git@github.com/lorecampa/groove --locked groove-cli
+```
+
+This installs the development revision. It uses existing Git credentials and
+does not grant access to a private repository. Keep credentials out of URLs.
