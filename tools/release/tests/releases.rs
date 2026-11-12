@@ -297,6 +297,78 @@ fn prereleases_are_supported_and_invalid_versions_are_rejected() {
 }
 
 #[test]
+fn repeated_package_checks_compile_the_current_archive_at_the_same_version() {
+    let f = Fixture::new();
+    // These dependency-free packages implement only the release smoke protocol.
+    // Changing the core API without changing its version catches linking tests
+    // or the CLI against a prior extracted tree's library artifacts.
+    for name in ["groove-core", "groove-cli"] {
+        for file in ["README.md", "LICENSE-MIT", "LICENSE-APACHE"] {
+            fs::write(f.path(&format!("crates/{name}/{file}")), "fixture\n").unwrap();
+        }
+        let manifest = f.path(&format!("crates/{name}/Cargo.toml"));
+        let contents = fs::read_to_string(&manifest).unwrap().replace(
+            "edition.workspace = true\n",
+            "edition.workspace = true\nreadme = \"README.md\"\nlicense = \"MIT OR Apache-2.0\"\n",
+        );
+        fs::write(manifest, contents).unwrap();
+    }
+    let manifest = f.path("crates/groove-cli/Cargo.toml");
+    fs::write(
+        &manifest,
+        format!(
+            "{}\n[[bin]]\nname = \"groove\"\npath = \"src/main.rs\"\n",
+            fs::read_to_string(&manifest).unwrap()
+        ),
+    )
+    .unwrap();
+    let core = f.path("crates/groove-core/src/lib.rs");
+    let cli = f.path("crates/groove-cli/src/main.rs");
+    fs::write(&core, "pub fn old_api() {}\n").unwrap();
+    let source = r#"fn main() {
+    groove_core::old_api();
+    let cwd = std::env::current_dir().unwrap();
+    let result = match std::env::args().nth(2).unwrap().as_str() {
+        "--version" => "{\"text\":\"groove 0.1.0\"}".to_string(),
+        "acquire" => format!("{{\"worktree_path\":\"{}\",\"lease_id\":\"fixture\"}}", cwd.display()),
+        "exec" => {
+            let stdout = cwd.join("stdout");
+            std::fs::write(&stdout, "true\n").unwrap();
+            format!("{{\"execution\":{{\"termination\":\"exited\",\"exit_code\":0,\"run\":{{\"stdout_path\":\"{}\"}}}}}}", stdout.display())
+        },
+        "list" => "{\"leases\":[]}".to_string(),
+        _ => "{}".to_string(),
+    };
+    println!("{{\"api_version\":1,\"ok\":true,\"result\":{result}}}");
+}
+"#;
+    fs::write(&cli, source).unwrap();
+    fs::write(f.path(".gitignore"), "/target/\n").unwrap();
+    f.commit();
+    for new_api in [false, true] {
+        if new_api {
+            fs::write(&core, "pub fn new_api() {}\n").unwrap();
+            fs::write(&cli, source.replace("old_api", "new_api")).unwrap();
+            f.commit();
+        }
+        let out = f
+            .command(env!("CARGO_BIN_EXE_groove-release"))
+            .arg("--repo-root")
+            .arg(f.temp.path())
+            .arg("packages")
+            .env("CARGO_NET_OFFLINE", "true")
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert!(f.path("target/package-check/debug/groove").is_file());
+    }
+}
+
+#[test]
 fn target_bundles_keep_independent_metadata_and_valid_checksums() {
     use sha2::{Digest, Sha256};
     use std::os::unix::fs::PermissionsExt;
@@ -313,6 +385,13 @@ fn target_bundles_keep_independent_metadata_and_valid_checksums() {
     for name in ["assets", "docs", "skills/groove", "bin", "checkout"] {
         fs::create_dir_all(f.path(name)).unwrap();
     }
+    fs::create_dir(f.path("skills/groove/references")).unwrap();
+    fs::write(f.path("skills/groove/SKILL.md"), "skill entrypoint\n").unwrap();
+    fs::write(
+        f.path("skills/groove/references/recovery.md"),
+        "bundled recovery procedure\n",
+    )
+    .unwrap();
     let stdout = f.path("captured-stdout");
     fs::write(&stdout, "true\n").unwrap();
     // Exercise real archive/metadata commands without compiling a second Groove
@@ -363,6 +442,26 @@ fn target_bundles_keep_independent_metadata_and_valid_checksums() {
         }
         let prefix = format!("groove-0.1.0-{target}");
         let archive = output.join(format!("{prefix}.tar.gz"));
+        // A user installing from a binary archive needs the entire portable
+        // skill, including linked resources, without fetching the repository.
+        let mut bundled = tar::Archive::new(flate2::read::GzDecoder::new(
+            fs::File::open(&archive).unwrap(),
+        ));
+        let extracted = f.path(&format!("extracted-{target}"));
+        bundled.unpack(&extracted).unwrap();
+        assert_eq!(
+            fs::read(
+                extracted
+                    .join(&prefix)
+                    .join("skills/groove/references/recovery.md")
+            )
+            .unwrap(),
+            b"bundled recovery procedure\n"
+        );
+        assert_eq!(
+            fs::read(extracted.join(&prefix).join("skills/groove/SKILL.md")).unwrap(),
+            b"skill entrypoint\n"
+        );
         let manifest = output.join(format!("{prefix}.manifest.json"));
         let value: serde_json::Value =
             serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();

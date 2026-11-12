@@ -1,16 +1,22 @@
 name: Release
 
-# Merging a PR never publishes. Push an explicit version tag after its release PR.
+# Merging a PR never publishes. A manual run rehearses an existing tag as a draft.
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing reviewed vVERSION tag to rehearse (draft only; no crates.io)'
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 # Serialize all release versions, including retries. Never cancel a publication.
 concurrency:
-  group: crates-io-release
+  group: groove-release
   cancel-in-progress: false
 
 jobs:
@@ -24,10 +30,11 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+          ref: ${{ inputs.tag || github.ref }}
       - name: Verify tag, versions, release notes and main ancestry
         id: version
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           version=$(bash scripts/release.sh validate --tag "$RELEASE_TAG" --branch origin/main)
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -35,6 +42,8 @@ jobs:
   checks:
     needs: validate
     uses: ./.github/workflows/ci.yml
+    with:
+      release_ref: ${{ inputs.tag || github.ref }}
 
   binaries:
     needs: validate
@@ -56,6 +65,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+          ref: ${{ inputs.tag || github.ref }}
       - name: Build packaged release sources without test hooks
         run: bash scripts/release.sh packages --release --target '${{ matrix.target }}'
       - name: Bundle binaries, documentation and checksums
@@ -72,6 +82,8 @@ jobs:
           retention-days: 30
 
   publish:
+    # Opt in only after the first manual crates.io publication and publisher setup.
+    if: github.event_name == 'push' && !contains(github.ref_name, '-') && vars.GROOVE_PUBLISH_CRATES_IO == 'true'
     needs: [validate, checks, binaries]
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -94,7 +106,11 @@ jobs:
         run: bash scripts/release.sh publish --tag "$RELEASE_TAG" --execute
 
   announce:
-    needs: [validate, publish, binaries]
+    needs: [validate, checks, publish, binaries]
+    if: >-
+      always() && needs.validate.result == 'success' &&
+      needs.checks.result == 'success' && needs.binaries.result == 'success' &&
+      (needs.publish.result == 'success' || needs.publish.result == 'skipped')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -103,6 +119,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+          ref: ${{ inputs.tag || github.ref }}
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: release-binaries-*
@@ -113,19 +130,28 @@ jobs:
         run: |
           cat SHA256SUMS-* > SHA256SUMS
           sha256sum --check SHA256SUMS
-      - name: Create release with verified binary assets
+      - name: Assemble notes and create or verify release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
           RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+          RELEASE_EVENT: ${{ github.event_name }}
+          GH_REPO: ${{ github.repository }}
         run: |
           bash scripts/release.sh notes --output "$RUNNER_TEMP/release-notes.md"
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" target/distribution/* --clobber
-          else
-            flags=()
-            if [[ "$RELEASE_VERSION" == *-* ]]; then flags+=(--prerelease); fi
-            gh release create "$RELEASE_TAG" target/distribution/* \
-              --verify-tag --title "Groove $RELEASE_TAG" \
-              --notes-file "$RUNNER_TEMP/release-notes.md" "${flags[@]}"
-          fi
+          {
+            printf '\n## Install with Cargo\n\n```sh\ncargo install --git https://github.com/%s --tag %s --locked groove-cli\n```\n' "$GH_REPO" "$RELEASE_TAG"
+            printf '\nRequires Rust 1.89+, Git 2.40+ and Linux or macOS 13+ (local APFS on macOS).\n'
+            printf '\n## Binary downloads\n\n| Archive | Platform |\n| --- | --- |\n'
+            for pair in 'x86_64-unknown-linux-gnu|Linux x86_64 (glibc 2.39+)' 'aarch64-apple-darwin|Apple Silicon macOS' 'x86_64-apple-darwin|Intel macOS'; do
+              target=${pair%%|*}
+              platform=${pair#*|}
+              archive="groove-$RELEASE_VERSION-$target.tar.gz"
+              printf '| [%s](https://github.com/%s/releases/download/%s/%s) | %s |\n' "$archive" "$GH_REPO" "$RELEASE_TAG" "$archive" "$platform"
+            done
+            printf '\nDownload the matching SHA256SUMS-TARGET and verify before extracting. Archives include the CLI, licenses, guides and complete agent skill. macOS binaries are not notarized.\n'
+            printf '\n[Installation and agent setup](https://github.com/%s/blob/%s/docs/install.md) · [Supported scope](https://github.com/%s/blob/%s/docs/operations.md) · [Changelog](https://github.com/%s/blob/%s/CHANGELOG.md)\n' "$GH_REPO" "$RELEASE_TAG" "$GH_REPO" "$RELEASE_TAG" "$GH_REPO" "$RELEASE_TAG"
+          } >> "$RUNNER_TEMP/release-notes.md"
+          flags=(--execute)
+          if [[ "$RELEASE_EVENT" == push && "$RELEASE_VERSION" != *-* ]]; then flags+=(--publish); fi
+          bash scripts/github-release.sh "$GH_REPO" "$RELEASE_TAG" target/distribution "$RUNNER_TEMP/release-notes.md" "${flags[@]}"

@@ -4,6 +4,11 @@ on:
     branches: ['**']
   pull_request:
   workflow_call:
+    inputs:
+      release_ref:
+        description: 'Exact release tag to check during a release rehearsal'
+        required: false
+        type: string
   workflow_dispatch:
   schedule:
     - cron: '23 3 * * *'
@@ -16,6 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: ${{ inputs.release_ref || github.ref }}
           persist-credentials: false
       - name: Infrastructure regression tests
         run: cargo test --package groove-release --locked
@@ -38,6 +44,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: ${{ inputs.release_ref || github.ref }}
           persist-credentials: false
       - name: Install Rust
         run: |
@@ -123,6 +130,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: ${{ inputs.release_ref || github.ref }}
           persist-credentials: false
           set-safe-directory: false
       - name: Install Rust
@@ -173,6 +181,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: ${{ inputs.release_ref || github.ref }}
           persist-credentials: false
       - run: rustup toolchain install stable --profile minimal
       - run: cargo +stable install cargo-audit --version 0.22.2 --locked

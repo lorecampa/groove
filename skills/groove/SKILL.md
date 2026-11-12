@@ -1,91 +1,117 @@
 ---
 name: groove
-description: Use Groove to acquire exclusive reusable Git worktrees, one per task, for coding tasks; preserve results and release workspaces after all writers stop. Apply when the user asks to use Groove or a configured task workflow requires pooled worktrees.
+description: Use Groove's reusable Git worktrees when the user requests Groove or repository instructions require pooled task workspaces. Acquire or reuse the assigned reservation, preserve results, and hand off or finish safely. Also use for Groove reservation retries and recovery; ordinary Git work does not require Groove.
+license: MIT OR Apache-2.0
 ---
 
 # Groove task workspaces
 
-Use the installed CLI through the terminal. Set
-`GROOVE_OUTPUT=json` (or pass `--json`) so every response, including errors and
-help, is one JSON object. Check `ok` and the exit status before using a result.
-Read `groove --help` and the relevant command's `--help` for details.
+Requires the installed CLI, Git 2.40+ and Linux or macOS with supported local
+storage. Use the terminal; this skill does not provide an MCP server.
 
-## Acquire and work
+Use `groove --json` for machine-readable responses. Check both the exit status
+and `ok` before reading `result`; help is in `result.text`. Consult the installed
+CLI's `--help` for command syntax. Installing this skill does not require Groove
+for every repository or authorize pushing, merging, discarding work or changing
+repository policy.
 
-Keep pool selection explicit: omission of `--pool` selects `default`, including
-inside a named pool's checkout. Carry the same `--pool NAME` on every pool command
-and retry. Use `groove pools` to inspect the catalog; never switch pools to bypass
-contention. Labels and request keys are pool-local; Git refs and snapshots are shared.
+## Establish your assignment first
 
-1. If the selected pool is not initialized, run `groove init --capacity 4` unless the user
-   chose other settings. A ready pool rejects repeated init; inspect it with
-   `groove config show`. Grow it explicitly with `groove config set --capacity N`;
-   never enlarge a pool to bypass contention.
-2. Pick a short task name and a unique request key, then run
-   `groove acquire --task NAME --request-key KEY`. Later commands select the
-   reservation with `--task NAME`; an active name cannot be reused (the error
-   names the existing reservation). Keep the pool name, request key,
-   `result.lease_id` and `result.worktree_path` outside the checkout. The reservation
-   survives exits.
-3. Do all file, Git and terminal work in the returned path. HEAD is detached;
-   Groove never creates branches. Refs and configuration are shared with other
-   worktrees.
-4. Prefer `groove exec --task NAME -- PROGRAM ARGS` for workers that need
-   deadlines and captured logs. On capacity errors, wait or inspect `groove list`;
-   never create overflow worktrees.
+- **Coordinator:** you are responsible for acquiring and eventually finishing
+  the task's reservation, including stopping delegated workers.
+- **Assigned worker:** a coordinator already supplied a checkout, lease ID and
+  pool. Work in that assignment; do not acquire another slot or finish/release
+  it. Report results and stop your writers before returning to the coordinator.
+  Separately assigned tasks can have their own reservations.
 
-## Preserve and release
+Managed workers receive `GROOVE_LEASE_ID`, `GROOVE_POOL`, `GROOVE_WORKTREE` and
+`GROOVE_TASK`. Treat them as assignment context, not proof of ownership. Match
+context with the coordinator's assignment and `groove show --lease-id ID` before
+using it. Inspection, directory location, PIDs and metadata do not grant ownership.
+If the assignment is ambiguous, inspect and report it rather than guessing.
 
-Stop every writer first: workers, tests, watchers and dev servers. `release`
-and `finish` refuse while other processes still use the workspace
-(`WORKSPACE_IN_USE`, listed in `error.details.processes`), and `release` also
-refuses unsaved changes (`UNSAVED_CHANGES`). Stop those processes or use `finish`;
-use `--force` only when you mean to discard the work.
-`groove stop --task NAME` asks a managed run to stop; run `groove show
---task NAME` until its execution clears. Process groups do not contain
-descendants that start new sessions.
+Carry the same explicit `--pool NAME` on **every pool command**, including
+retries. Omission always means `default`; neither cwd nor `GROOVE_POOL` selects
+it automatically. Labels and request keys are pool-local. Do not switch pools
+to bypass contention.
 
-Then run `groove finish --task NAME`. It pins a local snapshot of staged and
-working files, then releases the slot. Ignored
-files are not captured. Recover a snapshot with
-`groove snapshot restore ID --to PATH`. Snapshots are local, not backups.
+## Acquire and work (coordinator)
 
-`groove release --task NAME` releases without a snapshot. The next
-acquisition may delete everything in the slot. Never use a released path.
+1. Inspect the selected pool with `groove --json --pool NAME config show`.
+   Initialize it with `groove --pool NAME init --capacity N` when repository
+   setup is part of the assignment; otherwise report an uninitialized pool as
+   a prerequisite. Do not silently change capacity or existing configuration.
+2. Choose a task label and a new request key for this logical acquisition:
 
-If stopping writers or preserving results fails, leave the reservation in place
-and report what needs recovery.
+   ```sh
+   groove --json --pool default acquire --task fix-parser --request-key fix-parser-attempt-1
+   ```
 
-## Retry and recover
+   Retain the pool, key, original base argument, `result.lease_id` and
+   `result.worktree_path` outside the checkout. After a lost response, repeat
+   the same acquisition inputs and key. Do not generate a second key to retry.
+3. Direct **all** edits, Git commands and terminal work to the returned path.
+   Set tool working directories explicitly. If the harness cannot move its
+   editing context safely, hand off/relaunch in that checkout before editing.
+   Read the checkout's project instructions. HEAD starts detached; Groove does
+   not create branches. Git refs/configuration are shared across worktrees.
+4. Use the retained lease ID for follow-up commands. For bounded workers/logs:
 
-After a lost response, repeat the same acquire (same key, base and task).
-Changed inputs and completed keys are rejected; use a new key for a new task.
-Without a key, inspect `groove list` before acquiring again. Listings, PIDs and
-timestamps never prove ownership or that writers stopped.
+   ```sh
+   groove --json --pool default exec --lease-id LEASE_ID --timeout-ms 600000 -- cargo test
+   ```
 
-Retry a lost release or finish response with the original `--lease-id` and pool
-selection. Task labels can be reused after release, so retrying by `--task` can
-select a newer reservation. Stale lease IDs cannot release a later task.
-Reservations never expire.
+   `LEASE_ID` means the actual returned identifier. An assigned worker already
+   inside a managed `exec` runs its commands directly; do not nest managed runs
+   on the same reservation. `exec --agent` selects argv, not agent configuration.
 
-An orphaned managed execution keeps release blocked. Stop all external writers,
-then run the operator-only `groove recover --task NAME`. If ownership is
-uncertain, leave protection intact. Never delete locks, protections or execution
-records to force reuse.
+On `POOL_EXHAUSTED` or `ACQUIRE_TIMEOUT`, wait/retry with the same acquisition
+identity (for example `--wait-ms 5000`). Never create overflow worktrees, enlarge
+capacity or remove protection to make progress. If a bounded wait still cannot
+make progress, report contention with the retained retry inputs instead of
+spinning indefinitely.
 
-## Project setup and recovery
+For reviewed project setup, recipes or agent adapters, read
+[references/project.md](references/project.md) before running them.
 
-For reviewed project setup use `acquire --setup PROFILE` or
-`exec --task NAME --setup PROFILE`, and check `preparation.status`. Setup
-never runs implicitly. A failed, interrupted or changed setup needs an explicit
-`--retry`, which restarts from the first step. Never keep results in approved
-cache roots; setup may clear them.
+## Preserve and hand off
 
-`exec --recipe NAME` and `exec --agent NAME -- ARGS` append literal arguments and
-check required setup. `groove show --task NAME` shows the path but grants no
-ownership.
+An assigned worker reports its changes, checks and remaining processes, then
+returns without releasing the reservation. It must not finish from inside its
+own managed execution: the coordinator waits for that execution to end first.
 
-`finish --task NAME` returns a pinned snapshot ID. Recover its files and staging
-state with `snapshot restore ID --to /new/recovery-directory`. Retry finish by
-lease ID after a lost response; it reuses the saved snapshot even after slot reuse.
-Nothing is pushed or merged automatically.
+A coordinator finishing the task must:
+
+1. Stop and wait for every worker, test, watcher and dev server, including
+   external writers. Move coordinator terminals outside the checkout before
+   finishing. `groove stop --lease-id ID` requests
+   managed cancellation; inspect until the execution clears.
+2. Export any required ignored artifacts; snapshots exclude ignored files.
+3. Preserve the result and release:
+
+   ```sh
+   groove --json --pool default finish --lease-id LEASE_ID --description 'parser fix'
+   ```
+
+   Retain the pinned snapshot ID from `result.snapshot.id`. Recover files and staging state with
+   `groove snapshot restore SNAPSHOT_ID --to /new/recovery-directory`.
+
+If review requires a live checkout, keep the reservation and report it instead
+of finishing. Once released, never use the old path: the next task can erase it.
+`release` does not save a snapshot. Nothing is merged or pushed automatically.
+
+`WORKSPACE_IN_USE` means inspect/stop writers, not use `--force`. Failed saving
+or teardown means **leave protection intact** and report the recovery needed.
+Never delete locks, protection or execution records. Reservations never expire.
+
+## Retry, recover and report
+
+For a lost response, conflicting label, blocked finish or orphan execution,
+read [references/recovery.md](references/recovery.md). Retry finalization with
+its original **lease ID and pool**, never a reusable task label. Stale IDs cannot
+release a successor; finish receipts survive slot reuse.
+
+Report the task/pool, verification results and one explicit final state:
+reservation retained with path/lease ID, handed back to its coordinator, or
+finished with snapshot ID and restore command. Include unresolved writer or
+recovery problems. A local snapshot is not a remote backup.

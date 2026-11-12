@@ -65,8 +65,10 @@ local-only opt-ins; see [the snapshot lab](benchmarks/snapshots/README.md).
 
 ## Releases
 
-PR merges run checks only. A maintainer publishes by pushing a `vVERSION` tag for
-a reviewed release commit on `main`. Prepare the version, internal dependency,
+PR merges run checks only. A maintainer releases by pushing a `vVERSION` tag for
+a reviewed release commit on `main`; candidate tags stay drafts. GitHub releases
+do not require crates.io, whose publication is disabled by default.
+Prepare the version, internal dependency,
 lockfile and dated changelog with `bash scripts/release.sh prepare VERSION`
 from a clean checkout, then submit those changes as a release PR. This command
 does not commit, tag or publish. Release tooling is an unpublished Rust workspace

@@ -193,6 +193,14 @@ These runners do not establish behavior on the minimum macOS 13 release.
 | Package/release tooling | `cargo test -p groove-release --locked` |
 | Named benchmark profiles, scale and tooling | [CLI benchmark lab](../benchmarks/snapshots/README.md) |
 
+GitHub release-helper regressions run a local `gh` peer with Bash and `jq`; they
+never contact GitHub or publish. They cover partial drafts, published-release
+immutability, failed authentication/uploads and downloaded-byte verification.
+Run `mise exec go:github.com/rhysd/actionlint/cmd/actionlint@1.7.12 -- actionlint`
+to check workflow syntax when mise/actionlint are available. Agent trials are a
+separate manual check described in [skill evaluations](skill-evaluations.md);
+the Rust suite does not invoke a paid agent service or prove skill discovery.
+
 Layout tests that need newer Git (reftable 2.45, relative worktree links 2.48)
 print a skip note and return early on the minimum-Git CI job; the current-Git job
 runs them. `verification_rejects_writes_racing_in_place_cleanup` (test-hooks)
