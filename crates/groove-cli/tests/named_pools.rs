@@ -222,8 +222,7 @@ fn an_explicit_default_preserves_existing_layout_and_human_output_names_named_po
         checked(&init)["result"]["state_dir"],
         repo.state().to_str().unwrap()
     );
-    let output = support::groove_in(&repo.path)
-        .env_remove("GROOVE_OUTPUT")
+    let output = support::groove_human_in(&repo.path)
         .args(["--pool", "frontend", "init", "--capacity", "1"])
         .output()
         .unwrap();
@@ -233,8 +232,7 @@ fn an_explicit_default_preserves_existing_layout_and_human_output_names_named_po
     assert_eq!(ambiguous.status.code(), Some(2));
     checked(&ambiguous);
     assert_success(&cli(&repo, &["--pool", "default", "destroy"]));
-    let output = support::groove_in(&repo.path)
-        .env_remove("GROOVE_OUTPUT")
+    let output = support::groove_human_in(&repo.path)
         .arg("pools")
         .output()
         .unwrap();

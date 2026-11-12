@@ -56,9 +56,9 @@ impl Partial {
     }
 }
 
-/// JSON when `--json` is given or `GROOVE_OUTPUT=json` is set, so agents can opt in once.
+/// JSON only when `--json` is given.
 fn requested_format(json_flag: bool) -> Format {
-    if json_flag || std::env::var_os("GROOVE_OUTPUT").is_some_and(|value| value == "json") {
+    if json_flag {
         Format::Json
     } else {
         Format::Human

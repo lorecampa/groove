@@ -72,9 +72,9 @@ fn command_help_exposes_its_output_fields_without_repository_or_preferences() {
     std::fs::create_dir_all(&preferences).unwrap();
     std::fs::write(preferences.join("config.toml"), "invalid = [").unwrap();
     let run = |args: &[&str], json: bool| {
-        support::groove_in(temp.path())
+        support::groove_human_in(temp.path())
             .env("XDG_CONFIG_HOME", temp.path().join("config"))
-            .env("GROOVE_OUTPUT", if json { "json" } else { "human" })
+            .args(if json { vec!["--json"] } else { vec![] })
             .args(args)
             .output()
             .unwrap()
@@ -626,8 +626,7 @@ fn release_save_options_require_save_and_rejections_keep_the_reservation() {
 fn human_output_is_the_default_and_json_is_opt_in() {
     let r = Repo::new();
     let human = |args: &[&str]| {
-        support::groove()
-            .env_remove("GROOVE_OUTPUT")
+        support::groove_human()
             .env("GROOVE_LOG_ENABLED", "false")
             .arg("--repo")
             .arg(&r.path)
@@ -664,32 +663,69 @@ fn human_output_is_the_default_and_json_is_opt_in() {
 }
 
 #[test]
+fn legacy_output_environment_cannot_select_json_for_help_version_or_errors() {
+    let temp = tempfile::tempdir().unwrap();
+    for args in [vec!["--help"], vec!["--version"], vec!["--unknown-option"]] {
+        for json in [false, true] {
+            let mut command = support::groove_human_in(temp.path());
+            command.env("GROOVE_OUTPUT", "json").args(&args);
+            if json {
+                command.arg("--json");
+            }
+            let output = command.output().unwrap();
+            let is_error = args == ["--unknown-option"];
+            assert_eq!(output.status.code(), Some(if is_error { 2 } else { 0 }));
+            if json {
+                let response = check(&output);
+                assert_eq!(response["ok"], !is_error);
+                if is_error {
+                    assert_eq!(response["error"]["code"], "INVALID_ARGUMENT");
+                } else {
+                    assert!(response["result"]["text"].is_string());
+                }
+            } else if is_error {
+                assert!(output.stdout.is_empty());
+                assert!(String::from_utf8_lossy(&output.stderr).contains("--unknown-option"));
+            } else {
+                let text = String::from_utf8(output.stdout).unwrap();
+                assert!(text.contains(if args == ["--help"] {
+                    "Usage:"
+                } else {
+                    "groove"
+                }));
+                assert!(serde_json::from_str::<Value>(&text).is_err());
+            }
+        }
+    }
+}
+
+#[test]
 fn completions_preserve_output_modes_without_a_repository_or_valid_config() {
     let temp = tempfile::tempdir().unwrap();
     let config = temp.path().join("config");
     std::fs::create_dir_all(config.join("groove")).unwrap();
     std::fs::write(config.join("groove/config.toml"), "invalid toml [").unwrap();
     for shell in ["bash", "zsh", "fish", "powershell", "elvish"] {
-        let run = |json_flag: bool, json_env: bool| {
-            let mut command = support::groove();
+        let run = |json_flag: bool| {
+            let mut command = support::groove_human();
             command
                 .current_dir(temp.path())
                 .env("XDG_CONFIG_HOME", &config)
-                .env("GROOVE_OUTPUT", if json_env { "json" } else { "human" })
+                .env("GROOVE_OUTPUT", "json") // Legacy settings cannot change output.
                 .args(["completions", shell]);
             if json_flag {
                 command.arg("--json");
             }
             command.output().unwrap()
         };
-        let human = run(false, false);
+        let human = run(false);
         assert!(human.status.success(), "{human:?}");
         assert!(human.stderr.is_empty());
         let script = String::from_utf8(human.stdout).unwrap();
         assert!(script.contains("details"), "{shell}");
         assert!(script.contains("completions"));
-        for (flag, env) in [(true, false), (false, true)] {
-            let json = run(flag, env);
+        {
+            let json = run(true);
             assert_success(&json);
             assert!(json.stderr.is_empty());
             assert_eq!(check(&json)["result"]["text"], script);
@@ -734,8 +770,7 @@ fn common_failures_have_the_same_advice_in_human_and_json_output() {
         let hint = response["error"]["hint"].as_str().unwrap();
         assert!(hint.contains(action), "{hint}");
         assert!(!hint.contains("--force"));
-        let human = support::groove()
-            .env_remove("GROOVE_OUTPUT")
+        let human = support::groove_human()
             .env("GROOVE_LOG_ENABLED", "false")
             .env("XDG_CONFIG_HOME", r.path.join("config-home"))
             .arg("--repo")
@@ -900,15 +935,15 @@ fn terminal_verbosity_and_file_logging_are_independent() {
     std::fs::write(&blocked, "file").unwrap();
     for quiet in [false, true] {
         for json in [false, true] {
-            let mut cmd = support::groove_in(&r.path);
+            let mut cmd = support::groove_human_in(&r.path);
             cmd.env("XDG_CONFIG_HOME", r.path.join("config-home"))
                 .env("GROOVE_LOG_DIR", &blocked)
                 .env("GROOVE_LOG_ENABLED", "true");
             if quiet {
                 cmd.arg("--quiet");
             }
-            if !json {
-                cmd.env_remove("GROOVE_OUTPUT");
+            if json {
+                cmd.arg("--json");
             }
             let out = cmd.args(["show", "--task", "absent"]).output().unwrap();
             assert_eq!(out.status.code(), Some(5));
@@ -1038,8 +1073,7 @@ fn history_and_storage_commands_preserve_json_contract_and_retention_semantics()
     let rejected = cli(&r, &["history", "delete", id]);
     assert_eq!(rejected.status.code(), Some(2));
     assert_eq!(check(&rejected)["error"]["code"], "INVALID_ARGUMENT");
-    let human = support::groove_in(&r.path)
-        .env("GROOVE_OUTPUT", "human")
+    let human = support::groove_human_in(&r.path)
         .args(["history", "show", id])
         .output()
         .unwrap();

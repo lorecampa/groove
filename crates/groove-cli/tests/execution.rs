@@ -470,9 +470,11 @@ fn worker_output_is_mirrored_in_both_formats_and_quiet_keeps_captured_bytes() {
     let id = lease["lease_id"].as_str().unwrap();
     for json in [false, true] {
         for quiet in [false, true] {
-            let mut cmd = command(&repo, &["exec", "--lease-id", id]);
-            if !json {
-                cmd.env_remove("GROOVE_OUTPUT");
+            let mut cmd = support::groove_human_in(&repo.path);
+            cmd.args(["exec", "--lease-id", id])
+                .env("GROOVE_LOG_ENABLED", "false");
+            if json {
+                cmd.arg("--json");
             }
             if quiet {
                 cmd.arg("--quiet");
@@ -520,7 +522,7 @@ fn redirected(repo: &Repo, stderr: &Path) -> Command {
         .args(["-c", "exec \"$@\" 2>\"$GROOVE_TEST_STDERR\"", "redirect"])
         .arg(env!("CARGO_BIN_EXE_groove"))
         .env("GROOVE_TEST_STDERR", stderr)
-        .env("GROOVE_OUTPUT", "json")
+        .arg("--json")
         .env("GROOVE_LOG_ENABLED", "false");
     command
 }
@@ -598,7 +600,7 @@ fn blocked_or_failed_stderr_does_not_block_timeout_or_json_result() {
                 ])
                 .arg(env!("CARGO_BIN_EXE_groove"))
                 .env("GROOVE_TEST_STDERR", repo.path.join("tracked.txt"))
-                .env("GROOVE_OUTPUT", "json")
+                .arg("--json")
                 .env("GROOVE_LOG_ENABLED", "false");
         }
         let mut child = TestChild::spawn(command.args([
