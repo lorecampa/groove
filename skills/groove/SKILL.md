@@ -9,11 +9,16 @@ license: MIT OR Apache-2.0
 Requires the installed CLI, Git 2.40+ and Linux or macOS with supported local
 storage. Use the terminal; this skill does not provide an MCP server.
 
-Use `groove --json` for machine-readable responses. Check both the exit status
-and `ok` before reading `result`; help is in `result.text`. Consult the installed
-CLI's `--help` for command syntax. Installing this skill does not require Groove
-for every repository or authorize pushing, merging, discarding work or changing
-repository policy.
+Use `groove --json` for machine-readable responses and keep stderr separate from
+stdout. Before first using a command, read `groove --json COMMAND --help`, including
+any subcommand (for example `groove --json snapshot restore --help`). The help
+text in `result.text` defines command syntax and its JSON output contract:
+result fields and types, errors and exit statuses. Use that installed contract
+to parse responses. Check both the exit status and `ok` before reading `result`;
+managed commands can return `ok:true` with a nonzero worker status.
+
+Installing this skill does not require Groove for every repository or authorize
+pushing, merging, discarding work or changing repository policy.
 
 ## Establish your assignment first
 
