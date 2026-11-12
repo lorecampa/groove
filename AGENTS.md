@@ -11,19 +11,6 @@ Use [execution](docs/execution.md) for managed-worker teardown and orphan recove
 [The portable skill](skills/groove/SKILL.md) describes using the product;
 this file describes developing it.
 
-## Required development workflow
-
-Make every development change, including fixes, tests and documentation, in a
-reserved **Groove pool worktree** and submit it through a pull request to `main`.
-The primary checkout is for coordination, not task edits. An ad hoc Git worktree
-is not a substitute for a Groove reservation. Never commit or push fixes directly
-to `main`.
-
-Coordinators acquire a reservation; assigned workers reuse their supplied pool,
-lease ID and worktree. After acquisition, run task edits, builds, tests and Git
-commands in that worktree. Follow [CONTRIBUTING.md](CONTRIBUTING.md#development-workspaces)
-and [the portable skill](skills/groove/SKILL.md) for reservation and handoff rules.
-
 ## Boundaries and invariants
 
 - Keep Git, filesystem, locking, snapshots and recovery in `groove-core`.
