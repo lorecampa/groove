@@ -1,8 +1,11 @@
 # <img src="assets/groove-icon.svg" alt="" width="40" align="top"> Groove
 
-Reusable Git worktrees for parallel coding tasks.
+[![Docs](https://img.shields.io/badge/docs-guides-4c8eda?style=flat)](#guides)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue?style=flat)](#license)
+[![Rust: 1.89+](https://img.shields.io/badge/rust-1.89%2B-orange?style=flat)](CONTRIBUTING.md)
+[![Platforms: Linux / macOS](https://img.shields.io/badge/platforms-Linux%20%2F%20macOS-lightgrey?style=flat)](docs/operations.md)
 
-**Linux/macOS alpha.** Interfaces and storage formats are still evolving.
+Reusable Git worktrees for parallel coding tasks.
 
 Groove gives each task its own checkout from a bounded pool. Reserve a workspace,
 run commands, and save the result before returning it. Reservations survive shell
@@ -88,4 +91,5 @@ retain the lease ID for subsequent retries; see the [portable skill](skills/groo
 - `groove COMMAND --help`: inputs, JSON output contracts and recovery for integrations.
 - [Contributing](CONTRIBUTING.md): development and validation.
 
+<a id="license"></a>
 Licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE).

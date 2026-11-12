@@ -10,6 +10,8 @@
 - Installation and completion help include shell setup, Oh My Zsh ordering,
   verification and upgrade instructions for humans and agents.
 
+- The README opens with a compact badge bar linking documentation, licensing,
+  Rust requirements and supported platforms, and drops the vague alpha warning.
 - Development changes require a reserved Groove pool worktree and a pull request
   to `main`, including fixes, tests and documentation. The primary checkout stays
   available for coordination.
