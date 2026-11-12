@@ -6,6 +6,9 @@ EXAMPLES:
   groove history delete RUN_ID
 
 Lists all known runs newest first, including setup steps, recipes and agents.
+--limit bounds returned entries; --offset skips entries after filtering. Defaults
+return everything. Metadata is still enumerated/sorted; concurrent additions can
+shift offset pages. Use task/lease filters for task-specific views.
 Task labels can be reused: filter by lease ID to select one reservation generation.
 History survives release, finish, reuse and log cleanup. It records program names,
 not arguments or environment values. Run logs can contain sensitive worker output.

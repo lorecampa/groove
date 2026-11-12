@@ -16,3 +16,5 @@ by --task could select a newer reservation.
 Parallel tasks wait for snapshot access up to --git-timeout-ms (default 120000).
 A timeout keeps the reservation protected; retry with the same lease ID.
 Nothing is pushed.
+Ignored files, empty directories and special files (pipes, sockets, devices) are
+excluded from snapshots. Export required artifacts separately before finish.

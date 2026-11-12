@@ -362,12 +362,23 @@ fn output_limits_and_spawn_errors_preserve_reservation() {
         .len(),
         128
     );
-    assert!(!cli(
+    let missing = cli(
         &repo,
-        &["exec", "--lease-id", id, "--", "/no/such/groove-program"]
-    )
-    .status
-    .success());
+        &["exec", "--lease-id", id, "--", "/no/such/groove-program"],
+    );
+    assert_eq!(missing.status.code(), Some(7));
+    let failure = checked(&missing);
+    let details = &failure["error"]["details"];
+    assert_eq!(failure["error"]["code"], "IO_ERROR");
+    assert_eq!(details["program"], "/no/such/groove-program");
+    assert_eq!(details["lease_id"], id);
+    assert_eq!(details["worktree_path"], lease["worktree_path"]);
+    let history = checked(&cli(
+        &repo,
+        &["history", "show", details["run_id"].as_str().unwrap()],
+    ));
+    assert_eq!(history["result"]["run"]["outcome"], "spawn_failed");
+    assert_eq!(history["result"]["run"]["program"], details["program"]);
     assert!(!repo.state().join("slots/wt-0001.execution.json").exists());
     release(&repo, id);
 }
@@ -611,4 +622,41 @@ fn blocked_or_failed_stderr_does_not_block_timeout_or_json_result() {
         ));
         assert!(shown["result"]["slot"]["execution"].is_null());
     }
+}
+
+#[test]
+fn managed_environment_clears_git_overrides_and_allows_explicit_command_settings() {
+    let repo = Repo::new();
+    let lease = reserve(&repo);
+    let id = lease["lease_id"].as_str().unwrap();
+    let out = command(&repo, &["exec", "--lease-id", id, "--", "bash", "-c",
+        "printf '%s:%s:%s' \"${GIT_AUTHOR_NAME-unset}\" \"${GIT_SSH_COMMAND-unset}\" \"$AUDIT_CUSTOM\""])
+        .env("GIT_AUTHOR_NAME", "inherited author")
+        .env("GIT_SSH_COMMAND", "custom-ssh")
+        .env("AUDIT_CUSTOM", "kept").output().unwrap();
+    let result = assert_success(&out);
+    let stdout = result["result"]["execution"]["run"]["stdout_path"]
+        .as_str()
+        .unwrap();
+    assert_eq!(fs::read_to_string(stdout).unwrap(), "unset:unset:kept");
+    let out = cli(
+        &repo,
+        &[
+            "exec",
+            "--lease-id",
+            id,
+            "--",
+            "env",
+            "GIT_AUTHOR_NAME=explicit",
+            "bash",
+            "-c",
+            "printf '%s' \"$GIT_AUTHOR_NAME\"",
+        ],
+    );
+    let result = assert_success(&out);
+    let stdout = result["result"]["execution"]["run"]["stdout_path"]
+        .as_str()
+        .unwrap();
+    assert_eq!(fs::read_to_string(stdout).unwrap(), "explicit");
+    release(&repo, id);
 }

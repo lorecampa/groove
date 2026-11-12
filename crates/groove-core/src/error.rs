@@ -107,6 +107,12 @@ pub struct CapacityFailure {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct ErrorDetails {
+    /// Executable whose managed spawn failed (arguments are never included).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub program: Option<String>,
+    /// Execution history entry associated with the failure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<crate::RunId>,
     /// Filesystem path the failing operation was acting on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<PathBuf>,

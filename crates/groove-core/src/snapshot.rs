@@ -813,16 +813,17 @@ impl Snapshots {
             } else {
                 // An unborn source has no base for worktree add. Create an independent recovery repository.
                 let format = self.string(&["rev-parse", "--show-object-format"])?;
-                self.run(
-                    &[
-                        "init",
-                        &format!("--object-format={format}"),
-                        destination_text,
-                    ],
-                    None,
-                    None,
-                    Some(&lock),
-                )?;
+                let mut init = vec!["init".to_owned(), format!("--object-format={format}")];
+                if let Some(branch) = s.branch.as_deref() {
+                    let branch = branch
+                        .strip_prefix("refs/heads/")
+                        .ok_or_else(|| invalid("Invalid unborn snapshot branch"))?;
+                    // Git validates the saved name; an option value cannot become an argument.
+                    init.push(format!("--initial-branch={branch}"));
+                }
+                init.push(destination_text.to_owned());
+                let args: Vec<_> = init.iter().map(String::as_str).collect();
+                self.run(&args, None, None, Some(&lock))?;
                 Git::new(self.timeout).run(
                     &destination,
                     &[

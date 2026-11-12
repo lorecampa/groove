@@ -105,7 +105,7 @@ fn reject(raw: &[std::ffi::OsString], error: &clap::Error) -> u8 {
         ErrorCode::InvalidArgument,
         rendered.strip_prefix("error: ").unwrap_or(&rendered),
     );
-    output::emit_error(partial.format, request_id, &error, &terminal)
+    output::emit_error(partial.format, request_id, &error, &terminal, None)
 }
 
 fn run(args: &Args) -> u8 {
@@ -129,6 +129,7 @@ fn run(args: &Args) -> u8 {
             args.request_id.as_deref(),
             &error,
             &terminal,
+            Some(args),
         ),
     }
 }
@@ -145,7 +146,9 @@ fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {
     } else {
         match preferences::load() {
             Ok(settings) => settings.logging,
-            Err(error) => return output::emit_error(format, request_id, &error, terminal),
+            Err(error) => {
+                return output::emit_error(format, request_id, &error, terminal, Some(args))
+            }
         }
     };
     let _logging = logging::init(
@@ -174,7 +177,7 @@ fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {
         }
         Err(error) => {
             tracing::error!(event = "command.failed", file_only = true, code = %error.code, elapsed_ms = elapsed_ms(), "Command failed");
-            output::emit_error(format, request_id, &error, terminal)
+            output::emit_error(format, request_id, &error, terminal, Some(args))
         }
     }
 }

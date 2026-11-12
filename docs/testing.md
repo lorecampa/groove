@@ -274,3 +274,10 @@ Reflink artifact caches (`mode="reflink"`) need reflink-capable storage. Point
 ordinary suite leaves that test ignored; report the separate run before claiming
 coverage. Large-repository latency and concurrent throughput are separate from
 correctness regressions.
+
+Audit regressions cover log-cleanup preview/removal holding execution exclusion
+while another process attempts exec/finish, and maintenance between finish's saved
+snapshot and release. Socket checkpoints establish contention without timing
+assumptions; tests assert retryability, retained reservations, permanent lock
+identity, saved receipt reuse, and restored staging/working bytes. Protocol tests
+also execute copied named-pool advice and check listing windows and spawn context.

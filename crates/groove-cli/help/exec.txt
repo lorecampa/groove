@@ -10,6 +10,12 @@ Runs the program directly (no shell; use `bash -c` explicitly) in its own
 process group, captures stdout/stderr to log files outside the checkout and
 stops the whole group before returning. The reservation is never released.
 
+All inherited GIT_* and GROOVE_* variables are removed, including Git author
+identity and SSH overrides; verified GROOVE_* context is assigned afterwards.
+Set reviewed Git-specific environment explicitly inside the command argv.
+Execution-lock contention can be maintenance: retry the original lease/operation
+when INVALID_LEASE is retryable; never clear locks or protection to make progress.
+
 Both worker streams are mirrored live to stderr, also with --json. Stdout stays
 reserved for the final result. --quiet hides live output but keeps log files,
 errors and exit status. Child buffering can delay output. Slow or failed stderr

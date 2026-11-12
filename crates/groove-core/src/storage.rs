@@ -212,11 +212,12 @@ impl Pool {
         let _guard = match self.execution_guard(&initial.slot_id) {
             Ok(guard) => guard,
             Err(e) if e.code == crate::ErrorCode::InvalidLease => {
-                entry.reason = Some("Slot has an active execution".into());
+                entry.reason = Some("Slot execution lock is busy".into());
                 return Ok(());
             }
             Err(e) => return Err(e),
         };
+        state::checkpoint("log-cleanup-locked");
         if let Err(e) = self.require_execution_clear(&initial.slot_id) {
             if e.code != crate::ErrorCode::InvalidLease {
                 return Err(e);

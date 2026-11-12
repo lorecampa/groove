@@ -44,7 +44,9 @@ request may succeed once another owner finishes. `details` is typed (see the
 `error` definition in the [response schema](../schemas/response-v1.schema.json)):
 `git` (exit code and bounded output of a failed Git call), `capacity`, `path`, and
 partial-progress fields such as `lease_id`, `released`, `snapshot_id`,
-`safety_snapshot_id` and `preparation`. Details describe what to
+`safety_snapshot_id` and `preparation`. Failed spawns additionally include
+`program`, `run_id`, `lease_id` and `worktree_path`; arguments/environment are not
+included. `run_id` links to `history show`. Details describe what to
 recover; they never establish ownership. Help/version return `result.text`.
 Additive fields may appear; unknown major API versions must be rejected.
 
@@ -53,7 +55,13 @@ steps. Human errors render the same text as `Hint: ...` on stderr. Hints are
 advisory prose, not stable commands or authorization to reclaim a workspace;
 clients still branch on `code` and inspect typed `details`. Commands mentioned in
 hints apply to the same repository (`--repo`) and reservation selector as the
-failed invocation. Codes, retryability and exit categories are unchanged.
+failed invocation. Suggested commands retain explicit repository and pool
+selection. Destroy hints describe exporting residual/ignored artifacts rather
+than finishing released tasks. Execution-lock contention uses `INVALID_LEASE`,
+exit 5 and `retryable:true`: it may be maintenance, not a managed worker. Retry the
+original operation/lease ID; recorded executions still require stop/recovery.
+Finish may report an already-pinned `snapshot_id` on contention. No lock or
+protection is bypassed; all other codes and exit categories remain unchanged.
 
 ## Commands
 
@@ -73,7 +81,7 @@ groove [global options] finish SELECTOR [--description TEXT] [--max-file-bytes N
 groove [global options] list [--slots] [--details]
 groove [global options] show [SELECTOR | --slot SLOT] [--details]
 groove [global options] completions bash|zsh|fish|powershell|elvish
-groove [global options] history [--task LABEL] [--lease-id UUID]
+groove [global options] history [--task LABEL] [--lease-id UUID] [--limit N] [--offset N]
 groove [global options] history show|delete RUN_ID
 groove [global options] storage show
 groove [global options] storage clean --logs [--older-than 30d] [--dry-run]
@@ -132,6 +140,18 @@ Selected `show` observes only the resolved slot; `--details` runs bounded local
 Git status only in that workspace. Resolving a task or lease may still scan
 reservation metadata. Unselected `show` and `list --details` inspect the whole
 pool. Inspection remains nontransactional and never establishes ownership.
+
+### Listing windows and build provenance
+
+`history` and `snapshot list` accept positive `--limit N` and nonnegative
+`--offset N` (default 0). Filters apply before the output window; omitted limits
+return all remaining entries. Response fields remain `runs` or `snapshots` without
+a new envelope or cursor. Metadata is still enumerated and sorted. Concurrent
+updates can shift offset pages, so these are output windows, not stable cursors.
+
+Version text includes a build revision. Source checkouts and Cargo's archive VCS
+metadata provide it automatically; builders may set `GROOVE_BUILD_REVISION` to a
+full SHA-1/SHA-256 commit ID. Builds without such metadata show `unknown`.
 
 ### Shell completions
 

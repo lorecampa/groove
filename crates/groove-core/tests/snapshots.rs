@@ -66,7 +66,10 @@ fn external_recovery_and_gc_keep_local_history() {
 #[test]
 fn unborn_roundtrip_and_external_recovery() {
     let temp = tempfile::tempdir().unwrap();
-    support::git(temp.path(), &["init", "-q"]);
+    support::git(
+        temp.path(),
+        &["init", "-q", "--initial-branch=audit/original"],
+    );
     fs::write(temp.path().join("first"), "first").unwrap();
     let s = Snapshots::open(temp.path(), Duration::from_secs(30)).unwrap();
     let snap = save(&s);
@@ -77,6 +80,10 @@ fn unborn_roundtrip_and_external_recovery() {
     let outside = tempfile::tempdir().unwrap();
     let dest = outside.path().join("recovered");
     s.restore(&snap.id, Some(&dest)).unwrap();
+    assert_eq!(
+        support::git(&dest, &["symbolic-ref", "HEAD"]),
+        "refs/heads/audit/original"
+    );
     assert_eq!(fs::read(dest.join("first")).unwrap(), b"first");
     assert_eq!(support::git(&dest, &["ls-files"]), "");
 }
