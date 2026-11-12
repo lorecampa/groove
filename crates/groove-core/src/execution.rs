@@ -592,6 +592,31 @@ impl Pool {
         let started = Instant::now();
         let mut history = self.begin_run(&lease, &info, options.origin.clone())?;
         state::checkpoint("execution-recorded");
+        let mut supervision = Supervision {
+            options: &options,
+            logs: &logs,
+            signals: &signals,
+            control: &control,
+            started: Instant::now(),
+        };
+        if let Some(signal) = supervision.cancellation()? {
+            // Observed cancellation needs a terminal history record even when no
+            // worker was launched. Keep protection until logs and history are durable.
+            logs.stdout.sync_all()?;
+            logs.stderr.sync_all()?;
+            let result = ExecResult {
+                lease_id: id,
+                run: info,
+                termination: Termination::Cancelled,
+                exit_code: None,
+                signal: None,
+                cancel_signal: Some(signal),
+            };
+            self.complete_run(&mut history, &result, started.elapsed())?;
+            state::checkpoint("run-completed");
+            clear(self, &lease.slot_id, &result.run)?;
+            return Ok(result);
+        }
         let mut command = worker_command(
             &lease,
             &self.repo.name,
@@ -629,13 +654,7 @@ impl Pool {
         };
         info.leader_pid = Some(worker.child().id());
         state::write(&record_path, &info)?;
-        let supervision = Supervision {
-            options: &options,
-            logs: &logs,
-            signals: &signals,
-            control: &control,
-            started: Instant::now(),
-        };
+        supervision.started = Instant::now();
         let mut forwarder = Forwarder {
             observer: options.observer.as_deref(),
             offsets: [0; 2],

@@ -74,6 +74,11 @@ only those approved roots before seeding, including a cache miss and an explicit
 retry. Do not approve task results or secrets as caches. Ordinary acquisition does
 not copy artifacts. Warm cleanup and setup caches are independent: warm preserves
 ignored files opportunistically; setup explicitly replaces its approved roots.
+Setup checks every approved root before clearing any. Roots containing Git
+administration, nested checkouts or bare repositories are refused, including on
+a cache miss or retry. Move that repository safely or choose a narrower cache
+root before retrying. Preflight is bounded by the cache entry/depth limits and
+operation timeout; a failed preflight preserves every root and the reservation.
 
 Compatibility includes profile definition, explicit key, OS/architecture, input
 contents, selected setup recipe and workspace configuration. Put every relevant

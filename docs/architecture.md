@@ -184,6 +184,10 @@ Recovery rebuilds only validated owned paths and exact native registrations,
 under slot then administrative locks. Failed slots are quarantined and attempted
 at most once per acquisition; later requests may retry. Never run shared worktree
 prune or sweep unrelated Git lock files. Never hand out an unverified checkout.
+Before checkout mutation or disposal, recognizable foreign occupants and duplicate
+registration claims refuse preparation. Destruction preflights this identity check
+before publishing `deleting` and rechecks at removal. Damaged owned registrations
+remain repairable; a forged pointer never authorizes deletion of its target.
 
 ## Reservation and retry ordering
 

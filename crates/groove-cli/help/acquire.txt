@@ -16,6 +16,10 @@ Capacity: a zero --wait-ms scans once; a positive value bounds waiting for a
 free slot (not checkout preparation, which has its own Git timeouts). There is
 no FIFO fairness. On POOL_EXHAUSTED or ACQUIRE_TIMEOUT, wait or inspect with
 `groove list`; never bypass capacity.
+Recognizable foreign repositories, moved worktrees and conflicting registration
+claims at a slot path refuse preparation. Safely move the occupant back to its
+original location or outside the pool before retrying; preserve its worktree
+registration.
 
 Retries: with --request-key, repeating the same key, base and task
 returns the same reservation, even across restarts. Changed inputs and

@@ -27,6 +27,20 @@ fn harness_peer() {
                 .write_all(&vec![b'y'; 256 * 1024])
                 .unwrap();
         }
+        Ok("missing-selector") => {
+            support::in_subprocess("no_such_isolated_fixture");
+        }
+        Ok("missing-entry") => {
+            support::in_subprocess("subprocess_fixture");
+        }
+        Ok("concurrent-isolation") => {
+            std::thread::scope(|scope| {
+                let first = scope.spawn(|| support::in_subprocess("subprocess_fixture"));
+                let second = scope.spawn(|| support::in_subprocess("subprocess_fixture"));
+                assert!(!first.join().unwrap());
+                assert!(!second.join().unwrap());
+            });
+        }
         _ => (),
     }
 }
@@ -37,6 +51,130 @@ fn peer(mode: &str) -> Command {
         .args(["--exact", "harness_peer", "--nocapture"])
         .env("GROOVE_HARNESS_PEER", mode);
     command
+}
+
+#[test]
+fn subprocess_fixture() {
+    let Ok(mode) = std::env::var("GROOVE_HARNESS_ISOLATED_MODE") else {
+        return;
+    };
+    if !support::in_subprocess("subprocess_fixture") {
+        println!("fixture parent completed");
+        return;
+    }
+    println!("isolated fixture stdout");
+    eprintln!("isolated fixture stderr");
+    if let Some(path) = std::env::var_os("GROOVE_HARNESS_ENTRY_WITNESS") {
+        std::fs::write(path, std::process::id().to_string()).unwrap();
+    }
+    match mode.as_str() {
+        "success" => (),
+        "failure" => panic!("isolated fixture failed after entry"),
+        "concurrent" => {
+            let mut stream =
+                UnixStream::connect(std::env::var_os("GROOVE_HARNESS_SOCKET").unwrap()).unwrap();
+            stream
+                .set_read_timeout(Some(support::PROCESS_TIMEOUT))
+                .unwrap();
+            stream
+                .set_write_timeout(Some(support::PROCESS_TIMEOUT))
+                .unwrap();
+            stream.write_all(b"entered").unwrap();
+            stream.write_all(&std::process::id().to_ne_bytes()).unwrap();
+            let mut reply = [0];
+            stream.read_exact(&mut reply).unwrap();
+            assert_eq!(&reply, b"g");
+        }
+        _ => panic!("unknown isolated fixture mode {mode}"),
+    }
+}
+
+fn isolated_peer(mode: &str) -> Command {
+    let mut command = Command::new(std::env::current_exe().unwrap());
+    command
+        .args(["--exact", "subprocess_fixture", "--nocapture"])
+        .env("GROOVE_HARNESS_ISOLATED_MODE", mode);
+    command
+}
+
+#[test]
+fn isolation_rejects_a_selector_matching_no_tests() {
+    let output = support::TestChild::spawn(&mut peer("missing-selector"))
+        .wait_with_output()
+        .unwrap();
+    assert!(!output.status.success(), "{output:?}");
+    let diagnostics = String::from_utf8_lossy(&output.stderr);
+    assert!(diagnostics.contains("no_such_isolated_fixture"));
+    assert!(diagnostics.contains("running 0 tests"));
+}
+
+#[test]
+fn isolation_requires_fixture_entry_even_when_a_selected_test_succeeds() {
+    let output = support::TestChild::spawn(&mut peer("missing-entry"))
+        .wait_with_output()
+        .unwrap();
+    assert!(!output.status.success(), "{output:?}");
+    let diagnostics = String::from_utf8_lossy(&output.stderr);
+    assert!(diagnostics.contains("subprocess_fixture"));
+    assert!(diagnostics.contains("1 passed"));
+}
+
+#[test]
+fn isolation_accepts_an_entered_fixture_that_exits_successfully() {
+    let temp = tempfile::tempdir().unwrap();
+    let witness = temp.path().join("fixture-pid");
+    let child = support::TestChild::spawn(
+        isolated_peer("success").env("GROOVE_HARNESS_ENTRY_WITNESS", &witness),
+    );
+    let parent_pid = child.id();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("fixture parent completed"));
+    let fixture_pid: u32 = std::fs::read_to_string(witness).unwrap().parse().unwrap();
+    assert_ne!(fixture_pid, parent_pid);
+    assert_ne!(fixture_pid, std::process::id());
+}
+
+#[test]
+fn isolation_rejects_an_entered_fixture_that_fails_and_preserves_diagnostics() {
+    let output = support::TestChild::spawn(&mut isolated_peer("failure"))
+        .wait_with_output()
+        .unwrap();
+    assert!(!output.status.success(), "{output:?}");
+    let diagnostics = String::from_utf8_lossy(&output.stderr);
+    assert!(diagnostics.contains("isolated fixture stdout"));
+    assert!(diagnostics.contains("isolated fixture stderr"));
+    assert!(diagnostics.contains("isolated fixture failed after entry"));
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("fixture parent completed"));
+}
+
+#[test]
+fn concurrent_isolation_of_the_same_fixture_has_independent_entry_markers() {
+    let temp = tempfile::tempdir().unwrap();
+    let socket = temp.path().join("peer.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let mut child = support::TestChild::spawn(
+        peer("concurrent-isolation")
+            .env("GROOVE_HARNESS_ISOLATED_MODE", "concurrent")
+            .env("GROOVE_HARNESS_SOCKET", socket),
+    );
+    let mut first = child
+        .checkpoint(&listener, "entered", support::PROCESS_TIMEOUT)
+        .unwrap();
+    // Neither fixture may finish until both have entered. This also exposes
+    // accidental serialization of otherwise independent invocations.
+    let mut second = child
+        .checkpoint(&listener, "entered", support::PROCESS_TIMEOUT)
+        .unwrap();
+    let mut first_pid = [0; 4];
+    let mut second_pid = [0; 4];
+    first.read_exact(&mut first_pid).unwrap();
+    second.read_exact(&mut second_pid).unwrap();
+    assert_ne!(first_pid, second_pid);
+    first.write_all(b"g").unwrap();
+    second.write_all(b"g").unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success(), "{output:?}");
 }
 
 #[test]

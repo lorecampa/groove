@@ -46,6 +46,21 @@ Changed files exceeding the capture limit fail before publication. See
 Large binary edits can consume substantial space: Git initially writes whole new
 blobs, with possible delta compression during subsequent packing.
 
+## Comparing changes
+
+Save a checkpoint before a task to use its current files as the baseline, including
+edits and eligible untracked files already present. Later, `groove snapshot diff ID`
+shows changes since that checkpoint. A second snapshot ID compares two saved states.
+This is useful when the task starts with uncommitted work that should stay outside
+its patch.
+
+Diff exports an uncolored, binary-capable Git patch with fixed `a/` and `b/`
+prefixes, independently of Git display preferences. Redirect human output to save
+the patch, or extract the patch string from the documented JSON result. Apply it
+to files matching the baseline. Equal file trees produce empty output. The patch
+compares working files; use restore to recover the saved staging state as well.
+Export leaves HEAD, the real index and working files unchanged.
+
 ## Recovery
 
 Recovery to a new directory requires that directory not exist. For a snapshot
@@ -69,6 +84,10 @@ groove snapshot delete ID                # snapshots pinned by release --save ne
 ```
 
 `release --save` pins the snapshot it saves, so deleting it needs `--force`.
+Unreadable, corrupt or inconsistent pin metadata refuses snapshot reads and
+deletion, even with `--force`. Repair the reference before retrying. Deletion
+checks the observed snapshot and pin in one ref transaction; changed references
+are preserved.
 
 Snapshots live under `refs/groove/snapshots/<UUID>`, pins under
 `refs/groove/snapshot-pins/<UUID>`, and the lock under
@@ -82,6 +101,9 @@ Git mutation children inherit the lock so killing the parent cannot release it
 while a child is still writing. Scratch indexes left by a killed process are
 removed by the next lock owner, keeping interrupted captures from accumulating
 large temporary files.
+An interrupted or timed-out Git mutation can leave native Git lockfiles behind.
+Inspect the interrupted operation and stop its writers before repairing those
+locks. Groove does not sweep Git locks; never replace its permanent lock files.
 
 A snapshot commit has the original HEAD as its parent (or no parent when unborn).
 Its tree contains `index` and `work` subtrees and an `untracked` manifest blob. Its

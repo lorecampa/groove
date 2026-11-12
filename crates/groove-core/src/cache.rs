@@ -47,8 +47,16 @@ struct Manifest {
     entries: Vec<Entry>,
 }
 
+struct Scan {
+    entries: Vec<Entry>,
+    bytes: u64,
+    device: u64,
+    hash_contents: bool,
+}
+
 pub(crate) struct Artifacts<'a> {
     root: PathBuf,
+    common: PathBuf,
     key: String,
     name: &'a str,
     profile: &'a CacheProfile,
@@ -91,6 +99,7 @@ impl<'a> Artifacts<'a> {
         };
         Ok(Self {
             root,
+            common: pool.repo.common.clone(),
             key,
             name,
             profile,
@@ -150,16 +159,21 @@ impl<'a> Artifacts<'a> {
     }
 
     fn clean_roots(&self, checkout: &Path) -> Result<()> {
+        // Inspect ALL roots before the first removal, including on a miss or
+        // retry. Cleanup needs structure, not hashes of bytes it will discard.
+        self.inspect(checkout, false)?;
         // This explicitly requested setup discards only the allowlisted ignored
         // paths, never broad patterns or any tracked path. Descendant symlinks
         // are removed as links by remove_dir_all, never followed.
         for relative in &self.profile.paths {
+            self.deadline()?;
             let target = checkout.join(relative);
             repository::no_symlinks(
                 target
                     .parent()
                     .ok_or_else(|| invalid("Missing cache parent"))?,
-            )?;
+            )
+            .at(&target)?;
             match fs::symlink_metadata(&target) {
                 Ok(meta) if meta.file_type().is_symlink() => {
                     return Err(invalid("Cache roots cannot be symlinks"))
@@ -185,6 +199,9 @@ impl<'a> Artifacts<'a> {
             ));
         }
         self.validate_ignored(source)?;
+        // An imported checkout can have a different registration inventory from
+        // this pool. Observe it without repairing or modifying the source.
+        self.check_registered_roots(source, source)?;
         self.publish(source)
     }
 
@@ -237,7 +254,7 @@ impl<'a> Artifacts<'a> {
     pub(crate) fn validate_ignored(&self, checkout: &Path) -> Result<()> {
         for path in &self.profile.paths {
             relative(path)?;
-            repository::no_symlinks(&checkout.join(path))?;
+            repository::no_symlinks(&checkout.join(path)).at(&checkout.join(path))?;
             let text = repository::utf8(path)?;
             if !Git::new(self.timeout)
                 .run(
@@ -266,28 +283,85 @@ impl<'a> Artifacts<'a> {
         Ok(())
     }
     fn scan(&self, root: &Path) -> Result<Vec<Entry>> {
-        repository::no_symlinks(root)?;
-        let mut entries = Vec::new();
-        let mut bytes = 0_u64;
-        for path in &self.profile.paths {
-            self.walk(root, path, path, &mut entries, &mut bytes)?;
-        }
-        entries.sort_by(|a, b| a.path.cmp(&b.path));
-        Ok(entries)
+        self.inspect(root, true)
     }
-    fn walk(
-        &self,
-        root: &Path,
-        path: &Path,
-        artifact: &Path,
-        entries: &mut Vec<Entry>,
-        bytes: &mut u64,
-    ) -> Result<()> {
+    fn inspect(&self, root: &Path, hash_contents: bool) -> Result<Vec<Entry>> {
+        self.deadline()?;
+        repository::no_symlinks(root)?;
+        self.check_registered_roots(root, &self.common)?;
+        let mut scan = Scan {
+            entries: Vec::new(),
+            bytes: 0,
+            device: fs::symlink_metadata(root).at(root)?.dev(),
+            hash_contents,
+        };
+        for path in &self.profile.paths {
+            self.walk(root, path, path, &mut scan)
+                .at(&root.join(path))?;
+        }
+        if hash_contents {
+            scan.entries.sort_by(|a, b| a.path.cmp(&b.path));
+        }
+        self.deadline()?;
+        Ok(scan.entries)
+    }
+    fn check_registered_roots(&self, root: &Path, git_cwd: &Path) -> Result<()> {
+        self.deadline()?;
+        let root = fs::canonicalize(root).at(root)?;
+        // NUL records preserve spaces, newlines and Git's unquoted path bytes.
+        // The ordinary Git capture bound and the remaining operation budget
+        // bound this read. Registrations only cause refusal, never confer ownership.
+        let inventory = Git::new(self.timeout.saturating_sub(self.started.elapsed())).run(
+            git_cwd,
+            &["worktree", "list", "--porcelain", "-z"],
+            &[],
+        )?;
+        self.deadline()?;
+        for record in inventory.split(|byte| *byte == 0) {
+            self.deadline()?;
+            if let Some(path) = record.strip_prefix(b"worktree ") {
+                use std::os::unix::ffi::OsStrExt;
+                let registered = Path::new(std::ffi::OsStr::from_bytes(path));
+                for approved in &self.profile.paths {
+                    if registered.starts_with(root.join(approved)) {
+                        return Err(invalid(
+                            "Artifact roots cannot contain registered Git checkouts; move the checkout safely before retrying setup",
+                        )).at(registered);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+    fn reject_git_store(&self, directory: &Path) -> Result<()> {
+        // Recognize ordinary and reftable bare stores by their administrative
+        // shape. Inspect links themselves, never their targets or Git config.
+        let kind = |name: &str| -> Result<Option<fs::FileType>> {
+            self.deadline()?;
+            let path = directory.join(name);
+            match fs::symlink_metadata(&path) {
+                Ok(meta) => Ok(Some(meta.file_type())),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(error) => Err(error).at(&path),
+            }
+        };
+        if kind("HEAD")?.is_some_and(|kind| kind.is_file() || kind.is_symlink())
+            && kind("objects")?.is_some_and(|kind| kind.is_dir() || kind.is_symlink())
+            && (kind("refs")?.is_some_and(|kind| kind.is_dir() || kind.is_symlink())
+                || kind("reftable")?.is_some_and(|kind| kind.is_dir() || kind.is_symlink()))
+        {
+            return Err(invalid(
+                "Artifact roots cannot contain bare Git stores; move the repository safely before retrying setup",
+            )).at(directory);
+        }
+        Ok(())
+    }
+    fn walk(&self, root: &Path, path: &Path, artifact: &Path, scan: &mut Scan) -> Result<()> {
         self.deadline()?;
         relative(path)?;
         if path.components().count() > 128
             || path.to_str().is_none()
-            || entries.len() as u64 >= self.profile.max_files
+            || scan.entries.len() as u64 >= self.profile.max_files
         {
             return Err(invalid(
                 "Artifact path depth, encoding or entry limit exceeded",
@@ -305,6 +379,9 @@ impl<'a> Artifacts<'a> {
             }
             Err(error) => return Err(error.into()),
         };
+        if meta.dev() != scan.device {
+            return Err(invalid("Artifact paths cannot cross filesystem boundaries"));
+        }
         let mode = meta.mode() & 0o777;
         let entry = if meta.file_type().is_symlink() {
             if path == artifact {
@@ -339,6 +416,7 @@ impl<'a> Artifacts<'a> {
                 modified_ns: 0,
             }
         } else if meta.is_dir() {
+            self.reject_git_store(&full)?;
             Entry {
                 path: path.into(),
                 kind: Kind::Directory,
@@ -348,10 +426,24 @@ impl<'a> Artifacts<'a> {
                 modified_ns: 0,
             }
         } else if meta.is_file() {
-            *bytes = bytes
+            // Cleanup preflight must not read or hash soon-to-be-deleted files.
+            // Publication and seeding retain their byte limits and verification.
+            if !scan.hash_contents {
+                scan.entries.push(Entry {
+                    path: path.into(),
+                    kind: Kind::File,
+                    mode,
+                    bytes: 0,
+                    hash: String::new(),
+                    modified_ns: 0,
+                });
+                return Ok(());
+            }
+            scan.bytes = scan
+                .bytes
                 .checked_add(meta.len())
                 .ok_or_else(|| invalid("Artifact byte limit overflow"))?;
-            if *bytes > self.profile.max_bytes {
+            if scan.bytes > self.profile.max_bytes {
                 return Err(invalid("Artifact byte limit exceeded"));
             }
             let hash = self.hash_file(&full)?;
@@ -396,25 +488,21 @@ impl<'a> Artifacts<'a> {
             ));
         };
         let directory = entry.kind == Kind::Directory;
-        entries.push(entry);
+        scan.entries.push(entry);
         if directory {
             let mut children = Vec::new();
             for child in fs::read_dir(full)? {
                 self.deadline()?;
-                if children.len() as u64 + entries.len() as u64 >= self.profile.max_files {
+                if children.len() as u64 + scan.entries.len() as u64 >= self.profile.max_files {
                     return Err(invalid("Artifact entry limit exceeded"));
                 }
                 children.push(child?);
             }
             children.sort_by_key(|entry| entry.file_name());
             for child in children {
-                self.walk(
-                    root,
-                    &path.join(child.file_name()),
-                    artifact,
-                    entries,
-                    bytes,
-                )?;
+                let path = path.join(child.file_name());
+                self.walk(root, &path, artifact, scan)
+                    .at(&root.join(path))?;
             }
         }
         Ok(())

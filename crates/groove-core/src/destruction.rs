@@ -459,6 +459,7 @@ impl Pool {
         for slot in &result.slots {
             let path = root.join(slot.as_str());
             repository::no_symlinks(&path)?;
+            crate::recovery::validate_disposal(&repo, &path)?;
             let record_path = repo.record_path(slot);
             if exists(&record_path)? {
                 let record: SlotRecord = state::read(&record_path)?;
