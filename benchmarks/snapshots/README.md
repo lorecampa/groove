@@ -1,139 +1,187 @@
-# Snapshot regression and benchmark lab
+# Groove benchmark profiles
 
-Correctness and timing are separate. The Rust `snapshot_scale` integration suite
-uses deterministic mutations and full Git-tree assertions; elapsed time never
-makes a correctness test pass or fail. The benchmark runner records timings and
-resource/storage data without enforcing noisy hosted-runner latency thresholds.
+`groove-bench` is an unpublished development CLI. A **profile names a complete
+benchmark scenario**: fixtures, operations, correctness assertions, sampling,
+concurrency and environment requirements. There are no workload or sampling flags.
+Definitions live in [`profiles-v1.json`](profiles-v1.json); the Rust runner validates
+them before execution and embeds their exact definitions and hashes in the report.
 
-## Versioned inputs
-
-- `workloads-v1.json`: fixture version, seed, directory layout, content pool,
-  changed-file count, profile sizes and a golden SHA-1 tree for the smoke fixture.
-  Rust integration tests and the Rust benchmark runner consume this same file. Independent
-  generators must produce the golden tree; no random seed or sleeps are involved.
-- `environment.lock.json`: Rust 1.89.0, Git 2.40.0, GNU time 1.9,
-  the immutable linux/amd64 base-image digest, Debian archive date, Git source
-  checksum, and runtime CPU/memory limits.
-- `Dockerfile`: builds that environment and release binaries with `Cargo.lock`.
-  The installer verifies actual tool versions. Runtime uses four CPU-equivalents,
-  8 GiB RAM, no swap, no network, a read-only root, and writable isolated scratch.
-- `src/`: the non-published `groove-bench` Rust workspace package. It handles
-  fixture generation, bounded subprocess execution, measurements, atomic v2 JSON
-  reports, comparisons, and container orchestration. No Python runtime is needed.
-  The launcher creates a source-only build context, records a content hash plus
-  Git revision/dirty state, caches the image, and mounts a supplied source repository
-  read-only. Tests run as part of the normal Cargo workspace suite.
-
-Containers pin user space, not host hardware or the kernel. Reports also record
-CPU model, architecture, kernel, filesystem, cgroup quotas, available storage,
-package manifest hash, image ID and executable hash. The comparator refuses
-workload/toolchain/hardware/resource drift, and requires canonical reports for regression comparisons. Different source revisions and binary
-hashes are allowed, since comparing code changes is the purpose. CPU contention,
-frequency, storage devices and cache state still introduce noise; repeat samples
-on a dedicated host for performance decisions.
-
-## Deterministic regression coverage
+## Commands
 
 ```sh
-# Small fixture in every normal workspace test run:
-cargo test -p groove-core --test snapshot_scale --locked
+# Discover scenarios, cases, sampling, estimated time and scratch requirements.
+cargo run -p groove-bench --locked -- profiles
+cargo run -p groove-bench --locked -- profiles snapshot-scale
 
-# Opt-in local canonical 100k-file regression:
-cargo run -p groove-bench --locked -- check --profile large \
-  --temp-root /path/on/local/disk --output /path/to/results/check-large.json
+# Measure one scenario, or every profile in one invocation.
+cargo run -p groove-bench --locked -- benchmark snapshot-incremental
+cargo run -p groove-bench --locked -- benchmark all
 
-# Opt-in local million-file regression:
-cargo run -p groove-bench --locked -- check --profile million \
-  --temp-root /path/on/local/disk --output /path/to/results/check-million.json
+# Execute each profile's cases once, asserting correctness without statistical verdicts.
+cargo run -p groove-bench --locked -- check workspace-concurrency
+cargo run -p groove-bench --locked -- check all
+
+# Validate the report and recompute its summary from raw evidence.
+cargo run -p groove-bench --locked -- inspect
 ```
 
-Each fixture has the configured number of generated files plus `.gitignore`.
-The deterministic checks cover distributed staged/unstaged edits, deletions,
-binary untracked data, a thousand ignored files, an independent full-tree staging
-oracle, unchanged HEAD/index, unchanged-save blob reuse, both restoration modes,
-snapshot deletion and retained-object reachability after GC. UUIDs and timestamps may vary;
-asserted file/index state does not. The explicit large tests are ignored by normal
-Cargo runs and are selected explicitly by these local commands.
+The default scratch parent is `target/benchmark-scratch`; it must be on local disk.
+The default and **single output artifact** is
+`benchmarks/snapshots/results/report.json`, an ignored path. `--temp-root` and
+`--output` relocate those paths. Each invocation atomically replaces its output,
+including operational failures. Nothing publishes results automatically, and
+benchmark results or separate results summaries are not checked in.
 
-## Measurements and comparison
+`all` selects the complete catalog. Multiple names select precisely those profiles:
 
 ```sh
-cargo run -p groove-bench --locked -- benchmark --profile large --profile million \
-  --temp-root /path/on/local/disk --output /path/to/results/baseline.json
-
-# Optionally include a real repository, cloned from a read-only mount:
-cargo run -p groove-bench --locked -- benchmark --profile smoke \
-  --real-repo /path/to/repository --temp-root /path/on/local/disk \
-  --output /path/to/results/real.json
-
-cargo run -p groove-bench --locked -- compare \
-  /path/to/results/baseline.json /path/to/results/candidate.json
+cargo run -p groove-bench --locked -- benchmark workspace-reuse workspace-setup
 ```
 
-Each profile reports both medians, their ratio, each run's fastest-to-slowest warm
-save range and a `verdict`: `slower` or `faster` only when the two ranges do not
-overlap, otherwise `within_noise`. Separate runs drift with host load and CPU
-frequency, so treat a `within_noise` ratio as no measured change; rerun both sides
-(ideally alternating them) with more `--runs` before acting on it.
+The first container run prepares dependencies and builds release binaries; later
+runs reuse the content-addressed image. Estimates printed by `profiles` exclude
+image preparation and depend on the host. Expensive profiles remain explicit.
 
-The million-file cases need several million free inodes and roughly 13 GiB of free
-scratch space; preflight checks reject insufficient capacity. Canonical runs reject
-tmpfs and overlay scratch storage. The launcher removes its scratch directory after
-completion. Images are retained in Docker's ordinary cache for reuse; no global
-Docker prune is performed.
+## Catalog v1
 
-Reports include every save sample, first/unchanged saves, both restore timings,
-maximum RSS reported by GNU time, logical and allocated object-byte growth,
-fixture tree IDs and source-state verification. RSS is not aggregate simultaneous
-process-tree memory. Cache policy is explicit: no cache eviction, then warm samples.
-Fixtures use 256 repeated small payloads; they do not simulate large unique binary
-histories. Git dates and file contents are fixed for reproducible fixture trees.
+| Profile | Fixed cases | Measured operations |
+| --- | --- | --- |
+| `snapshot-incremental` | 10k unique text files; distributed edits and mixed staging/deletion/untracked/ignored state | First save, first changed save, checkpoint history, unchanged save |
+| `snapshot-restore` | 10k unique text files and 100k repeated small files | Clean/dirty recovery into new and existing checkouts |
+| `snapshot-scale` | 100k and 1M repeated small files; twelve distributed edits | First, changed, history and unchanged saves; recovery checked outside save timings |
+| `snapshot-binary` | 8 MiB and 64 MiB deterministic, poorly compressible binaries alongside 1k small files | Saves after rewriting distinct 64 KiB ranges, object growth and verified recovery |
+| `workspace-reuse` | 10k unique files under pristine and warm cleanup | First acquisition, clean reuse, dirty sanitation and release |
+| `workspace-setup` | 1k source files, 256 4 KiB artifacts and one 4 MiB artifact | Explicit setup/cache publication on miss and independent copy seeding on hit |
+| `workspace-concurrency` | 1k source files with 1, 2, 4 and 8 warm slots/workers | Acquire/no-op managed execution/release, per-worker latency, batch throughput and full-pool rejection |
 
-Every changed save is checked against ordinary full-tree Git staging in a separate
-index, outside the timed command. Both restore timings target the initial clean
-checkpoint. Additional untimed checks restore the final changed checkpoint into
-a separate checkout and in place, comparing staging and working trees with that
-independent oracle. A successful report requires all these checks. The unchanged
-save must also preserve the checkout's state. Git step timings require `-vv` debug
-diagnostics; missing diagnostics fail the run rather than producing empty samples.
+One **repetition** runs a complete case on a fresh disposable repository: prepare
+the fixture, measure the declared operations, verify correctness and clean up.
+The report calls this a statistical **block**; multiple commands within one
+repetition are not independent repetitions. With a baseline, each block contains
+both binaries' runs on separate, identical fixtures.
 
-Reports retain JSON schema version 2 and now record `measurement_version: 2` for
-the corrected diagnostics and stronger verification. Regenerate both baseline and
-candidate reports: comparison rejects missing/different measurement versions and
-reports without verified dirty recovery. Correctness checks are not performance
-samples, and this suite does not measure pool acquisition, setup or worker throughput.
+The scale profile owns six measured repetitions and one discarded warmup per case
+and binary; other profiles own ten repetitions and one warmup. Checkpoint history
+length belongs to each case. `check` executes one repetition per case without warmups. It
+uses the same operations/assertions; it does not silently reduce a fixture's size.
+Profile sizes count generated source paths; `.gitignore`, binaries, project files
+and artifact sources add explicitly defined supporting files.
 
-For local exploratory measurements, build `groove-cli` in release mode, then use
-`cargo run -p groove-bench --locked -- run --mode benchmark --profile smoke
---temp-root /path/on/local/disk --output /path/to/local.json`. These reports are
-**non-canonical** and cannot be used for regression comparisons. The former Python
-entry points have been removed; use the Cargo commands above.
+Cases execute sequentially. Only concurrency cases intentionally launch parallel
+workers. Fixtures are newly generated for each side/block, their Git storage is
+normalized, and all sides must produce the same fixture identity. The primitive
+path generator retains its independent golden smoke tree in `workloads-v1.json`.
+No developer checkout is used as a benchmark fixture. Arbitrary repositories or
+bundles cannot override a profile from the command line; a new dataset requires
+an explicit, versioned profile definition.
 
-Environment v2 removes the Python runner dependency. Its lock/package hashes differ
-from v1, so regenerate both baselines and candidates; old reports must not be
-relabeled as comparable. The fixture and JSON schema remain version 1 and 2
-respectively. Historical ad-hoc results in `docs/snapshot-benchmark-results.json`
-also remain incompatible. Reports include the runner executable's hash.
+## Correctness evidence and timing
 
-## CI and maintenance
+Every successful block requires its scenario's specific assertions. Saves preserve
+HEAD/index/working files, match independent full-tree Git staging, avoid new blobs
+on unchanged saves and recover the captured staging/working trees. Restore cases
+verify both trees and base HEAD, preservation of existing ignored residue, and
+absence of ignored data in new checkouts. The Git oracle writes only into separate
+object storage, so it cannot repair a broken snapshot or change object-growth data.
 
-Benchmarks and the 100k/1M-file workloads run locally only. GitHub CI runs the
-normal workspace suite, including small snapshot correctness and harness/hook
-tests; it does not build benchmark containers or run performance measurements.
-There is no scheduled or manually dispatched scale workflow. Use the explicit
-commands above when local resources are available and retain their JSON reports.
+Workspace cases inspect actual files, Git state and cleanup policy. Setup cases
+compare every artifact with its independent source and verify hit/miss, skipped
+steps and seeded counters. Concurrent workers must have distinct lease IDs and
+paths, succeed, reject excess capacity with the typed CLI error/exit category, and
+release every reservation. Expected failures are asserted rather than discarded.
+Worker start phases use bounded readiness handshakes; startup failures disconnect
+waiting peers, and a worker panic retains the fixture for explicit recovery.
 
-Run harness/hook tests with:
+Only the named operations are included in a profile's metrics. Fixture generation,
+setup for measurement, Git oracles and teardown are outside timed intervals but
+can warm OS caches. First save means no prior application checkpoint in that
+fixture; no OS-cold claim is made. No host cache eviction occurs. Normal timings
+include release CLI startup, safety/durability work, the time wrapper, capture files
+and 1 ms exit polling. Ten CLI-version calibration samples are retained without
+subtraction. Verbose logging is disabled in measured commands.
+
+Raw per-command wall/CPU/RSS observations remain in the report. History and worker
+observations are aggregated within an independent block. RSS is the largest
+collected per-process peak, not simultaneous process-tree memory. Save profiles
+also record logical/allocated Git-object growth before recovery verification.
+
+For paired comparisons, supply only an operational baseline source path:
+
+```sh
+cargo run -p groove-bench --locked -- benchmark snapshot-incremental \
+  --baseline-source /absolute/baseline-checkout
+```
+
+One fixed runner executes both release CLIs, alternating AB/BA across measured
+blocks. Differences receive pointwise 95% percentile bootstrap intervals (4,000
+resamples of whole paired blocks), with a 5% practical threshold. Verdicts are
+`faster`, `slower`, `no_meaningful_change` or `inconclusive`. Unpaired runs report
+characterization only. Intervals across many metrics are not familywise guarantees;
+inspect variability/outliers (which are retained) and use a quiet host. No timing
+threshold makes a correctness check pass or fail.
+
+## Pinned software and controlled runtime
+
+`environment.lock.json` pins Linux amd64, Rust 1.89.0, Git 2.40.0, GNU time 1.9,
+the base-image digest, Debian archive date, Git checksum and resource policy. The
+acquisition phase vendors dependencies for both lockfiles. BuildKit then disables
+networking while Cargo compiles the runner and each CLI independently with
+`--frozen`; tool-only dependency features cannot change the measured CLI's build.
+Missing dependencies or lock drift fail. Source, binary, runner, package, vendor,
+fixture, catalog, profile and environment identities are retained in the artifact.
+
+The launcher inspects and validates the actual image, network-disabled/read-only
+container, bind mounts, CPU affinity/quota, 8 GiB memory, disabled swap and 512-PID
+limit before starting it. Four available CPUs are selected, or `--cpu-set` supplies
+exactly four IDs. Affinity is not an exclusive reservation. Host identity, kernel,
+CPU model, storage mount and cgroup CPU/memory counters are recorded. Containers
+cannot isolate host storage contention, CPU frequency or kernel differences.
+
+Measured subprocesses use a controlled environment, fixed canonical executable
+paths, a fixed 0022 creation mask and disposable home/config/temp directories. Docker client settings stay in
+the launcher. Native Rustup discovery does not restore user Git configuration.
+Progress is retained in the same report between blocks, including on failure.
+Only the exact owned container is removed; scratch removal follows successful
+container teardown. Failed cleanup retains scratch. SIGKILL/host loss cannot run
+cleanup: inspect that invocation's container before rerunning, never prune unrelated
+containers or images. Native interrupted/timed-out fixtures likewise remain for
+explicit recovery after all writers stop.
+
+Native macOS/APFS or host exploration selects the same profiles:
+
+```sh
+cargo build -p groove-cli --release --locked
+cargo run -p groove-bench --locked -- benchmark workspace-reuse --host
+# Optional native binary paths are execution choices, not workload overrides.
+cargo run -p groove-bench --locked -- benchmark workspace-setup --host \
+  --binary /absolute/candidate/groove --baseline-binary /absolute/baseline/groove
+```
+
+Host reports are explicitly non-canonical; they do not claim the pinned Linux
+build/resource contract. There is no canonical macOS environment lock yet.
+
+## Development validation
 
 ```sh
 cargo test -p groove-bench --locked
-# Real release CLI, recovery and dirty-source preservation:
+cargo test -p groove-core --test snapshot_scale --locked
 cargo build -p groove-cli --release --locked
 cargo test -p groove-bench --test cli --locked -- --ignored
+cargo test -p groove-bench --test container --locked -- --ignored
 ```
 
-Change fixture semantics by introducing a new fixture version and golden tree.
-Change environment tools/resources by updating the lock and Dockerfile together,
-then validating `verify-environment` and regenerating baselines. Never relabel old
-results as comparable. `Cargo.lock`, source/binary hashes and the package manifest
-preserve the exact inputs behind a measurement, including dirty working trees.
+Normal Cargo runs cover catalog/API/evidence/harness regressions and small core
+scale correctness. Opt-in release-CLI regressions exercise routine profiles and a
+complete paired profile without weakening sampling. The real Docker regression
+checks interruption at a canonical profile boundary. Large core `snapshot_scale`
+tests remain opt-in, separately from explicit `check snapshot-scale` / `benchmark
+snapshot-scale`; selecting a profile always executes all its declared cases.
+GitHub runs normal correctness checks; no performance or large-scale job is
+scheduled automatically. A workflow file is not evidence that remote CI ran.
+
+Change a scenario's semantics by incrementing its profile version and reviewing
+its cases, assertions, resources and sampling together. Every definition change
+changes its hash. Reports strictly validate their version, selected definitions,
+case/block/operation counts, checks and aggregates against raw evidence. Old report
+formats are not relabeled as comparable. This private development artifact format
+does not change the product CLI's JSON protocol.

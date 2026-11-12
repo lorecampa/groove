@@ -66,9 +66,14 @@ development experiments are omitted.
 - Git maintenance children keep their leader unreaped until the process group is
   signalled, so a group kill can never reach a process that reused its ID.
 
-- Snapshot benchmarks record Git step diagnostics, independently verify changed
-  saves and restore dirty checkpoints in both modes. Report comparisons reject
-  older measurement policies or missing dirty-recovery verification.
+- Development benchmarks use complete versioned profiles for incremental saves,
+  recovery, path scaling, binary changes, workspace reuse, setup caching and
+  concurrent workers. Profiles own all inputs, operations and sampling; `profiles`,
+  `check`, `benchmark` and `inspect` expose one self-contained report. Paired
+  comparisons use independent blocks and independent Git oracles. Pinned
+  containers compile each CLI offline and validate runtime isolation;
+  native host measurements remain explicitly exploratory. Historical benchmark
+  results and unpublished performance claims have been removed.
 - Process-table enumeration failures return an error rather than an empty
   workspace-user list. Native macOS CI covers both CPU architectures, Rust 1.89
   and stable, case-sensitive APFS, strict reflinks and extracted packages/bundles.

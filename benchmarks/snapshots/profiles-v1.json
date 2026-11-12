@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "fixture_version": 1,
+  "profiles": [
+    {
+      "id": "snapshot-incremental", "version": 1,
+      "purpose": "Cost of saving small edits and repeated checkpoint history in a typical source repository.",
+      "environment": "cli-linux-amd64-v4",
+      "sampling": {"blocks": 10, "warmup_blocks": 1},
+      "estimated_minutes": [1, 5],
+      "cases": [
+        {"id": "text-edits", "files": 10000, "contents": {"kind": "unique"}, "workload": {"kind": "snapshot-save", "history_depth": 4, "mutation": "edits"}},
+        {"id": "mixed-state", "files": 10000, "contents": {"kind": "unique"}, "workload": {"kind": "snapshot-save", "history_depth": 4, "mutation": "mixed"}}
+      ]
+    },
+    {
+      "id": "snapshot-restore", "version": 1,
+      "purpose": "Recovery latency for clean and staged/unstaged checkpoints into new and existing checkouts.",
+      "environment": "cli-linux-amd64-v4",
+      "sampling": {"blocks": 10, "warmup_blocks": 1},
+      "estimated_minutes": [2, 10],
+      "cases": [
+        {"id": "source-tree", "files": 10000, "contents": {"kind": "unique"}, "workload": {"kind": "snapshot-restore"}},
+        {"id": "large-tree", "files": 100000, "contents": {"kind": "paths"}, "workload": {"kind": "snapshot-restore"}}
+      ]
+    },
+    {
+      "id": "snapshot-scale", "version": 1,
+      "purpose": "Path/index scaling of snapshot saves with twelve distributed edits, including unchanged saves and verified recovery.",
+      "environment": "cli-linux-amd64-v4",
+      "sampling": {"blocks": 6, "warmup_blocks": 1},
+      "estimated_minutes": [15, 60],
+      "cases": [
+        {"id": "100k-paths", "files": 100000, "contents": {"kind": "paths"}, "workload": {"kind": "snapshot-save", "history_depth": 2, "mutation": "edits"}},
+        {"id": "1m-paths", "files": 1000000, "contents": {"kind": "paths"}, "workload": {"kind": "snapshot-save", "history_depth": 2, "mutation": "edits"}}
+      ]
+    },
+    {
+      "id": "snapshot-binary", "version": 1,
+      "purpose": "Content hashing, object growth and recovery when 64 KiB ranges of poorly compressible binaries change.",
+      "environment": "cli-linux-amd64-v4",
+      "sampling": {"blocks": 10, "warmup_blocks": 1},
+      "estimated_minutes": [2, 10],
+      "cases": [
+        {"id": "8mib-binary", "files": 1000, "contents": {"kind": "binary", "bytes": 8388608}, "workload": {"kind": "snapshot-save", "history_depth": 3, "mutation": "binary"}},
+        {"id": "64mib-binary", "files": 1000, "contents": {"kind": "binary", "bytes": 67108864}, "workload": {"kind": "snapshot-save", "history_depth": 3, "mutation": "binary"}}
+      ]
+    },
+    {
+      "id": "workspace-reuse", "version": 1,
+      "purpose": "First acquisition, clean reuse and sanitation of tracked, untracked and ignored residue under both cleanup policies.",
+      "environment": "cli-linux-amd64-v4",
+      "sampling": {"blocks": 10, "warmup_blocks": 1},
+      "estimated_minutes": [1, 5],
+      "cases": [
+        {"id": "pristine", "files": 10000, "contents": {"kind": "unique"}, "workload": {"kind": "workspace-reuse", "cleanup": "pristine"}},
+        {"id": "warm", "files": 10000, "contents": {"kind": "unique"}, "workload": {"kind": "workspace-reuse", "cleanup": "warm"}}
+      ]
+    },
+    {
+      "id": "workspace-setup", "version": 1,
+      "purpose": "Explicit setup and copy-cache publication/seeding of 256 small files plus one 4 MiB artifact, with independently verified contents.",
+      "environment": "cli-linux-amd64-v4",
+      "sampling": {"blocks": 10, "warmup_blocks": 1},
+      "estimated_minutes": [1, 5],
+      "cases": [
+        {"id": "copy-cache", "files": 1000, "contents": {"kind": "unique"}, "workload": {"kind": "workspace-setup", "artifact_files": 256, "artifact_file_bytes": 4096, "artifact_binary_bytes": 4194304}}
+      ]
+    },
+    {
+      "id": "workspace-concurrency", "version": 1,
+      "purpose": "Warm acquire/no-op managed execution/release throughput, per-worker latency and full-pool contention at fixed worker counts.",
+      "environment": "cli-linux-amd64-v4",
+      "sampling": {"blocks": 10, "warmup_blocks": 1},
+      "estimated_minutes": [1, 5],
+      "cases": [
+        {"id": "1-worker", "files": 1000, "contents": {"kind": "paths"}, "workload": {"kind": "workspace-concurrency", "workers": 1}},
+        {"id": "2-workers", "files": 1000, "contents": {"kind": "paths"}, "workload": {"kind": "workspace-concurrency", "workers": 2}},
+        {"id": "4-workers", "files": 1000, "contents": {"kind": "paths"}, "workload": {"kind": "workspace-concurrency", "workers": 4}},
+        {"id": "8-workers", "files": 1000, "contents": {"kind": "paths"}, "workload": {"kind": "workspace-concurrency", "workers": 8}}
+      ]
+    }
+  ]
+}

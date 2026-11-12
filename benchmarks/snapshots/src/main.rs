@@ -1,17 +1,23 @@
-//! Development-only reproducible snapshot lab; never shipped with Groove.
+//! Development-only benchmark lab; never shipped with Groove.
 mod container;
+mod evidence;
 mod fixture;
 mod harness;
+mod lifecycle;
+mod profiles;
 mod report;
+mod statistics;
 mod util;
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use util::{Result, Runner};
+use util::{require, Result, Runner};
 
 #[derive(Parser)]
 #[command(
-    about = "Reproducible snapshot benchmarks and deterministic scale checks",
-    version
+    about = "Run complete, versioned Groove benchmark scenarios",
+    version,
+    after_help = "Examples:\n  cargo run -p groove-bench --locked -- profiles\n  cargo run -p groove-bench --locked -- benchmark snapshot-incremental\n  cargo run -p groove-bench --locked -- benchmark all\n  cargo run -p groove-bench --locked -- check snapshot-scale\n\nProfiles own all fixtures, operations and sampling. Docker builds release binaries offline.\nOne report is atomically replaced per invocation; generated repositories are disposable."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -19,92 +25,125 @@ struct Cli {
 }
 #[derive(Subcommand)]
 enum Action {
-    /// Build/cache the pinned container and print its image ID.
-    Build,
-    /// Run deterministic correctness tests in the pinned container.
-    Check(ContainerArgs),
-    /// Measure the release Rust CLI in the pinned container.
-    Benchmark(ContainerArgs),
-    /// Run directly on this host (non-canonical unless inside the pinned container).
-    Run(RunArgs),
-    /// Verify tool versions against environment.lock.json.
-    VerifyEnvironment,
-    /// Compare two successful canonical reports with matching workloads/environment.
-    Compare {
-        /// Baseline JSON report.
-        before: PathBuf,
-        /// Candidate JSON report.
-        after: PathBuf,
+    /// List complete scenarios, resources and sampling; optionally describe one profile.
+    Profiles { profile: Option<String> },
+    /// Measure selected profiles in pinned Docker; use 'all' to run every scenario.
+    Benchmark(ExecuteArgs),
+    /// Verify each selected profile case once, without repeated performance sampling.
+    Check(ExecuteArgs),
+    /// Validate a report and recompute its summary; never creates another report.
+    Inspect {
+        #[arg(default_value = "benchmarks/snapshots/results/report.json")]
+        report: PathBuf,
     },
+    #[command(hide = true)]
+    Build,
+    #[command(hide = true)]
+    VerifyEnvironment,
+    #[command(name = "__run", hide = true)]
+    Run(RunArgs),
+}
+#[derive(Clone, Args)]
+pub(crate) struct Plan {
+    /// Complete scenario names, or 'all'. Run 'profiles' to see definitions and cost.
+    #[arg(value_name="PROFILE",required=true,num_args=1..)]
+    profiles: Vec<String>,
+    /// Disk-backed scratch parent; interrupted native fixtures may be retained for recovery.
+    #[arg(long, default_value = "target/benchmark-scratch")]
+    temp_root: PathBuf,
+    /// Single report artifact, atomically replacing this path, including operational failures.
+    #[arg(long, default_value = "benchmarks/snapshots/results/report.json")]
+    output: PathBuf,
 }
 #[derive(Args)]
-struct ContainerArgs {
-    /// Repeat for each deterministic fixture size.
-    #[arg(long, required=true, value_parser=["smoke","large","million"])]
-    profile: Vec<String>,
-    /// Disk-backed scratch parent; disposable data is removed on completion.
+pub(crate) struct ExecuteArgs {
+    #[command(flatten)]
+    plan: Plan,
+    /// Baseline Groove checkout. Both CLIs compile independently in the same pinned image.
+    #[arg(long, conflicts_with = "host")]
+    baseline_source: Option<PathBuf>,
+    /// Explore on this host instead of Docker; results do not claim canonical isolation.
     #[arg(long)]
-    temp_root: PathBuf,
-    /// Destination JSON report, atomically replaced.
-    #[arg(long)]
-    output: PathBuf,
-    /// Number of warm changed-save measurements.
-    #[arg(long, default_value_t = 5)]
-    runs: usize,
-    /// Source repository, mounted read-only and cloned without hardlinks.
-    #[arg(long)]
-    real_repo: Option<PathBuf>,
+    host: bool,
+    /// Native candidate release binary; requires --host. Defaults to target/release/groove.
+    #[arg(long, requires = "host")]
+    binary: Option<PathBuf>,
+    /// Native baseline release binary; requires --host.
+    #[arg(long, requires = "host")]
+    baseline_binary: Option<PathBuf>,
+    /// Bind the canonical container to four available CPUs, e.g. 0-3; no exclusive reservation.
+    #[arg(long, conflicts_with = "host")]
+    cpu_set: Option<String>,
+}
+#[derive(Clone, Copy, Debug, ValueEnum, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Mode {
+    Benchmark,
+    Check,
+}
+impl Mode {
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Benchmark => "benchmark",
+            Self::Check => "check",
+        }
+    }
 }
 #[derive(Args)]
 pub(crate) struct RunArgs {
-    /// Correctness checks or performance measurements.
-    #[arg(long, value_parser=["check","benchmark"])]
-    mode: String,
-    /// Repeat for each deterministic fixture size.
-    #[arg(long, required=true, value_parser=["smoke","large","million"])]
-    profile: Vec<String>,
-    /// Number of warm changed-save measurements.
-    #[arg(long, default_value_t = 5)]
-    runs: usize,
-    /// Groove release binary (defaults to target/release/groove).
+    #[command(flatten)]
+    plan: Plan,
+    #[arg(long, value_enum)]
+    mode: Mode,
     #[arg(long)]
     binary: Option<PathBuf>,
-    /// Explicit release snapshot_scale test executable; otherwise discover it.
     #[arg(long)]
-    scale_binary: Option<PathBuf>,
-    /// Scratch parent with enough disk space and inodes.
+    baseline: Option<PathBuf>,
     #[arg(long)]
-    temp_root: PathBuf,
-    /// Destination JSON report, atomically replaced.
-    #[arg(long)]
-    output: PathBuf,
-    /// Enforce pinned tool versions, storage and resource limits.
-    #[arg(long)]
-    canonical: bool,
-    /// Source repository to clone; never benchmark in the source checkout.
-    #[arg(long)]
-    real_repo: Option<PathBuf>,
+    runtime_contract: Option<PathBuf>,
+}
+fn execute_profiles(mode: Mode, args: ExecuteArgs) -> Result<()> {
+    profiles::select(&args.plan.profiles)?;
+    require(
+        mode != Mode::Check || (args.baseline_source.is_none() && args.baseline_binary.is_none()),
+        "check verifies one candidate; baselines are for benchmark comparisons",
+    )?;
+    if args.host {
+        harness::run(RunArgs {
+            plan: args.plan,
+            mode,
+            binary: args.binary,
+            baseline: args.baseline_binary,
+            runtime_contract: None,
+        })
+    } else {
+        container::run(mode, args)
+    }
 }
 fn execute() -> Result<()> {
+    // SAFETY: this sets only this process's creation mask, before worker threads
+    // are started; no pointers or borrowed resources are involved.
+    unsafe {
+        libc::umask(0o022);
+    }
+    util::install_signals()?;
     match Cli::parse().command {
+        Action::Profiles { profile } => profiles::display(profile.as_deref()),
+        Action::Benchmark(args) => execute_profiles(Mode::Benchmark, args),
+        Action::Check(args) => execute_profiles(Mode::Check, args),
         Action::Build => {
-            println!("{}", container::build()?.1);
+            println!("{}", container::build(None)?.1);
             Ok(())
         }
-        Action::Check(args) => container::run("check", args),
-        Action::Benchmark(args) => container::run("benchmark", args),
-        Action::Run(args) => harness::run(args),
         Action::VerifyEnvironment => {
             println!("{}", report::verify_environment(&Runner::new())?);
             Ok(())
         }
-        Action::Compare { before, after } => {
-            let a = serde_json::from_slice(&std::fs::read(before)?)?;
-            let b = serde_json::from_slice(&std::fs::read(after)?)?;
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&report::compare(&a, &b)?)?
-            );
+        Action::Run(args) => harness::run(args),
+        Action::Inspect { report } => {
+            let mut value = serde_json::from_slice(&std::fs::read(report)?)?;
+            report::summarize(&mut value)?;
+            println!("{}", serde_json::to_string_pretty(&value["summary"])?);
             Ok(())
         }
     }

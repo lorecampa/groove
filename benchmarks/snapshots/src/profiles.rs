@@ -1,0 +1,307 @@
+//! Versioned, closed benchmark scenarios. CLI options cannot alter their workload.
+use crate::util::{hash, require, Error, Result};
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
+
+pub(crate) const CATALOG_BYTES: &[u8] = include_bytes!("../profiles-v1.json");
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Catalog {
+    pub(crate) schema_version: u32,
+    pub(crate) fixture_version: u32,
+    pub(crate) profiles: Vec<Profile>,
+}
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Profile {
+    pub(crate) id: String,
+    pub(crate) version: u32,
+    pub(crate) purpose: String,
+    pub(crate) environment: String,
+    pub(crate) sampling: Sampling,
+    pub(crate) estimated_minutes: [u32; 2],
+    pub(crate) cases: Vec<Case>,
+}
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Sampling {
+    pub(crate) blocks: u32,
+    pub(crate) warmup_blocks: u32,
+}
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Case {
+    pub(crate) id: String,
+    pub(crate) files: usize,
+    pub(crate) contents: Contents,
+    pub(crate) workload: Workload,
+}
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+pub(crate) enum Contents {
+    Paths,
+    Unique,
+    Binary { bytes: usize },
+}
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+pub(crate) enum Workload {
+    SnapshotSave {
+        history_depth: usize,
+        mutation: Mutation,
+    },
+    SnapshotRestore,
+    WorkspaceReuse {
+        cleanup: Cleanup,
+    },
+    WorkspaceSetup {
+        artifact_files: usize,
+        artifact_file_bytes: usize,
+        artifact_binary_bytes: usize,
+    },
+    WorkspaceConcurrency {
+        workers: usize,
+    },
+}
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum Mutation {
+    Edits,
+    Mixed,
+    Binary,
+}
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum Cleanup {
+    Pristine,
+    Warm,
+}
+impl Cleanup {
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Pristine => "pristine",
+            Self::Warm => "warm",
+        }
+    }
+}
+impl Profile {
+    pub(crate) fn sha256(&self) -> Result<String> {
+        Ok(hash(&serde_json::to_vec(self)?))
+    }
+}
+impl Case {
+    fn description(&self) -> String {
+        let contents = match self.contents {
+            Contents::Paths => "small repeated text".into(),
+            Contents::Unique => "unique 1.5 KiB text".into(),
+            Contents::Binary { bytes } => format!("plus a {} MiB binary", bytes / 1048576),
+        };
+        let operations = match self.workload {
+            Workload::SnapshotSave { history_depth, .. } => format!(
+                "first, changed, unchanged and {} history saves; verify recovered contents",
+                history_depth - 1
+            ),
+            Workload::SnapshotRestore => {
+                "clean/dirty restores into new and existing checkouts".into()
+            }
+            Workload::WorkspaceReuse { cleanup } => {
+                format!("first/clean/dirty reuse with {} cleanup", cleanup.name())
+            }
+            Workload::WorkspaceSetup {
+                artifact_files,
+                artifact_file_bytes,
+                artifact_binary_bytes,
+            } => format!(
+                "cache miss/hit, {} artifacts, {:.1} MiB",
+                artifact_files + 1,
+                (artifact_files * artifact_file_bytes + artifact_binary_bytes) as f64 / 1048576.0
+            ),
+            Workload::WorkspaceConcurrency { workers } => format!(
+                "{workers} simultaneous acquire/execute/release workers and full-pool rejection"
+            ),
+        };
+        format!(
+            "{} generated source paths ({contents}); {operations}",
+            self.files
+        )
+    }
+    pub(crate) fn capacity(&self) -> usize {
+        if let Workload::WorkspaceConcurrency { workers } = self.workload {
+            workers
+        } else {
+            1
+        }
+    }
+    pub(crate) fn scratch_budget(&self) -> (u64, u64) {
+        let copies = match self.workload {
+            Workload::SnapshotRestore => 3,
+            Workload::SnapshotSave { .. } => 2,
+            _ => self.capacity() + 1,
+        } as u64;
+        let binary = if let Contents::Binary { bytes } = self.contents {
+            bytes as u64
+        } else {
+            0
+        };
+        let artifact = if let Workload::WorkspaceSetup {
+            artifact_files,
+            artifact_file_bytes,
+            artifact_binary_bytes,
+        } = self.workload
+        {
+            (artifact_files * artifact_file_bytes + artifact_binary_bytes) as u64 * 4
+        } else {
+            0
+        };
+        (
+            self.files as u64 * copies * 4096 + binary * 12 + artifact + 512 * 1024 * 1024,
+            self.files as u64 * copies + 20000,
+        )
+    }
+}
+pub(crate) fn validate(profile: &Profile) -> Result<()> {
+    require(
+        !profile.id.is_empty()
+            && profile.id != "all"
+            && profile.version == 1
+            && !profile.purpose.is_empty()
+            && profile.environment == crate::fixture::lock()["environment_id"],
+        "Invalid profile provenance/version",
+    )?;
+    require(
+        (6..=100).contains(&profile.sampling.blocks) && profile.sampling.warmup_blocks <= 10,
+        "Invalid sampling policy",
+    )?;
+    require(!profile.cases.is_empty(), "Empty profile")?;
+    let mut cases = BTreeSet::new();
+    for case in &profile.cases {
+        require(
+            !case.id.is_empty() && cases.insert(&case.id) && (12..=1_000_000).contains(&case.files),
+            "Invalid profile case",
+        )?;
+        match &case.workload {
+            Workload::SnapshotSave {
+                history_depth,
+                mutation,
+            } => {
+                require(
+                    (2..=100).contains(history_depth),
+                    "Invalid checkpoint history",
+                )?;
+                require(
+                    (*mutation == Mutation::Binary)
+                        == matches!(case.contents, Contents::Binary { .. }),
+                    "Binary mutation/fixture mismatch",
+                )?;
+            }
+            Workload::WorkspaceConcurrency { workers } => {
+                require((1..=32).contains(workers), "Invalid worker count")?
+            }
+            Workload::WorkspaceSetup {
+                artifact_files,
+                artifact_file_bytes,
+                artifact_binary_bytes,
+            } => require(
+                *artifact_files > 0
+                    && *artifact_files <= 10000
+                    && *artifact_file_bytes > 0
+                    && *artifact_file_bytes <= 1024 * 1024
+                    && *artifact_binary_bytes <= 64 * 1024 * 1024,
+                "Invalid setup artifacts",
+            )?,
+            _ => (),
+        }
+        if let Contents::Binary { bytes } = case.contents {
+            require(
+                (65536..=96 * 1024 * 1024).contains(&bytes),
+                "Invalid binary fixture",
+            )?;
+        }
+    }
+    Ok(())
+}
+pub(crate) fn catalog() -> Result<Catalog> {
+    let catalog: Catalog = serde_json::from_slice(CATALOG_BYTES)?;
+    require(
+        catalog.schema_version == 1 && catalog.fixture_version == 1,
+        "Unsupported profile catalog version",
+    )?;
+    let mut names = BTreeSet::new();
+    for profile in &catalog.profiles {
+        require(names.insert(&profile.id), "Duplicate profile identity")?;
+        validate(profile)?;
+    }
+    Ok(catalog)
+}
+pub(crate) fn select(names: &[String]) -> Result<Vec<Profile>> {
+    let catalog = catalog()?;
+    if names == ["all"] {
+        return Ok(catalog.profiles);
+    }
+    require(
+        !names.is_empty() && !names.iter().any(|n| n == "all"),
+        "Select named profiles or 'all' on its own",
+    )?;
+    let mut selected = Vec::new();
+    let mut seen = BTreeSet::new();
+    for name in names {
+        require(seen.insert(name), "A profile may only be selected once")?;
+        selected.push(
+            catalog
+                .profiles
+                .iter()
+                .find(|p| &p.id == name)
+                .cloned()
+                .ok_or_else(|| {
+                    Error::Invalid(format!(
+                        "Unknown profile '{name}'; run 'profiles' to list scenarios"
+                    ))
+                })?,
+        );
+    }
+    Ok(selected)
+}
+pub(crate) fn display(name: Option<&str>) -> Result<()> {
+    let profiles = if let Some(name) = name {
+        select(&[name.to_owned()])?
+    } else {
+        catalog()?.profiles
+    };
+    for profile in profiles {
+        let bytes = profile
+            .cases
+            .iter()
+            .map(|c| c.scratch_budget().0)
+            .max()
+            .unwrap_or(0);
+        let inodes = profile
+            .cases
+            .iter()
+            .map(|c| c.scratch_budget().1)
+            .max()
+            .unwrap_or(0);
+        println!("{} (v{})\n  {}\n  {} cases; {} measured repetitions + {} discarded warmup per case and binary\n  Each repetition runs the complete case on a fresh disposable repository.\n  Estimated {}–{} min, at least {:.1} GiB scratch and {} free inodes (unpaired; host dependent)",profile.id,profile.version,profile.purpose,profile.cases.len(),profile.sampling.blocks,profile.sampling.warmup_blocks,profile.estimated_minutes[0],profile.estimated_minutes[1],bytes as f64/1073741824.0,inodes);
+        for case in &profile.cases {
+            println!("  {}: {}", case.id, case.description());
+        }
+    }
+    Ok(())
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn named_profiles_cover_distinct_user_workflows_with_real_sampling() {
+        let all = select(&["all".into()]).unwrap();
+        assert_eq!(all.len(), 7);
+        let scale = all.iter().find(|p| p.id == "snapshot-scale").unwrap();
+        assert!(scale.cases.iter().any(|c| c.files == 1_000_000));
+        assert!(all.iter().all(|p| p.sampling.blocks >= 6));
+        assert!(select(&["million".into()]).is_err());
+        assert!(select(&["all".into(), "snapshot-scale".into()]).is_err());
+        assert!(select(&["snapshot-scale".into(), "snapshot-scale".into()]).is_err());
+        let mut changed = scale.clone();
+        changed.sampling.blocks += 1;
+        assert_ne!(scale.sha256().unwrap(), changed.sha256().unwrap());
+    }
+}
