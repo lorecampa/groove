@@ -493,7 +493,8 @@ fn worker_command(
 }
 
 impl Pool {
-    /// Take the slot's execution lock without waiting; an active run makes this fail.
+    /// Take the slot's execution lock without waiting. Workers and maintenance
+    /// share this exclusion; contention alone never identifies the lock owner.
     pub(crate) fn execution_guard(&self, slot: &SlotId) -> Result<crate::locking::SlotGuard> {
         // Re-read the manifest: growth may have added this slot after `self` was opened.
         let config: state::Config = state::read(&self.repo.config_path())?;
@@ -506,8 +507,9 @@ impl Pool {
             .ok_or_else(|| {
                 Error::new(
                     ErrorCode::InvalidLease,
-                    "Managed execution is active; stop it before releasing",
+                    "Slot execution lock is busy; another worker or maintenance operation holds it; retry this operation",
                 )
+                .retryable(true)
             })
     }
 
@@ -518,7 +520,7 @@ impl Pool {
             Err(e) => Err(e.into()),
             Ok(_) => Err(Error::new(
                 ErrorCode::InvalidLease,
-                "Managed execution remains protected; stop or recover it before release",
+                "Managed execution remains protected; stop or recover it before retrying this operation",
             )),
         }
     }
@@ -608,7 +610,21 @@ impl Pool {
                 history.failure = Some(e.to_string());
                 self.write_run(&history)?;
                 clear(self, &lease.slot_id, &info)?;
-                return Err(e.into());
+                return Err(Error::new(
+                    ErrorCode::IoError,
+                    format!(
+                        "Could not start {:?} in {}: {e}",
+                        options.command[0],
+                        lease.worktree_path.display()
+                    ),
+                )
+                .with_source(e)
+                .with_details(|details| {
+                    details.lease_id = Some(id);
+                    details.worktree_path = Some(lease.worktree_path.clone());
+                    details.program = Some(info.program.clone());
+                    details.run_id = Some(history.run_id);
+                }));
             }
         };
         info.leader_pid = Some(worker.child().id());

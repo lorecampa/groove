@@ -80,6 +80,7 @@ impl Lease {
             Err(e) => return Err(e),
         };
         drop(execution);
+        state::checkpoint("finish-before-release");
         let release = self
             .release()
             .map_err(|e| e.with_details(|d| d.snapshot_id = Some(receipt.snapshot.id.clone())))?;

@@ -859,3 +859,104 @@ fn history_and_storage_commands_preserve_json_contract_and_retention_semantics()
         assert_eq!(check(&rejected)["error"]["code"], "INVALID_ARGUMENT");
     }
 }
+
+#[test]
+fn copied_advice_keeps_pool_selection_and_destroy_does_not_suggest_finish() {
+    let repo = Repo::new();
+    let missing = cli(&repo, &["--pool", "review", "list"]);
+    assert_eq!(missing.status.code(), Some(4));
+    let response = check(&missing);
+    let command = response["error"]["hint"]
+        .as_str()
+        .unwrap()
+        .split('`')
+        .find(|part| part.starts_with("groove init"))
+        .unwrap();
+    let argv = shell_words::split(command).unwrap();
+    let initialized = support::groove_in(&repo.path)
+        .args(&argv[1..])
+        .output()
+        .unwrap();
+    let initialized = assert_success(&initialized);
+    assert_eq!(initialized["result"]["pool_name"], "review");
+    assert_eq!(
+        check(&cli(&repo, &["list"]))["error"]["code"],
+        "NOT_INITIALIZED"
+    );
+    let lease = assert_success(&cli(&repo, &["--pool", "review", "acquire"]));
+    let workspace = std::path::Path::new(lease["result"]["worktree_path"].as_str().unwrap());
+    std::fs::create_dir(workspace.join("ignored")).unwrap();
+    std::fs::write(workspace.join("ignored/cache"), "keep me").unwrap();
+    assert_success(&cli(
+        &repo,
+        &[
+            "--pool",
+            "review",
+            "finish",
+            "--lease-id",
+            lease["result"]["lease_id"].as_str().unwrap(),
+        ],
+    ));
+    let output = cli(&repo, &["--pool", "review", "destroy", "--dry-run"]);
+    assert_eq!(output.status.code(), Some(5));
+    let result = check(&output);
+    let hint = result["error"]["hint"].as_str().unwrap();
+    assert!(hint.contains("ignored"));
+    assert!(hint.contains("--discard-changes"));
+    assert!(!hint.contains("`groove finish"));
+    assert_eq!(
+        std::fs::read(workspace.join("ignored/cache")).unwrap(),
+        b"keep me"
+    );
+}
+
+#[test]
+fn listing_windows_preserve_order_and_reject_zero_limits() {
+    let repo = Repo::new();
+    assert_success(&cli(&repo, &["init", "--capacity", "1"]));
+    let lease = assert_success(&cli(&repo, &["acquire"]));
+    let id = lease["result"]["lease_id"].as_str().unwrap();
+    for n in 0..3 {
+        assert_success(&cli(&repo, &["exec", "--lease-id", id, "--", "true"]));
+        assert_success(
+            &support::groove_in(std::path::Path::new(
+                lease["result"]["worktree_path"].as_str().unwrap(),
+            ))
+            .env("GROOVE_LOG_ENABLED", "false")
+            .args(["snapshot", "save", &n.to_string()])
+            .output()
+            .unwrap(),
+        );
+    }
+    for (args, field) in [
+        (vec!["history"], "runs"),
+        (vec!["snapshot", "list"], "snapshots"),
+    ] {
+        let all = check(&cli(&repo, &args));
+        assert_eq!(all["result"][field].as_array().unwrap().len(), 3);
+        let mut page = args.clone();
+        page.extend(["--limit", "1", "--offset", "1"]);
+        let window = check(&cli(&repo, &page));
+        assert_eq!(
+            window["result"][field],
+            serde_json::json!([all["result"][field][1]])
+        );
+        let mut invalid = args;
+        invalid.extend(["--limit", "0"]);
+        assert_eq!(cli(&repo, &invalid).status.code(), Some(2));
+    }
+}
+
+#[test]
+fn invalid_step_diagnostic_identifies_profile_step_and_name_rule() {
+    let repo = Repo::new();
+    std::fs::write(repo.path.join(".groove.toml"), "schema_version = 1\n[setup.dev]\n[[setup.dev.steps]]\nname = 'install dependencies'\ncommand = ['true']\n").unwrap();
+    let out = cli(&repo, &["config", "project"]);
+    assert_eq!(out.status.code(), Some(2));
+    let result = check(&out);
+    assert_eq!(result["error"]["code"], "INVALID_ARGUMENT");
+    let message = result["error"]["message"].as_str().unwrap();
+    for context in ["dev", "install dependencies", "1–64", "ASCII"] {
+        assert!(message.contains(context), "{message}");
+    }
+}

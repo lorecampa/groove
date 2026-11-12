@@ -50,3 +50,6 @@ OUTPUT:
 Linux or macOS 13+, Git 2.40+, local storage (APFS on macOS).
 Run groove COMMAND --help for examples,
 defaults and recovery rules.
+
+Version output records the source revision (or unknown without source metadata).
+Source archives can supply GROOVE_BUILD_REVISION as a full commit ID at build time.

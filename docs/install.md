@@ -41,6 +41,17 @@ For the skill and repository guides while they remain private, use existing
 authenticated Git access or a local checkout. Do not put credentials into prompts,
 URLs or committed files. An unauthenticated agent cannot fetch a private guide.
 
+If ordinary Git authenticates but Cargo's built-in Git transport does not, use
+Git's configured transport for that invocation:
+
+```sh
+CARGO_NET_GIT_FETCH_WITH_CLI=true cargo install --git ssh://git@github.com/lorecampa/groove --locked groove-cli
+```
+
+Use existing SSH/credential setup; do not add tokens to the URL or change global
+authentication configuration. This addresses Cargo transport compatibility, not
+missing permission to access the repository.
+
 ## Install the skill for your harness
 
 Obtain the source with authenticated Git, at the selected CLI tag/revision, or

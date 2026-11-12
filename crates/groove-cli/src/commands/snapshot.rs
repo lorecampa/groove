@@ -53,8 +53,8 @@ pub fn run(context: &Context<'_>, command: &SnapshotCommand) -> Result<Output> {
             session: session.clone(),
             max_file_bytes: *max_file_bytes,
         })?),
-        SnapshotCommand::List => {
-            let snapshots = service.list()?;
+        SnapshotCommand::List { page } => {
+            let snapshots = page.apply(service.list()?);
             let rows: Vec<Vec<String>> = snapshots
                 .iter()
                 .map(|s| {

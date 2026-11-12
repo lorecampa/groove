@@ -24,8 +24,19 @@ control clients cannot clear protection or interrupt worker supervision.
 
 Programs receive direct argv, the checkout as their working directory,
 `GROOVE_LEASE_ID` and `GROOVE_WORKTREE`. Stdin is closed. Shell syntax requires an
-explicit `bash -c` command. Repository-selection `GIT_*` overrides are removed.
-The worker uses your environment and normal tool configuration.
+explicit `bash -c` command. **All inherited `GIT_*` and `GROOVE_*` variables are
+removed**, including `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_SSH_COMMAND` and
+repository-selection overrides. Verified `GROOVE_*` context is then assigned.
+Other inherited variables and ordinary tool configuration remain available.
+Set reviewed Git variables explicitly inside command argv when needed (for
+example `-- env GIT_AUTHOR_NAME=Example git ...`); project environment entries
+cannot set these prefixes.
+
+Execution locks are also used briefly by history/log maintenance. Contention
+returns retryable `INVALID_LEASE` (exit 5); it does not prove a worker is active.
+Retry the same operation and lease ID after contention clears. Finish reuses any
+saved `error.details.snapshot_id` receipt. A recorded execution still requires
+normal stop/recovery; never remove protection or locks.
 
 stdout/stderr go to private files under
 the selected pool's `task-logs/<run-id>/` directory, outside the reusable checkout.

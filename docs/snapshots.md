@@ -23,7 +23,10 @@ groove snapshot restore ID         # automatic safety checkpoint first
 
 Save includes staged state, unstaged changes, deletions, executable modes,
 symlinks, and untracked non-ignored files. Ignored files and empty directories
-are excluded, including custom user/system Git ignore rules. Root paths must be UTF-8;
+are excluded, including custom user/system Git ignore rules. Special files such as
+FIFOs, sockets and devices are also excluded: Git does not enumerate them as
+ordinary untracked content. Export needed special/ignored artifacts separately
+before finish; a successful snapshot does not preserve them. Root paths must be UTF-8;
 Linux filenames may contain arbitrary non-NUL bytes. macOS APFS requires valid UTF-8
 filenames. A description and optional `--session ID` associate work with a task.
 
@@ -48,7 +51,8 @@ blobs, with possible delta compression during subsequent packing.
 Recovery to a new directory requires that directory not exist. For a snapshot
 with a base commit, this creates a detached linked worktree. For a snapshot from
 before the first commit, it creates an independent repository and fetches the
-snapshot objects locally, preserving an unborn HEAD. Saved files and staging state
+snapshot objects locally, preserving an unborn HEAD and its original branch name.
+Saved files and staging state
 are restored in either case.
 
 In-place restore requires HEAD to equal the saved base. It creates a safety

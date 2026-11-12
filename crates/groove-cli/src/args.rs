@@ -16,7 +16,7 @@ const DEFAULT_MAX_FILE_BYTES: &str = "104857600";
 #[derive(Parser)]
 #[command(
     name = "groove",
-    version,
+    version = concat!(env!("CARGO_PKG_VERSION"), " (revision ", env!("GROOVE_BUILD_REVISION"), ")"),
     about = "Reusable Git worktree pools and local checkpoints for parallel coding tasks",
     after_help = help!("overview")
 )]
@@ -236,6 +236,8 @@ pub enum Command {
         /// Match a historical reservation generation.
         #[arg(long)]
         lease_id: Option<LeaseId>,
+        #[command(flatten)]
+        page: PageArgs,
         #[command(subcommand)]
         command: Option<HistoryCommand>,
     },
@@ -265,6 +267,30 @@ pub enum HistoryCommand {
         /// Run UUID to forget; deletion cannot be undone.
         run_id: RunId,
     },
+}
+
+/// Optional output window; omitted limits preserve the original complete listing.
+#[derive(ClapArgs, Debug, Clone, Default)]
+pub struct PageArgs {
+    /// Return at most this many entries, newest first; default: all entries.
+    #[arg(long, value_parser = clap::value_parser!(u64).range(1..))]
+    pub limit: Option<u64>,
+    /// Skip this many newest entries; default: 0. Listings are not a transactional cursor.
+    #[arg(long, default_value_t = 0)]
+    pub offset: u64,
+}
+impl PageArgs {
+    pub fn apply<T>(&self, entries: Vec<T>) -> Vec<T> {
+        entries
+            .into_iter()
+            .skip(usize::try_from(self.offset).unwrap_or(usize::MAX))
+            .take(
+                self.limit
+                    .and_then(|n| usize::try_from(n).ok())
+                    .unwrap_or(usize::MAX),
+            )
+            .collect()
+    }
 }
 
 #[derive(Subcommand)]
@@ -358,7 +384,10 @@ pub enum SnapshotCommand {
         max_file_bytes: u64,
     },
     /// List snapshots across all linked worktrees, newest first.
-    List,
+    List {
+        #[command(flatten)]
+        page: PageArgs,
+    },
     /// Show one snapshot's metadata.
     Show {
         /// Snapshot ID.

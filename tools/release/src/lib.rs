@@ -81,7 +81,9 @@ impl Release {
         };
         let text = groove(args!["--version"])?;
         require(
-            text["text"].as_str().map(str::trim) == Some(&format!("groove {version}")),
+            text["text"]
+                .as_str()
+                .is_some_and(|text| version_matches(text, version)),
             "CLI version mismatch",
         )?;
         runner.run(scratch.path(), "git", args!["init", "-q"])?;
@@ -185,4 +187,47 @@ impl Release {
 
 fn read_toml(path: &Path) -> Result<toml::Value> {
     Ok(toml::from_str(&fs::read_to_string(path)?)?)
+}
+
+fn version_matches(text: &str, version: &str) -> bool {
+    let text = text.trim();
+    let expected = format!("groove {version}");
+    if text == expected {
+        return true;
+    }
+    text.strip_prefix(&expected)
+        .and_then(|suffix| suffix.strip_prefix(" (revision "))
+        .and_then(|suffix| suffix.strip_suffix(')'))
+        .is_some_and(|revision| {
+            revision == "unknown"
+                || (matches!(revision.len(), 40 | 64)
+                    && revision.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        })
+}
+
+#[cfg(test)]
+mod version_tests {
+    use super::version_matches;
+
+    #[test]
+    fn smoke_version_accepts_provenance_without_masking_version_mismatches() {
+        for text in [
+            "groove 0.1.0\n".to_owned(),
+            format!("groove 0.1.0 (revision {})\n", "a".repeat(40)),
+            format!("groove 0.1.0 (revision {})\n", "b".repeat(64)),
+            "groove 0.1.0 (revision unknown)\n".to_owned(),
+        ] {
+            assert!(version_matches(&text, "0.1.0"), "{text}");
+        }
+        for text in [
+            "groove 0.1.1",
+            "groove 0.1.00 (revision unknown)",
+            "groove 0.1.0-alpha.1 (revision unknown)",
+            "groove 0.1.0 (revision bad)",
+            "groove 0.1.0 (revision unknown) trailing",
+            "another 0.1.0",
+        ] {
+            assert!(!version_matches(text, "0.1.0"), "{text}");
+        }
+    }
 }

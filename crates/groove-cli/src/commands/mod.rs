@@ -124,8 +124,9 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
         Command::History {
             task,
             lease_id,
+            page,
             command,
-        } => history::history(context, task.clone(), *lease_id, command.as_ref()),
+        } => history::history(context, task.clone(), *lease_id, page, command.as_ref()),
         Command::Storage(command) => history::storage(context, command),
     }
 }

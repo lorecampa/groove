@@ -833,8 +833,7 @@ when="cache_miss"
                 Ok(ready) => break ready,
                 Err(error)
                     if error.code == groove_core::ErrorCode::InvalidLease
-                        && error.message
-                            == "Managed execution is active; stop it before releasing"
+                        && error.retryable
                         && std::time::Instant::now() < deadline =>
                 {
                     std::thread::sleep(std::time::Duration::from_millis(5))
@@ -1295,4 +1294,206 @@ fn verification_rejects_writes_racing_in_place_cleanup() {
             "{contamination}"
         );
     }
+}
+
+#[test]
+fn maintenance_contention_is_retryable_and_preserves_finish_results() {
+    if !support::in_subprocess("maintenance_contention_is_retryable_and_preserves_finish_results") {
+        return;
+    }
+    use std::{fs, io::Write};
+    use support::assert_success;
+    for dry_run in [true, false] {
+        let repo = Repo::new();
+        Pool::init(
+            &repo.path,
+            PoolOptions {
+                capacity: 1,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let pool = Pool::open(&repo.path).unwrap();
+        let lease = pool.reserve(Default::default()).unwrap();
+        let id = lease.lease_id.to_string();
+        assert_success(
+            &support::groove_in(&repo.path)
+                .args(["exec", "--lease-id", &id, "--", "true"])
+                .output()
+                .unwrap(),
+        );
+        fs::write(lease.worktree_path.join("result.txt"), "preserved result\n").unwrap();
+        let args = if dry_run {
+            vec![
+                "storage",
+                "clean",
+                "--logs",
+                "--older-than",
+                "0s",
+                "--dry-run",
+            ]
+        } else {
+            vec!["storage", "clean", "--logs", "--older-than", "0s"]
+        };
+        let (mut command, listener) = checkpoint_command(&repo, "log-cleanup-locked", &args);
+        let mut cleaner = support::TestChild::spawn(&mut command);
+        let mut stream = cleaner
+            .checkpoint(&listener, "log-cleanup-locked", support::PROCESS_TIMEOUT)
+            .unwrap();
+        let inode = fs::metadata(repo.state().join("locks/wt-0001.execution.lock"))
+            .unwrap()
+            .ino();
+        for operation in [
+            vec!["finish", "--lease-id", &id],
+            vec!["exec", "--lease-id", &id, "--", "true"],
+        ] {
+            let out = support::groove_in(&repo.path)
+                .args(operation)
+                .output()
+                .unwrap();
+            assert_eq!(out.status.code(), Some(5));
+            let response: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+            assert_eq!(response["error"]["code"], "INVALID_LEASE");
+            assert_eq!(response["error"]["retryable"], true);
+            assert_eq!(
+                pool.lease_info(lease.lease_id).unwrap().lease_id,
+                lease.lease_id
+            );
+            assert!(pool
+                .inspect()
+                .unwrap()
+                .slots
+                .iter()
+                .all(|slot| slot.execution.is_none()));
+            assert_eq!(
+                fs::read(lease.worktree_path.join("result.txt")).unwrap(),
+                b"preserved result\n"
+            );
+        }
+        stream.write_all(b"g").unwrap();
+        assert!(cleaner.wait().unwrap().success());
+        let result = assert_success(
+            &support::groove_in(&repo.path)
+                .args(["finish", "--lease-id", &id])
+                .output()
+                .unwrap(),
+        );
+        let snapshot = result["result"]["snapshot"]["id"].as_str().unwrap();
+        let recovered = repo.temp.path().join("recovered");
+        assert_success(
+            &support::groove_in(&repo.path)
+                .args(["snapshot", "restore", snapshot, "--to"])
+                .arg(&recovered)
+                .output()
+                .unwrap(),
+        );
+        assert_eq!(
+            fs::read(recovered.join("result.txt")).unwrap(),
+            b"preserved result\n"
+        );
+        assert!(pool.protected_leases().unwrap().is_empty());
+        assert_eq!(
+            fs::metadata(repo.state().join("locks/wt-0001.execution.lock"))
+                .unwrap()
+                .ino(),
+            inode
+        );
+    }
+}
+
+#[test]
+fn finish_retries_saved_snapshot_after_maintenance_blocks_release() {
+    if !support::in_subprocess("finish_retries_saved_snapshot_after_maintenance_blocks_release") {
+        return;
+    }
+    use std::{fs, io::Write};
+    use support::assert_success;
+    let repo = Repo::new();
+    Pool::init(
+        &repo.path,
+        PoolOptions {
+            capacity: 1,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let pool = Pool::open(&repo.path).unwrap();
+    let lease = pool.reserve(Default::default()).unwrap();
+    let id = lease.lease_id.to_string();
+    assert_success(
+        &support::groove_in(&repo.path)
+            .args(["exec", "--lease-id", &id, "--", "true"])
+            .output()
+            .unwrap(),
+    );
+    fs::write(lease.worktree_path.join("tracked.txt"), "staged\n").unwrap();
+    support::git(&lease.worktree_path, &["add", "tracked.txt"]);
+    fs::write(lease.worktree_path.join("tracked.txt"), "working\n").unwrap();
+    let (mut command, listener) = checkpoint_command(
+        &repo,
+        "finish-before-release",
+        &["finish", "--lease-id", &id],
+    );
+    let mut finisher = support::TestChild::spawn(&mut command);
+    let mut finish_stream = finisher
+        .checkpoint(&listener, "finish-before-release", support::PROCESS_TIMEOUT)
+        .unwrap();
+    let socket = repo.temp.path().join("cleanup.sock");
+    let cleanup_listener = UnixListener::bind(&socket).unwrap();
+    let mut cleaner = support::TestChild::spawn(
+        support::groove_in(&repo.path)
+            .args([
+                "storage",
+                "clean",
+                "--logs",
+                "--older-than",
+                "0s",
+                "--dry-run",
+            ])
+            .env("GROOVE_TEST_CHECKPOINT", "log-cleanup-locked")
+            .env("GROOVE_TEST_SOCKET", socket),
+    );
+    let mut cleanup_stream = cleaner
+        .checkpoint(
+            &cleanup_listener,
+            "log-cleanup-locked",
+            support::PROCESS_TIMEOUT,
+        )
+        .unwrap();
+    finish_stream.write_all(b"g").unwrap();
+    let failed = finisher.wait_with_output().unwrap();
+    assert_eq!(failed.status.code(), Some(5));
+    let failure: serde_json::Value = serde_json::from_slice(&failed.stdout).unwrap();
+    assert_eq!(failure["error"]["retryable"], true);
+    let snapshot = failure["error"]["details"]["snapshot_id"].as_str().unwrap();
+    assert_eq!(
+        pool.lease_info(lease.lease_id).unwrap().lease_id,
+        lease.lease_id
+    );
+    cleanup_stream.write_all(b"g").unwrap();
+    assert!(cleaner.wait().unwrap().success());
+    let retried = assert_success(
+        &support::groove_in(&repo.path)
+            .args(["finish", "--lease-id", &id])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(retried["result"]["snapshot"]["id"], snapshot);
+    assert!(pool.protected_leases().unwrap().is_empty());
+    let recovered = repo.temp.path().join("recovered");
+    assert_success(
+        &support::groove_in(&repo.path)
+            .args(["snapshot", "restore", snapshot, "--to"])
+            .arg(&recovered)
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(
+        fs::read(recovered.join("tracked.txt")).unwrap(),
+        b"working\n"
+    );
+    assert_eq!(
+        support::git(&recovered, &["show", ":tracked.txt"]),
+        "staged"
+    );
 }

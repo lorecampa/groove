@@ -111,7 +111,7 @@ impl Pool {
                 .join(", ");
             return Err(Error::new(
                 ErrorCode::WorkspaceInUse,
-                format!("Processes are still using this workspace: {summary}; stop them, or pass --force"),
+                format!("Processes are still using this workspace: {summary}; stop all workspace writers before retrying"),
             )
             .with_details(|d| d.processes = processes));
         }

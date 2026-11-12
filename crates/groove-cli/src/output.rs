@@ -153,8 +153,9 @@ pub fn emit_error(
     request_id: Option<&str>,
     error: &Error,
     terminal: &crate::terminal::Terminal,
+    args: Option<&crate::args::Args>,
 ) -> u8 {
-    let hint = error_hint(error);
+    let hint = error_hint(error, args);
     let mut message = format!("error: {} ({})\n", error.message, error.code);
     let details = serde_json::to_value(&error.details).unwrap_or_default();
     if details.as_object().is_some_and(|d| !d.is_empty()) {
@@ -163,7 +164,7 @@ pub fn emit_error(
     if error.retryable {
         message.push_str("  This error is retryable.\n");
     }
-    if let Some(hint) = hint {
+    if let Some(hint) = &hint {
         message.push_str(&format!("  Hint: {hint}\n"));
     }
     terminal.write(printable(&message, true).as_bytes());
@@ -187,8 +188,14 @@ pub fn emit_error(
 }
 
 /// Advisory recovery text selected from typed failures, never message matching.
-fn error_hint(error: &Error) -> Option<&'static str> {
-    match error.code {
+fn error_hint(error: &Error, args: Option<&crate::args::Args>) -> Option<String> {
+    let hint = match error.code {
+        ErrorCode::UnsavedChanges if args.is_some_and(|args| matches!(args.command, crate::args::Command::Destroy { .. })) => Some(
+            "Export any wanted residual files from the reported path before deletion, including ignored caches (snapshots exclude them). Then preview `groove destroy --discard-changes --dry-run` and repeat without --dry-run to acknowledge their loss. Released tasks cannot be finished again to save new files.",
+        ),
+        ErrorCode::InvalidLease if error.retryable => Some(
+            "The execution lock may be held by maintenance or a worker. Retry the same operation with the original lease ID after contention clears. Inspect `groove show` with your selector; only stop/recover a managed execution if one is recorded. Never remove locks or protection.",
+        ),
         ErrorCode::PoolExhausted | ErrorCode::AcquireTimeout => Some(
             "Run `groove list --slots` to inspect reservations. Wait for an owner to finish, or retry acquire with `--wait-ms 30000`. Reservations never expire automatically.",
         ),
@@ -214,7 +221,35 @@ fn error_hint(error: &Error) -> Option<&'static str> {
             "Run `groove list --slots` and inspect the reported slot failures. Resolve the underlying filesystem or Git problem before retrying; never remove lock or protection files to force reuse.",
         ),
         _ => None,
-    }
+    }?;
+    // Keep global selection flags inside each suggested command so copying it
+    // cannot silently initialize or inspect a different pool/repository.
+    let Some(args) = args else {
+        return Some(hint.to_owned());
+    };
+    let pool = args.pool.clone().unwrap_or_default();
+    let selection = format!(
+        " --pool {} --repo {}",
+        pool.as_str(),
+        shell_words::quote(&args.repo.to_string_lossy())
+    );
+    Some(
+        hint.split('`')
+            .enumerate()
+            .map(|(index, part)| {
+                let part = if index % 2 == 1 && part.starts_with("groove ") {
+                    format!("{part}{selection}")
+                } else {
+                    part.to_owned()
+                };
+                if index == 0 {
+                    part
+                } else {
+                    format!("`{part}")
+                }
+            })
+            .collect(),
+    )
 }
 
 /// Print help or version: JSON `{text}` in JSON mode, plain text otherwise.

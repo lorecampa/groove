@@ -331,13 +331,20 @@ impl Project {
             }
             let mut names = std::collections::BTreeSet::new();
             for step in &recipe.steps {
-                if !valid_name(&step.name)
-                    || !names.insert(&step.name)
-                    || !command_valid(&step.command)
-                {
-                    return Err(invalid(
-                        "Setup steps need unique names and nonempty direct argv",
-                    ));
+                if !valid_name(&step.name) {
+                    return Err(invalid(format!(
+                        "Setup profile {name:?}, step {:?}: name must contain 1–64 ASCII letters, digits, underscores or hyphens",
+                        step.name
+                    )));
+                }
+                if !names.insert(&step.name) {
+                    return Err(invalid(format!(
+                        "Setup profile {name:?}: duplicate step name {:?}",
+                        step.name
+                    )));
+                }
+                if !command_valid(&step.command) {
+                    return Err(invalid(format!("Setup profile {name:?}, step {:?}: command must be nonempty direct argv with a nonempty executable, at most 1024 arguments, and no NUL or argument over 1 MiB", step.name)));
                 }
                 if step.when == StepWhen::CacheMiss && recipe.cache.is_none() {
                     return Err(invalid("cache_miss steps need an associated cache"));

@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Fixed
+
+- Execution-lock contention from log/history maintenance now reports retryable
+  `INVALID_LEASE` without claiming a worker is active. Finish retries preserve
+  saved snapshots and staged/working files; no protection is bypassed.
+- Recovery hints keep repository/pool selection, and pool destruction explains
+  exporting residual ignored artifacts instead of finishing released tasks.
+- Setup validation identifies invalid/duplicate step names and invalid argv in
+  their profile. Failed worker spawns include executable, checkout, lease and
+  history run identifiers while retaining their I/O source.
+- Unborn snapshot recovery keeps the original initial branch name. Snapshot and
+  execution guidance now explicitly describes special-file exclusions and
+  removal of all inherited `GIT_*`/`GROOVE_*` variables.
+
+### Added
+
+- Optional `--limit` and `--offset` windows for history and snapshot listings;
+  omitted limits preserve complete output and the existing response shapes.
+- CLI version output includes its build source revision, taken from the source
+  checkout, Cargo archive metadata or `GROOVE_BUILD_REVISION`; unknown provenance
+  is explicit when source metadata is unavailable.
+
 ## [0.1.0] - 2026-11-12
 
 Initial Linux/macOS alpha. These notes describe the current product; unpublished

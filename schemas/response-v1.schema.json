@@ -234,6 +234,8 @@
         "details": {
           "type": "object",
           "properties": {
+            "program": {"type": "string"},
+            "run_id": {"type": "string", "format": "uuid"},
             "path": {
               "type": "string"
             },

@@ -11,12 +11,13 @@ pub fn history(
     context: &Context<'_>,
     task: Option<String>,
     lease_id: Option<LeaseId>,
+    page: &crate::args::PageArgs,
     command: Option<&HistoryCommand>,
 ) -> Result<Output> {
     let pool = context.retained_pool()?;
     match command {
         None => {
-            let runs = pool.history(&HistoryFilter { task, lease_id })?;
+            let runs = page.apply(pool.history(&HistoryFilter { task, lease_id })?);
             if runs.is_empty() {
                 Output::text(json!({"runs": runs}), "No execution history matches.\n")
             } else {
