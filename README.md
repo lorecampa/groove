@@ -11,6 +11,14 @@ Groove gives each task its own checkout from a bounded pool. Reserve a workspace
 run commands, and save the result before returning it. Reservations survive shell
 exits and crashes until you explicitly release them. No daemon is required.
 
+For example, a coordinator handling 20 independent fixes can use a pool of four
+workspaces. It assigns tasks to available slots, waits or retries when the pool
+is full, and saves each result before returning the slot for another task.
+
+Your agent runner handles task scheduling, agent communication and result
+integration. Groove handles workspace allocation, reuse and recovery. Capacity
+bounds reserved workspaces; the runner controls agent concurrency and resource use.
+
 ## Install
 
 Requires Linux or macOS 13+, Git 2.40+ and local storage (APFS on macOS).
@@ -30,8 +38,15 @@ Give your agent this prompt:
 > Install Groove for this agent by following
 > https://github.com/lorecampa/groove/blob/main/docs/install.md
 
-Then ask: “Use Groove for this task.” See the [portable skill](skills/groove/SKILL.md)
-for assignments and handoff.
+The guide installs the CLI and the [Groove skill](skills/groove/SKILL.md) for your
+agent. In agents that expose skills as slash commands, invoke it with `/groove`.
+Then give it a task, for example:
+
+> Use the Groove skill for [describe independent tasks]. Reuse the existing pool;
+> if none exists, initialize one with capacity 4. As coordinator, reserve a
+> workspace for each independent task and pass its reservation to the assigned
+> worker. Workers reuse their assigned reservation. Stop the workers and save
+> each result before releasing its reservation.
 
 ## Use a workspace
 
