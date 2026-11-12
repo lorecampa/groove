@@ -7,6 +7,24 @@ development experiments are omitted.
 
 ### Added
 
+- Hosted CI runs only on deliberate manual dispatch or release invocation while
+  GitHub compute is unavailable; routine pushes, pull requests and schedules do
+  not consume runners. Required local checks remain in place.
+
+- Agent-readable CLI/skill installation, scope, update and removal guidance;
+  a prompt-based README entry point without a custom integration installer.
+  The portable skill distinguishes coordinators from assigned workers and bundles
+  focused recovery/project references, with observable evaluation scenarios.
+- GitHub releases independent of optional crates.io publication, draft-only
+  candidate/manual rehearsals, byte-verified uploads and retries that preserve
+  existing assets. Release notes include tag-pinned Cargo installation and platform
+  downloads. A private-to-public launch checklist documents external prerequisites.
+
+### Fixed
+
+- Package verification builds extracted sources with fresh compiler outputs;
+  earlier archives at the same version cannot supply stale library artifacts.
+
 - Versioned `workspace-multi-pool` and `workspace-deletion` benchmark profiles,
   covering cross-pool throughput, lazy/populated/dirty/external-cache removal,
   retained results/locks and unaffected sibling reservations. Reports validate

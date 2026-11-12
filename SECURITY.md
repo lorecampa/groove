@@ -16,5 +16,6 @@ proofs of concept, secrets or affected private data in that public request.
 
 In the private report, include the Git/Rust/kernel versions, filesystem, affected
 command and a reproduction using a disposable repository. Maintainers should
-enable and verify private vulnerability reporting before the public launch; the
-presence of this policy does not enable the GitHub setting.
+prepare the reporting policy while private, then enable and verify private
+vulnerability reporting when the repository becomes public. The presence of this
+policy does not enable the GitHub setting. See the [launch checklist](docs/launch.md).

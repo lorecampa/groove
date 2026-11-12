@@ -2,6 +2,8 @@
 
 Reusable Git worktrees for parallel coding tasks.
 
+**Linux/macOS alpha.** Interfaces and storage formats are still evolving.
+
 Groove gives each task its own checkout from a bounded pool. Reserve a workspace,
 run commands, and save the result before returning it. Reservations survive shell
 exits and crashes until you explicitly finish or release them. No daemon is required.
@@ -16,7 +18,23 @@ cargo install --git https://github.com/lorecampa/groove --locked groove-cli
 ```
 
 The package is `groove-cli`; the installed command is `groove`.
-See [releases](docs/releasing.md) for versioned packages and binary distribution.
+This installs the development revision; crates.io publication is deferred.
+See [installation](docs/install.md) for release-pinned installation, updates and
+native binary downloads.
+
+## Set up your coding agent
+
+Give your agent this prompt:
+
+> Read https://github.com/lorecampa/groove/blob/main/docs/install.md and install
+> Groove and its complete agent skill for this harness at user scope. Preserve
+> existing configuration, verify the CLI and skill discovery, and report any
+> remaining steps. Do not initialize project pools as part of installation.
+
+The guide covers Codex, Claude Code and other Agent Skills harnesses. While the
+repository is private, use authenticated access or point the agent at a local
+checkout's `docs/install.md`. Then ask: “Use Groove for this task and preserve
+the result.” See [agent workflows](docs/agents.md) for assignments and handoff.
 
 ## Use a workspace
 

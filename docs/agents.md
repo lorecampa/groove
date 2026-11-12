@@ -6,10 +6,25 @@ or extra registration is required.
 
 ## Teach the workflow
 
-Copy the [portable skill](../skills/groove/SKILL.md) into your agent's supported
-skill directory, or use its contents as project instructions. For example, a
-Codex installation using the default home can load it from
-`~/.codex/skills/groove/SKILL.md`. Restart the agent if needed for discovery.
+Ask your agent to follow the [installation guide](install.md). It installs the
+CLI and the entire [portable skill](../skills/groove/SKILL.md), including its
+references, in the harness's supported discovery directory. The guide explains
+user/project scopes, verification, updates and removal. No native agent plugin
+or Groove-specific installer command is required.
+
+The skill teaches the procedure; project instructions decide when it is required.
+For a repository that uses Groove, add a short policy to the harness's project
+instruction file (for example AGENTS.md, or CLAUDE.md for Claude Code):
+
+> Use the Groove skill for coding task workspaces in this repository. Workers
+> already assigned a Groove reservation use that assignment and hand results
+> back; the coordinator owns acquisition and finalization.
+
+Keep the detailed lifecycle in the skill instead of maintaining copies in every
+instruction file. Review and commit project instructions/skills before acquiring
+from that commit if workers need them; uncommitted files do not automatically
+propagate into acquired checkouts. Installing a user skill does not require its
+use in every repository.
 
 A task prompt can simply say: “Use Groove for this task; preserve the result
 before returning the workspace.” Set `GROOVE_OUTPUT=json` in the agent's
@@ -17,6 +32,15 @@ environment so every response is one JSON object (help included, in
 `result.text`). Without it, output is human-readable text.
 
 ## Acquire and work
+
+First distinguish the coordinator from an assigned worker. The coordinator
+acquires, delegates, waits for writers to stop and eventually finishes. A worker
+with a supplied pool/lease/path stays in that reservation and returns results
+without acquiring another slot or releasing the coordinator's reservation.
+Managed workers receive `GROOVE_LEASE_ID`, `GROOVE_POOL`, `GROOVE_WORKTREE` and
+`GROOVE_TASK` as context; these values alone do not grant ownership. Confirm the
+assignment and inspect it before working. If the harness cannot safely direct
+all edits to the returned checkout, relaunch/handoff there before making changes.
 
 Omitting `--pool` always selects `default`. If a task names a workflow pool,
 carry `--pool NAME` alongside its lease ID/task label on every pool command,
@@ -42,10 +66,17 @@ and configuration affect other worktrees.
 
 Use `groove exec --task issue-42 -- cargo test` for managed commands. It
 captures logs, supports deadlines and cancellation, and rejects release while
-running. Ordinary terminal commands also work, but their writers remain your
+running. A worker already inside managed execution runs commands directly rather
+than nesting another `exec` on the same reservation. Ordinary terminal commands
+also work, but their writers remain your
 responsibility. See [execution](execution.md) for descendant and crash boundaries.
 
 ## Preserve and finish
+
+Assigned workers stop their writers and hand results back without finalizing.
+The coordinator waits for their managed execution to end before finishing.
+Keep the reservation instead if review needs a live checkout, and report that
+state. Move coordinator terminals outside the slot before finalization.
 
 After all workers, tests, watchers and dev servers stop:
 

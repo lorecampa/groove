@@ -1,12 +1,14 @@
 name: CI
+# No automatic runner usage while hosted compute is unavailable. Keep the matrix
+# available for deliberate manual runs and explicitly requested releases.
 on:
-  push:
-    branches: ['**']
-  pull_request:
   workflow_call:
+    inputs:
+      release_ref:
+        description: 'Exact release tag to check during a release rehearsal'
+        required: false
+        type: string
   workflow_dispatch:
-  schedule:
-    - cron: '23 3 * * *'
 permissions:
   contents: read
 jobs:
@@ -16,6 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: ${{ inputs.release_ref || github.ref }}
           persist-credentials: false
       - name: Infrastructure regression tests
         run: cargo test --package groove-release --locked
@@ -38,6 +41,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: ${{ inputs.release_ref || github.ref }}
           persist-credentials: false
       - name: Install Rust
         run: |
@@ -95,7 +99,7 @@ jobs:
           "$RUNNER_TEMP/package/bin/groove" --repo "$fixture" init --capacity 2
           cargo run -p groove-core --example agent -- "$fixture" HEAD
       - name: Extended seeded workload
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch'
         env:
           GIT_CONFIG_GLOBAL: /dev/null
           GIT_CONFIG_NOSYSTEM: '1'
@@ -123,6 +127,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: ${{ inputs.release_ref || github.ref }}
           persist-credentials: false
           set-safe-directory: false
       - name: Install Rust
@@ -173,6 +178,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: ${{ inputs.release_ref || github.ref }}
           persist-credentials: false
       - run: rustup toolchain install stable --profile minimal
       - run: cargo +stable install cargo-audit --version 0.22.2 --locked

@@ -92,10 +92,13 @@ impl Release {
         release: bool,
     ) -> Result<()> {
         let version = self.validate(None, None)?;
-        let build = self.root.join("target/package-check");
         let scratch = tempfile::Builder::new()
             .prefix("groove-packages-")
             .tempdir()?;
+        // Each extracted source tree needs a fresh target directory. Cargo can
+        // otherwise reuse artifacts from a prior temporary tree at the same
+        // version (including libraries built from older package contents).
+        let build = scratch.path().join("build");
         let mut package_patch = Vec::new();
         let mut build_patch = Vec::new();
         for name in PACKAGES {
@@ -148,12 +151,21 @@ impl Release {
                 build_patch = args!["--config", patch(&package)];
             }
         }
-        self.smoke(
-            &build
-                .join(target.unwrap_or_default())
-                .join(if release { "release" } else { "debug" }),
-            &version,
-        )
+        let profile = if release { "release" } else { "debug" };
+        let binaries = build.join(target.unwrap_or_default()).join(profile);
+        self.smoke(&binaries, &version)?;
+        // Expose only smoke-tested executables at the documented bundle path;
+        // all compiler outputs and extracted sources remain invocation-local.
+        let output = self
+            .root
+            .join("target/package-check")
+            .join(target.unwrap_or_default())
+            .join(profile);
+        fs::create_dir_all(&output)?;
+        for name in BINARIES {
+            fs::copy(binaries.join(name), output.join(name))?;
+        }
+        Ok(())
     }
 
     pub(crate) fn bundle_archive(

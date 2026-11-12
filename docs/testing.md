@@ -159,8 +159,12 @@ RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked
 ```
 
 Use default test scheduling; serial-only success does not establish concurrent
-correctness. CI also tests current stable, minimum Git and installed production
-binaries. Checked-in workflows are not evidence that remote CI has run.
+correctness. Automatic push, pull-request and scheduled GitHub CI runs are
+disabled while hosted compute is unavailable. Run `bash scripts/check.sh push`
+locally before pushing. CI remains available through deliberate manual dispatch
+and explicit release runs; it also tests current stable, minimum Git and
+installed production binaries. Those runs require available hosted compute.
+Checked-in workflows are not evidence that remote CI has run.
 
 The macOS matrix uses native Apple Silicon and Intel runners on macOS 15 with
 Rust 1.89 and stable. It runs the same full suite with default scheduling, APFS
@@ -192,6 +196,14 @@ These runners do not establish behavior on the minimum macOS 13 release.
 | CLI contracts for deleted cwd/checkouts, label reuse/escaping and undeliverable responses | `cargo test -p groove-cli --test edge_cases --locked` |
 | Package/release tooling | `cargo test -p groove-release --locked` |
 | Named benchmark profiles, scale and tooling | [CLI benchmark lab](../benchmarks/snapshots/README.md) |
+
+GitHub release-helper regressions run a local `gh` peer with Bash and `jq`; they
+never contact GitHub or publish. They cover partial drafts, published-release
+immutability, failed authentication/uploads and downloaded-byte verification.
+Run `mise exec go:github.com/rhysd/actionlint/cmd/actionlint@1.7.12 -- actionlint`
+to check workflow syntax when mise/actionlint are available. Agent trials are a
+separate manual check described in [skill evaluations](skill-evaluations.md);
+the Rust suite does not invoke a paid agent service or prove skill discovery.
 
 Layout tests that need newer Git (reftable 2.45, relative worktree links 2.48)
 print a skip note and return early on the minimum-Git CI job; the current-Git job
