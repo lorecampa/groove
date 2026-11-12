@@ -10,15 +10,14 @@ Requires the installed CLI, Git 2.40+ and Linux or macOS with supported local
 storage. Use the terminal; this skill does not provide an MCP server.
 
 Use `groove --json` for machine-readable command responses and keep stderr
-separate from stdout. Before first using a command, read `groove COMMAND --help`,
-including any subcommand (for example `groove snapshot restore --help`). Help
+separate from stdout. Before first using a command, read
+`groove --json COMMAND --help`, including any subcommand (for example
+`groove --json snapshot restore --help`). The JSON response stores the help
+screen in `result.text`: the `text` string inside the `result` object. This help
 defines command syntax and its JSON output contract: result fields and types,
 errors and exit statuses. Use that installed contract to parse JSON responses.
 Check both the exit status and `ok` before reading `result`; managed commands
 can return `ok:true` with a nonzero worker status.
-
-Help displays the contract directly. `--json` is optional for help and wraps
-the help text in `result.text`.
 
 Installing this skill does not require Groove for every repository or authorize
 pushing, merging, discarding work or changing repository policy.
