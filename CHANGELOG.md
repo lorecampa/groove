@@ -50,6 +50,10 @@ development experiments are omitted.
 
 ### Correctness and validation
 
+- Capacity growth reuses retired slots after deletion and smaller reinitialization,
+  preserving permanent locks, request keys, finish receipts and history. Growth
+  uses bounded descriptors and still rejects live owners, protection and unsafe
+  unpublished state; crash retries preserve active reservations.
 - Command help describes named-pool checkout roots and reinitialization. Agent
   guidance carries pool selection and the original lease ID through retries;
   user guides defer command options and defaults to CLI help.

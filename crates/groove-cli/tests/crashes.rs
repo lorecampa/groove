@@ -651,16 +651,47 @@ fn snapshot_recovery_serializes_new_namespace_claims_until_materialization_finis
 
 #[test]
 fn pool_growth_crash_boundaries_preserve_reservations_and_lock_inodes() {
-    for name in ["pool-slot-added", "before-pool-update", "pool-updated"] {
+    if !support::in_subprocess("pool_growth_crash_boundaries_preserve_reservations_and_lock_inodes")
+    {
+        return;
+    }
+    for (name, reinitialized) in [
+        "metadata-synced",
+        "metadata-renamed",
+        "pool-slot-added",
+        "before-pool-update",
+        "pool-updated",
+    ]
+    .into_iter()
+    .flat_map(|name| [(name, false), (name, true)])
+    {
         let r = Repo::new();
         Pool::init(
             &r.path,
             PoolOptions {
-                capacity: 1,
+                capacity: if reinitialized { 2 } else { 1 },
                 ..Default::default()
             },
         )
         .unwrap();
+        if reinitialized {
+            let old = Pool::open(&r.path).unwrap();
+            let leases = [
+                old.acquire(Default::default()).unwrap(),
+                old.acquire(Default::default()).unwrap(),
+            ];
+            drop(leases);
+            Pool::destroy(&r.path, Default::default()).unwrap();
+            Pool::init(
+                &r.path,
+                PoolOptions {
+                    capacity: 1,
+                    worktree_root: Some(r.temp.path().join("replacement-root")),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        }
         let pool = Pool::open(&r.path).unwrap();
         let lease = pool.reserve(Default::default()).unwrap();
         std::fs::write(
@@ -676,6 +707,14 @@ fn pool_growth_crash_boundaries_preserve_reservations_and_lock_inodes() {
             &["config", "set", "--capacity", "3", "--cleanup", "warm"],
         );
         kill_at_checkpoint(&mut command, listener, name);
+        let new_locks: Vec<_> = ["wt-0002.lock", "wt-0002.execution.lock"]
+            .into_iter()
+            .map(|name| {
+                let path = r.state().join("locks").join(name);
+                let inode = std::fs::metadata(&path).unwrap().ino();
+                (path, inode)
+            })
+            .collect();
         assert_eq!(
             pool.settings().unwrap().capacity,
             if name == "pool-updated" { 3 } else { 1 }
@@ -692,6 +731,9 @@ fn pool_growth_crash_boundaries_preserve_reservations_and_lock_inodes() {
             b"protected result\n"
         );
         assert_eq!(std::fs::metadata(&lock).unwrap().ino(), inode);
+        for (path, inode) in new_locks {
+            assert_eq!(std::fs::metadata(path).unwrap().ino(), inode);
+        }
         let one = pool.acquire(Default::default()).unwrap();
         let two = pool.acquire(Default::default()).unwrap();
         assert_ne!(one.info().slot_id, two.info().slot_id);

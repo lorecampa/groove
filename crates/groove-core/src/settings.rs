@@ -41,13 +41,16 @@ impl Pool {
     ///
     /// Existing reservations, writers and permanent lock files are preserved.
     /// A crash before manifest publication leaves the old settings usable; retrying
-    /// adopts only validated empty new-slot infrastructure. In-flight acquisitions
-    /// may finish with their previously observed policy; current handles refresh on
-    /// acquisition and inspection.
+    /// adopts only validated empty or retired-slot infrastructure. Retired diagnostic
+    /// records are reset after ownership/protection checks; history and receipts remain.
+    /// Descriptor use is bounded independently of the requested capacity.
+    /// In-flight acquisitions may finish with their previously observed policy;
+    /// current handles refresh on acquisition and inspection.
     ///
     /// # Errors
     /// Rejects shrinking, invalid capacity/timeouts,
-    /// unsafe or nonempty unpublished slots, changed identities and I/O failures.
+    /// unsafe or unrecognized unpublished state, protected/busy retired slots,
+    /// changed identities and I/O failures.
     ///
     /// ```no_run
     /// # fn main() -> groove_core::Result<()> {
@@ -75,7 +78,10 @@ impl Pool {
             update.timeout,
         )?;
         let mut current = self.refreshed()?;
-        crate::lifecycle::validate_retired_locks(&self.repo)?;
+        let retired = crate::lifecycle::retired_configs(&self.repo)?;
+        for config in &retired {
+            crate::lifecycle::validate_config_locks(&self.repo, config)?;
+        }
         let capacity = update.capacity.unwrap_or(current.config.capacity);
         let cleanup = update
             .cleanup_policy
@@ -95,7 +101,6 @@ impl Pool {
         // Preserve all existing identities. Unpublished growth creates only empty
         // slot infrastructure; no worktree or existing lease is modified.
         let mut identities = BTreeMap::new();
-        let mut new_guards = Vec::new();
         for i in 1..=capacity {
             let slot = SlotId::new(i)?;
             let new = i > current.config.capacity;
@@ -108,17 +113,37 @@ impl Pool {
                 ));
             }
             file.sync_all()?;
+            let execution = locking::open(&self.repo.execution_lock_path(&slot), new)?;
+            let execution_identity = locking::identity(&execution)?;
+            if !new && current.config.execution_locks.get(&slot) != Some(&execution_identity) {
+                return Err(Error::new(
+                    ErrorCode::ConfigConflict,
+                    "Permanent execution lock identity changed",
+                ));
+            }
+            execution.sync_all()?;
             if new {
                 // Never wait on slot ownership while holding administrative
-                // exclusion. Unpublished slots must be immediately unowned.
-                let slot_guard = SlotGuard::try_lock(&self.repo.lock_path(&slot), Some(identity))?
+                // exclusion. The published manifest excludes these slots, and the
+                // admin guard serializes growth. Old-generation handles cannot
+                // allocate them, so probes need not accumulate until publication.
+                let _slot = SlotGuard::try_lock(&self.repo.lock_path(&slot), Some(identity))?
                     .ok_or_else(|| {
                         Error::new(
                             ErrorCode::ConfigConflict,
                             "Unpublished slot has a live owner",
                         )
                     })?;
-                new_guards.push(slot_guard);
+                let _execution = SlotGuard::try_lock(
+                    &self.repo.execution_lock_path(&slot),
+                    Some(execution_identity),
+                )?
+                .ok_or_else(|| {
+                    Error::new(
+                        ErrorCode::ConfigConflict,
+                        "Unpublished slot has a live execution owner",
+                    )
+                })?;
                 match fs::symlink_metadata(current.config.worktree_root.join(slot.as_str())) {
                     Ok(_) => {
                         return Err(Error::new(
@@ -128,23 +153,6 @@ impl Pool {
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
                     Err(error) => return Err(error.into()),
-                }
-                let path = self.repo.record_path(&slot);
-                crate::repository::no_symlinks(&path)?;
-                if path.try_exists()? {
-                    let record: SlotRecord = state::read(&path)?;
-                    if record.schema_version != state::SCHEMA_VERSION
-                        || record.lease.is_some()
-                        || record.phase != crate::state::SlotPhase::Available
-                        || record.failure.is_some()
-                    {
-                        return Err(Error::new(
-                            ErrorCode::ConfigConflict,
-                            "Unpublished slot metadata is not empty",
-                        ));
-                    }
-                } else {
-                    state::write(&path, &SlotRecord::empty())?;
                 }
                 for path in [
                     current.repo.protection_path(&slot),
@@ -161,16 +169,47 @@ impl Pool {
                         Err(error) => return Err(error.into()),
                     }
                 }
+                let path = self.repo.record_path(&slot);
+                crate::repository::no_symlinks(&path)?;
+                if path.try_exists()? {
+                    let record: SlotRecord = state::read(&path)?;
+                    let was_retired = retired.iter().any(|c| c.slots.contains_key(&slot));
+                    if record.schema_version != state::SCHEMA_VERSION
+                        || record.lease.as_ref().is_some_and(|lease| {
+                            lease.slot_id != slot
+                                || (was_retired
+                                    && !retired.iter().any(|c| {
+                                        c.slots.contains_key(&slot)
+                                            && c.worktree_root.join(slot.as_str())
+                                                == lease.worktree_path
+                                    }))
+                        })
+                    {
+                        return Err(Error::new(
+                            ErrorCode::ConfigConflict,
+                            "Invalid retired or unpublished slot metadata",
+                        )
+                        .with_details(|d| d.path = Some(path)));
+                    }
+                    let empty = record.lease.is_none()
+                        && record.phase == crate::state::SlotPhase::Available
+                        && record.failure.is_none();
+                    if !empty {
+                        if !was_retired {
+                            return Err(Error::new(
+                                ErrorCode::ConfigConflict,
+                                "Unpublished slot metadata is not empty",
+                            ));
+                        }
+                        // A completed deletion archived this slot's original locks.
+                        // Exclusion and absence of protection above permit resetting
+                        // diagnostics; independent receipts/journals/history survive.
+                        state::write(&path, &SlotRecord::empty())?;
+                    }
+                } else {
+                    state::write(&path, &SlotRecord::empty())?;
+                }
             }
-            let execution = locking::open(&self.repo.execution_lock_path(&slot), new)?;
-            let execution_identity = locking::identity(&execution)?;
-            if !new && current.config.execution_locks.get(&slot) != Some(&execution_identity) {
-                return Err(Error::new(
-                    ErrorCode::ConfigConflict,
-                    "Permanent execution lock identity changed",
-                ));
-            }
-            execution.sync_all()?;
             current
                 .config
                 .execution_locks

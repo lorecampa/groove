@@ -123,9 +123,16 @@ writes. Manifests always contain execution-lock identities for every slot.
 
 `init` is create-only; interrupted setup needs an explicit resume with identical
 settings. Growth/settings updates hold administrative exclusion, validate all
-values, preserve existing slot identities and create only empty new-slot
-records/locks. New-slot ownership checks are nonblocking while holding admin
-exclusion; active old slots are never acquired or cleaned. The new capacity/policy
+values and preserve existing slot identities. Brand-new/unpublished slots must
+have empty diagnostic records. A slot retained after completed deletion may have
+old diagnostics; growth validates its archived lock identities and original
+checkout path, excludes slot/execution owners and durable protection, then resets
+only that diagnostic record. Receipts, journals and history stay independent.
+New-slot ownership checks are nonblocking while holding admin exclusion; probes
+close per slot rather than consuming descriptors proportional to capacity. The
+published manifest excludes new slots until publication, and admin exclusion
+serializes growth, so no cooperating allocation can claim them in between.
+Active old slots are never acquired or cleaned. The new capacity/policy
 is published only after infrastructure sync. Interrupted unpublished slots are
 validated and reused on retry. Locks are never unlinked. New checkouts remain
 lazy. Handles refresh the manifest for acquisition scans, reservation lookup and
