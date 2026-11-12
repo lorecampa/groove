@@ -61,6 +61,7 @@ failed invocation. Codes, retryability and exit categories are unchanged.
 
 ```text
 groove [global options] init --capacity N [--cleanup pristine|warm] [--worktree-root PATH] [--resume]
+groove [global options] pools
 groove [global options] destroy [--dry-run] [--discard-changes] [--pool-id UUID]
 groove [global options] acquire [--base REV] [--task LABEL] [--request-key KEY]
        [--wait-ms MS] [--setup PROFILE [--retry] [--cache-source PATH]]
@@ -84,13 +85,39 @@ groove [global options] config global show|path|edit | set KEY=VALUE... | unset 
 SELECTOR = --task LABEL | --lease-id UUID
 ```
 
-Global options (`--repo`, `--json`, `--request-id`, `-v`, `--quiet`, `--git-timeout-ms`) may
+Global options (`--repo`, `--pool`, `--json`, `--request-id`, `-v`, `--quiet`, `--git-timeout-ms`) may
 appear before or after a subcommand. `--repo` defaults to `.` and discovery works
 from subdirectories and linked worktrees. `--request-id` only correlates responses
 and logs. `--git-timeout-ms` is positive, defaults to 120000, and bounds each Git
 operation and administrative/snapshot-lock wait, including discovery and snapshots
 taken by `finish`. Snapshot-lock timeout keeps the existing `INVALID_ARGUMENT`
 code, exit 2 and `retryable:true`; it never releases a task reservation.
+
+### Selecting a pool
+
+`--pool NAME` selects one namespace. Omission always means `default`, including
+from a named pool's checkout; cwd and environment never choose a different pool.
+Names match `[a-z][a-z0-9_-]{0,63}`. Missing names return `NOT_INITIALIZED`; a
+lease UUID or task label is never searched in other namespaces. Names and UUIDs
+do not confer ownership. All linked/bare checkouts share the same catalog.
+
+`pools` returns all recorded namespaces sorted by name, including initializing,
+deleting and retained deleted pools. Each entry has `name`, nullable `pool_id`,
+`phase`, `state_dir`, nullable `capacity`, `cleanup_policy` and `worktree_root`.
+It is a nontransactional, read-only observation and creates no pool storage.
+
+Capacity/settings, slots, labels, request keys/tombstones, setup/cache data,
+history/logs and finish receipts are pool-scoped. The same label or key can be
+used independently in different pools. The original default layout and its keys
+are unchanged; named state lives in `<common>/groove/pools/<name>/`. Checkout-root
+claims cannot overlap other pools, including pending and retained deleted pools.
+
+Snapshots, Git refs/objects/configuration and global CLI preferences remain shared.
+`--pool` does not filter snapshot commands or global configuration. Snapshot commands
+use the checkout given by `--repo`; managed-checkout services acquire that checkout's
+actual pool admission regardless of CLI selection. Recovery destinations must stay
+outside every pool root. Worker environment includes verified `GROOVE_POOL`; slot
+numbers and project-derived ports remain pool-local, without automatic port isolation.
 
 ### Selecting a reservation
 
@@ -123,7 +150,7 @@ On any failure before the reservation is published, no slot remains reserved.
 
 With `--request-key`, repeating the same key, base and task returns the
 same reservation, even after a restart or a crash between protection and
-journaling. Keys are repository-scoped, 1..128 bytes and never expire; changed
+journaling. Keys are scoped to the selected pool, 1..128 bytes and never expire; changed
 inputs and completed keys are rejected. Without a key, inspect `list` before
 retrying. Task labels are 1..256 bytes and never prove ownership.
 
@@ -170,6 +197,10 @@ inactive slots and includes the caller/ancestors. Run it from outside the pool.
 Residual changes, untracked/ignored files and broken checkouts require explicit
 `--discard-changes`; warm policy does not preserve ignored files during deletion.
 Path, ownership and process checks cannot be overridden.
+Omission of `--pool` targets default and refuses with `INVALID_ARGUMENT` when
+several non-deleted pools exist; use an explicit name (including `--pool default`).
+The ambiguity check is serialized with pool creation. `--pool-id` checks only the
+generation within that selected namespace and never selects another pool.
 Without discard, HEAD must be reachable from a repository ref (a branch, tag or
 snapshot suffices); hidden index flags and interrupted Git operations also refuse
 removal. Inspection is bounded and fails closed, including for oversized Git output.
@@ -219,8 +250,9 @@ part of the verified baseline and a rebuild can discard them.
 
 | Command | `result` |
 | --- | --- |
-| init | `created`, `common_git_dir`, `state_dir`, `capacity`, `slots`, `cleanup_policy`, `worktree_root` |
-| destroy | `destruction` (`pool_id`, `dry_run`, `deleted`, `already_deleted`, `resumed`, `state_dir`, `worktree_root`, `slots`, `artifacts`) |
+| init | `pool_name`, `created`, `common_git_dir`, `state_dir`, `capacity`, `slots`, `cleanup_policy`, `worktree_root` |
+| pools | `pools` (catalog entries described above) |
+| destroy | `destruction` (`pool_name`, `pool_id`, `dry_run`, `deleted`, `already_deleted`, `resumed`, `state_dir`, `worktree_root`, `slots`, `artifacts`) |
 | acquire | lease fields (below); plus `preparation` with `--setup` |
 | exec | `execution` (below), or `preparation` with `--setup` |
 | stop | `stop_requested` (execution record) or `preparation_stop_requested` |
@@ -238,7 +270,7 @@ part of the verified baseline and a rebuild can discard them.
 | snapshot list / diff | `snapshots` / `patch` |
 | snapshot restore | `path`, `snapshot_id`, `safety_snapshot_id` |
 | snapshot delete | `deleted` |
-| config show / set | `pool`; `set` adds `updated` |
+| config show / set | `pool` (including `pool_name`); `set` adds `updated` |
 | config project | `project_path`, `project`, `fingerprint`; `--example` returns `text` |
 | config global | `config_path`; `show` adds `config`, `environment_overrides`; writes add `updated` |
 

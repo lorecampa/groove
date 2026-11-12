@@ -9,21 +9,51 @@ use groove_core::{LeaseInfo, Pool, PoolInspection, PoolOptions, Result, SlotId, 
 use serde_json::json;
 use std::path::PathBuf;
 
+pub fn pools(context: &Context<'_>) -> Result<Output> {
+    let pools = Pool::list_pools(context.repo, context.git_timeout)?;
+    let rows: Vec<Vec<String>> = pools
+        .iter()
+        .map(|p| {
+            vec![
+                p.name.to_string(),
+                match p.phase {
+                    groove_core::PoolPhase::Initializing => "initializing",
+                    groove_core::PoolPhase::Ready => "ready",
+                    groove_core::PoolPhase::Deleting => "deleting",
+                    groove_core::PoolPhase::Deleted => "deleted",
+                }
+                .into(),
+                p.capacity.map_or_else(|| "-".into(), |n| n.to_string()),
+                p.worktree_root
+                    .as_ref()
+                    .map_or_else(|| "-".into(), |r| r.display().to_string()),
+            ]
+        })
+        .collect();
+    let text = if rows.is_empty() {
+        "No pools initialized.\n".into()
+    } else {
+        table(&["POOL", "STATE", "CAPACITY", "CHECKOUT ROOT"], &rows)
+    };
+    Output::text(json!({"pools": pools}), text)
+}
+
 pub fn destroy(
     context: &Context<'_>,
     dry_run: bool,
     discard_changes: bool,
     pool_id: Option<groove_core::PoolId>,
 ) -> Result<Output> {
-    let result = Pool::destroy(
-        context.repo,
-        groove_core::DestroyOptions {
-            dry_run,
-            discard_changes,
-            pool_id,
-            git_timeout: context.git_timeout,
-        },
-    )?;
+    let options = groove_core::DestroyOptions {
+        dry_run,
+        discard_changes,
+        pool_id,
+        git_timeout: context.git_timeout,
+    };
+    let result = match context.selected_pool {
+        Some(name) => Pool::destroy_named(context.repo, name, options)?,
+        None => Pool::destroy(context.repo, options)?,
+    };
     let mut text = if result.already_deleted {
         "Pool is already deleted.\n".to_owned()
     } else {
@@ -34,6 +64,7 @@ pub fn destroy(
             result.artifacts.len()
         )
     };
+    text.push_str(&format!("Pool: {}\n", result.pool_name));
     text.push_str(&format!(
         "Retained locks, history, receipts and snapshots; state: {}\n",
         result.state_dir.display()
@@ -51,8 +82,9 @@ pub fn init(
     worktree_root: Option<PathBuf>,
     resume: bool,
 ) -> Result<Output> {
-    let result = Pool::init(
+    let result = Pool::init_named(
         context.repo,
+        &context.pool_name(),
         PoolOptions {
             resume,
             capacity,
@@ -61,9 +93,16 @@ pub fn init(
             git_timeout: context.git_timeout,
         },
     )?;
+    let heading = if result.pool_name == groove_core::PoolName::default() {
+        format!("Initialized a pool of {} slots.", result.capacity)
+    } else {
+        format!(
+            "Initialized pool '{}' with {} slots.",
+            result.pool_name, result.capacity
+        )
+    };
     let text = format!(
-        "Initialized a pool of {} slots.\n  checkouts: {}\n  state:     {}\n",
-        result.capacity,
+        "{heading}\n  checkouts: {}\n  state:     {}\n",
         result.worktree_root.display(),
         result.state_dir.display()
     );

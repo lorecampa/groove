@@ -1,0 +1,25 @@
+EXAMPLES:
+  groove pools
+  groove --pool frontend init --capacity 3 --cleanup warm
+  groove --pool backend init --capacity 2 --cleanup pristine
+  groove --pool frontend acquire --task fix-navigation
+  groove --pool frontend destroy --dry-run
+
+Omitting --pool selects default; it never selects a different available pool.
+Names are 1..64 lowercase ASCII letters, digits, '_' or '-', starting with a
+letter. Pool names are portable across case-sensitive and case-insensitive disks.
+All linked worktrees share this catalog. Interrupted and deleted pools remain
+listed so their recovery state and retained history can be found.
+
+Capacity, cleanup, checkout roots, task labels, request keys, caches, history and
+finish receipts are scoped to each pool. Keys stay tombstoned across reinit of
+that same pool. Snapshots, branches, Git objects and repository configuration are
+shared. Pools are not security sandboxes; slot numbers and derived project ports
+are pool-local. Managed commands receive GROOVE_POOL for explicit workflow use.
+
+Destroy requires an explicit --pool NAME when several non-deleted pools exist.
+--pool-id checks a generation inside that namespace; it does not select a pool.
+The original default pool keeps its existing directory and permanent locks.
+Named pools live beneath <GIT_COMMON_DIR>/groove/pools/<name>/; their checkout
+roots must not overlap another pool's published or pending root. Deleted pools
+retain their current root claim until reinitialized with another root.

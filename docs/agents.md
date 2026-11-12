@@ -1,7 +1,7 @@
 # Using Groove with an agent
 
 Install the [CLI](../README.md#install) once per machine. Each repository has its
-own pool, shared by linked worktrees through Git's common directory. No daemon
+own pool catalog, shared by linked worktrees through Git's common directory. No daemon
 or extra registration is required.
 
 ## Teach the workflow
@@ -17,6 +17,13 @@ environment so every response is one JSON object (help included, in
 `result.text`). Without it, output is human-readable text.
 
 ## Acquire and work
+
+Omitting `--pool` always selects `default`. If a task names a workflow pool,
+carry `--pool NAME` alongside its lease ID/task label on every pool command,
+including retries, stop/recover, history and finish. Inspect `groove pools` when
+needed; never select another pool to bypass contention. Labels/keys are pool-local,
+but snapshots, branches and configuration remain shared. The managed worker
+environment exposes `GROOVE_POOL`; the CLI does not infer selection from it or cwd.
 
 ```sh
 export GROOVE_OUTPUT=json
@@ -62,7 +69,7 @@ workspace contents. Never use a released path.
 Use a new request key for each logical task. After a lost acquire response, retry
 the **same key, base and task**, including after a restart; Groove
 returns the original reservation even if the base branch moved. Changed inputs and
-completed keys are rejected. Keys do not expire and are repository-scoped.
+completed keys are rejected. Keys do not expire and are scoped to the selected pool.
 `--request-id` is separate correlation metadata.
 
 Without a key, inspect `groove list` and establish ownership before acquiring
@@ -81,7 +88,7 @@ release responses can be retried until the slot is reassigned; stale IDs cannot
 release a successor. `finish` keeps a durable receipt that survives reassignment.
 
 If saving results or stopping writers fails, keep the reservation and report what
-needs recovery. Use one Groove version per live pool.
+needs recovery. Use one Groove version across the repository's pools.
 
 ## Project readiness and agent adapters
 

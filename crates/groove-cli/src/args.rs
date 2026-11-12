@@ -1,7 +1,7 @@
 //! Command-line grammar. Every command and option carries help; long help lives in `help/`.
 
 use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
-use groove_core::{LeaseId, PoolId, RunId, SlotId};
+use groove_core::{LeaseId, PoolId, PoolName, RunId, SlotId};
 use std::{ffi::OsString, path::PathBuf};
 
 macro_rules! help {
@@ -24,6 +24,9 @@ pub struct Args {
     /// Repository path; discovery also works from subdirectories and linked worktrees.
     #[arg(long, global = true, default_value = ".")]
     pub repo: PathBuf,
+    /// Pool namespace (default: default). Use an explicit name for destroy when several pools exist.
+    #[arg(long, global = true)]
+    pub pool: Option<PoolName>,
     /// Print one versioned JSON object on stdout instead of text (or set GROOVE_OUTPUT=json).
     #[arg(long, global = true)]
     pub json: bool,
@@ -88,6 +91,9 @@ impl From<Cleanup> for groove_core::CleanupPolicy {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// List all repository pools, including interrupted and retained deleted pools.
+    #[command(after_help = help!("pools"))]
+    Pools,
     /// Delete an idle pool's checkouts and caches, retaining snapshots and history.
     #[command(after_help = help!("destroy"))]
     Destroy {
@@ -434,6 +440,7 @@ impl Command {
     /// Stable command name for logs.
     pub fn name(&self) -> &'static str {
         match self {
+            Self::Pools => "pools",
             Self::Destroy { .. } => "destroy",
             Self::Init { .. } => "init",
             Self::Acquire { .. } => "acquire",

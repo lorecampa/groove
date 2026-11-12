@@ -7,6 +7,11 @@ development experiments are omitted.
 
 ### Added
 
+- Named pools selected with `--pool NAME`, a `pools` catalog, independent capacity,
+  cleanup, checkout roots, task labels, request keys, caches and retained history.
+  The default pool keeps its layout and keys. Repository-wide coordination rejects
+  overlapping checkout roots; deletion requires an explicit selection when several
+  pools exist. Snapshots/branches stay shared and managed commands get `GROOVE_POOL`.
 - Explicit idle-pool deletion with `destroy`, read-only previews, narrowly scoped
   `--discard-changes`, generation preconditions and crash-safe retries. Permanent
   locks, request tombstones, finish receipts, execution history/logs, branches and

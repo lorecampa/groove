@@ -1,5 +1,28 @@
 {
   "$defs": {
+    "pool_name": {"type": "string", "pattern": "^[a-z][a-z0-9_-]{0,63}$"},
+    "pools_result": {
+      "type": "object",
+      "required": ["pools"],
+      "properties": {
+        "pools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "pool_id", "phase", "state_dir", "capacity", "cleanup_policy", "worktree_root"],
+            "properties": {
+              "name": {"$ref": "#/$defs/pool_name"},
+              "pool_id": {"anyOf": [{"$ref": "#/$defs/uuid"}, {"type": "null"}]},
+              "phase": {"enum": ["initializing", "ready", "deleting", "deleted"]},
+              "state_dir": {"type": "string", "pattern": "^/"},
+              "capacity": {"type": ["integer", "null"], "minimum": 1, "maximum": 4096},
+              "cleanup_policy": {"enum": ["pristine", "warm", null]},
+              "worktree_root": {"type": ["string", "null"], "pattern": "^/"}
+            }
+          }
+        }
+      }
+    },
     "destruction_result": {
       "type": "object",
       "required": ["destruction"],
@@ -9,6 +32,7 @@
           "additionalProperties": false,
           "required": ["pool_id", "dry_run", "deleted", "already_deleted", "resumed", "state_dir", "worktree_root", "slots", "artifacts"],
           "properties": {
+            "pool_name": {"$ref": "#/$defs/pool_name"},
             "pool_id": {"anyOf": [{"$ref": "#/$defs/uuid"}, {"type": "null"}]},
             "dry_run": {"type": "boolean"},
             "deleted": {"type": "boolean"},
@@ -470,6 +494,7 @@
     },
     "init": {
       "properties": {
+        "pool_name": {"$ref": "#/$defs/pool_name"},
         "capacity": {
           "maximum": 4096,
           "minimum": 1,
@@ -1008,6 +1033,7 @@
     "pool_settings": {
       "type": "object",
       "properties": {
+        "pool_name": {"$ref": "#/$defs/pool_name"},
         "capacity": {
           "type": "integer",
           "minimum": 1,
@@ -1502,6 +1528,7 @@
             {
               "$ref": "#/$defs/destruction_result"
             },
+            {"$ref": "#/$defs/pools_result"},
             {
               "$ref": "#/$defs/init"
             },

@@ -92,7 +92,10 @@ Snapshots are local and ordinary branch pushes do not publish them. Deleting the
 repository's Git directory loses them. `groove destroy` preserves snapshots and
 pins; recover with restore from the main or another surviving checkout. Restore
 destinations must be outside the pool checkout root. Snapshot handles opened in a
-managed slot reject a subsequently reinitialized pool. Remote export/backup is
+managed slot reject a subsequently reinitialized pool. All named pools share the
+snapshot namespace; `--pool` does not filter snapshot commands. Services opened in
+named slots retain that slot's actual admission, and recovery destinations are
+checked against every pool root under repository-wide administration. Remote export/backup is
 not implemented.
 
 ## Supported boundaries

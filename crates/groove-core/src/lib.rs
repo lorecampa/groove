@@ -49,6 +49,7 @@ mod inspection;
 mod lease;
 mod lifecycle;
 mod locking;
+mod namespace;
 mod platform;
 mod pool;
 mod preparation;
@@ -74,9 +75,11 @@ pub use execution::{
 };
 pub use finish::FinishResult;
 pub use history::{HistoryFilter, LogState, RunHistory, RunId, RunOrigin, RunOutcome};
-pub use identifiers::{CommitOid, LeaseId, PoolId, SlotId};
+pub use identifiers::{CommitOid, LeaseId, PoolId, PoolName, SlotId};
 pub use inspection::{PoolInspection, SlotInspection, SlotStatus, WorkspaceGitStatus};
 pub use lease::Lease;
+pub use lifecycle::Phase as PoolPhase;
+pub use namespace::PoolSummary;
 pub use pool::Pool;
 pub use preparation::{
     NamedCommand, Preparation, PreparationOptions, PreparationStatus, SetupStepResult, StopRequest,

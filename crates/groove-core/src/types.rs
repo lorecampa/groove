@@ -141,6 +141,9 @@ pub struct LeaseInfo {
 #[derive(Debug, Serialize, Deserialize)]
 /// The initialized pool configuration and whether it was newly published.
 pub struct InitResult {
+    /// Namespace initialized; `default` uses the original layout.
+    #[serde(default)]
+    pub pool_name: crate::PoolName,
     /// Whether initialization published a new ready manifest.
     pub created: bool,
     /// Canonical shared Git administration directory.
@@ -160,6 +163,9 @@ pub struct InitResult {
 /// Current repository-local pool settings, refreshed from durable metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PoolSettings {
+    /// Selected pool namespace.
+    #[serde(default)]
+    pub pool_name: crate::PoolName,
     /// Maximum reservations; growth takes effect for subsequent acquisition scans.
     pub capacity: usize,
     /// Cleanup applied to the next acquisition; existing leases keep their policy.

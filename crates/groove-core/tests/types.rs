@@ -2,6 +2,81 @@ use groove_core::{CommitOid, Error, ErrorCode, LeaseId, SlotId};
 use std::{collections::BTreeMap, error::Error as _};
 
 #[test]
+fn pool_names_are_portable_and_cannot_escape_their_namespace() {
+    use groove_core::PoolName;
+    for name in [
+        "default",
+        "frontend",
+        "ci-12",
+        "backend_warm",
+        &"a".repeat(64),
+    ] {
+        let parsed: PoolName = name.parse().unwrap();
+        assert_eq!(parsed.as_str(), name);
+        assert_eq!(serde_json::to_value(&parsed).unwrap(), name);
+    }
+    for name in [
+        "",
+        "../other",
+        ".",
+        "..",
+        "/tmp/pool",
+        "a/b",
+        "a\\b",
+        "FRONTEND",
+        "1ci",
+        "a b",
+        "a\n",
+        "cafè",
+        &"a".repeat(65),
+    ] {
+        assert_eq!(
+            name.parse::<PoolName>().unwrap_err().code,
+            ErrorCode::InvalidArgument
+        );
+        assert!(
+            serde_json::from_value::<PoolName>(serde_json::json!(name)).is_err(),
+            "{name:?}"
+        );
+    }
+    assert_eq!(PoolName::default().as_str(), "default");
+}
+
+#[test]
+fn historical_unnamed_results_are_read_as_the_default_namespace() {
+    use groove_core::{DestroyResult, InitResult, PoolName, PoolSettings};
+    let settings = serde_json::json!({"capacity":1, "cleanup_policy":"pristine", "state_dir":"/repo/.git/groove", "worktree_root":"/repo/.git/groove/worktrees"});
+    let decoded: PoolSettings = serde_json::from_value(settings.clone()).unwrap();
+    assert_eq!(decoded.pool_name, PoolName::default());
+    let mut init = settings.clone();
+    init["created"] = true.into();
+    init["common_git_dir"] = "/repo/.git".into();
+    init["slots"] = serde_json::json!(["wt-0001"]);
+    assert_eq!(
+        serde_json::from_value::<InitResult>(init)
+            .unwrap()
+            .pool_name,
+        PoolName::default()
+    );
+    let destroy = serde_json::json!({"pool_id":null,"dry_run":true,"deleted":false,"already_deleted":false,"resumed":false,"state_dir":"/repo/.git/groove","worktree_root":"/repo/.git/groove/worktrees","slots":["wt-0001"],"artifacts":[]});
+    assert_eq!(
+        serde_json::from_value::<DestroyResult>(destroy)
+            .unwrap()
+            .pool_name,
+        PoolName::default()
+    );
+    let mut named = settings;
+    named["pool_name"] = "frontend".into();
+    assert_eq!(
+        serde_json::from_value::<PoolSettings>(named)
+            .unwrap()
+            .pool_name
+            .as_str(),
+        "frontend"
+    );
+}
+
+#[test]
 fn slot_ids_validate_paths_ranges_and_json_map_keys() {
     for (number, text) in [(1, "wt-0001"), (10, "wt-0010"), (4096, "wt-4096")] {
         let id = SlotId::new(number).unwrap();

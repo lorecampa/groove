@@ -17,12 +17,19 @@ use std::{path::Path, time::Duration};
 /// Inputs shared by every handler.
 pub struct Context<'a> {
     pub repo: &'a Path,
+    pub selected_pool: Option<&'a groove_core::PoolName>,
     pub git_timeout: Duration,
     pub terminal: &'a crate::terminal::Terminal,
 }
 impl Context<'_> {
+    fn pool_name(&self) -> groove_core::PoolName {
+        self.selected_pool.cloned().unwrap_or_default()
+    }
     fn pool(&self) -> Result<Pool> {
-        Pool::open_with_timeout(self.repo, self.git_timeout)
+        Pool::open_named_with_timeout(self.repo, &self.pool_name(), self.git_timeout)
+    }
+    fn retained_pool(&self) -> Result<Pool> {
+        Pool::open_retained_named(self.repo, &self.pool_name(), self.git_timeout)
     }
 }
 
@@ -47,6 +54,7 @@ fn select_id(pool: &Pool, selector: &LeaseSelector) -> Result<groove_core::Lease
 /// Run one parsed command.
 pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
     match command {
+        Command::Pools => pool::pools(context),
         Command::Destroy {
             dry_run,
             discard_changes,

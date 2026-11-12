@@ -3,6 +3,65 @@ use serde::{Deserialize, Serialize};
 use std::{fmt, str::FromStr};
 use uuid::Uuid;
 
+/// A portable pool namespace: 1..64 lowercase ASCII letters, digits, `_` or `-`,
+/// starting with a letter. `default` selects the original repository pool.
+/// Parsing proves a safe name, not membership or ownership.
+///
+/// ```
+/// let pool: groove_core::PoolName = "frontend-ci".parse()?;
+/// assert_eq!(pool.as_str(), "frontend-ci");
+/// assert!("../other".parse::<groove_core::PoolName>().is_err());
+/// # Ok::<(), groove_core::Error>(())
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct PoolName(String);
+impl PoolName {
+    /// Return the canonical namespace string.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+    pub(crate) fn is_default(&self) -> bool {
+        self.0 == "default"
+    }
+}
+impl Default for PoolName {
+    fn default() -> Self {
+        Self("default".into())
+    }
+}
+impl FromStr for PoolName {
+    type Err = Error;
+    fn from_str(value: &str) -> Result<Self> {
+        if value.is_empty()
+            || value.len() > 64
+            || !value.as_bytes()[0].is_ascii_lowercase()
+            || !value
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'-'))
+        {
+            return Err(Error::new(ErrorCode::InvalidArgument, "Pool name must be 1..64 lowercase ASCII letters, digits, '_' or '-', starting with a letter"));
+        }
+        Ok(Self(value.into()))
+    }
+}
+impl TryFrom<String> for PoolName {
+    type Error = Error;
+    fn try_from(value: String) -> Result<Self> {
+        value.parse()
+    }
+}
+impl From<PoolName> for String {
+    fn from(value: PoolName) -> Self {
+        value.0
+    }
+}
+impl fmt::Display for PoolName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 /// Identity of one initialized pool, preserved through deletion and changed by reinit.
 /// This is an optimistic precondition, never proof of descriptor ownership.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

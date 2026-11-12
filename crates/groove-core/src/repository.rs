@@ -11,6 +11,7 @@ use std::{
 pub(crate) struct Repository {
     pub common: PathBuf,
     pub root: PathBuf,
+    pub name: crate::PoolName,
     /// Directory the pool was discovered from. Revisions such as `HEAD` resolve
     /// here, so a linked worktree's caller gets its own HEAD, not the main one's.
     pub origin: PathBuf,
@@ -65,12 +66,35 @@ impl Repository {
         let origin = fs::canonicalize(repo).unwrap_or_else(|_| repo.to_path_buf());
         Ok(Self {
             root: common.join("groove"),
+            name: crate::PoolName::default(),
             common,
             origin,
         })
     }
+    pub fn discover_named(repo: &Path, name: &crate::PoolName, timeout: Duration) -> Result<Self> {
+        Ok(Self::discover(repo, timeout)?.named(name.clone()))
+    }
+    pub fn named(&self, name: crate::PoolName) -> Self {
+        let mut repo = self.clone();
+        repo.root = if name.is_default() {
+            self.namespace_root()
+        } else {
+            self.namespace_root().join("pools").join(name.as_str())
+        };
+        repo.name = name;
+        repo
+    }
+    pub fn namespace_root(&self) -> PathBuf {
+        self.common.join("groove")
+    }
+    pub fn recorded_default_common<'a>(&self, root: &'a Path) -> Option<&'a Path> {
+        let relative = self.root.strip_prefix(&self.common).ok()?.join("worktrees");
+        root.ends_with(&relative)
+            .then(|| root.ancestors().nth(relative.components().count()))
+            .flatten()
+    }
     pub fn admin_lock_path(&self) -> PathBuf {
-        self.root.join("locks/admin.lock")
+        self.namespace_root().join("locks/admin.lock")
     }
     pub fn lock_path(&self, slot: &crate::SlotId) -> PathBuf {
         self.root.join("locks").join(format!("{slot}.lock"))

@@ -5,6 +5,9 @@ WORKFLOW:
   groove finish --task fix-parser             # snapshot, then free the slot
 
 INSPECTION AND SETTINGS:
+  groove pools                     all pool namespaces and lifecycle states
+  groove --pool frontend init --capacity 3 --cleanup warm
+                                   create a separate workflow pool
   groove list                      active reservations
   groove list --slots              every slot, with status and next action
   groove show --task NAME          one reservation in detail
@@ -23,6 +26,9 @@ Reservations survive exits and crashes until explicitly released: there is no
 expiry, daemon or implicit task execution. No command pushes or merges.
 Worktrees share Git objects, refs and configuration; they are not security
 sandboxes.
+Pool commands use default unless --pool NAME is given, from every checkout.
+Task labels/keys and capacity are pool-local; snapshots and branches are shared.
+Destroy requires an explicit selection when several pools exist; see pools --help.
 
 OUTPUT:
   Human-readable text by default; errors go to stderr.

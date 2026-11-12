@@ -416,6 +416,240 @@ fn reinit_intent_crashes_can_be_cancelled_without_overwriting_retired_identity()
 }
 
 #[test]
+fn interrupted_named_initialization_keeps_its_root_claim_and_sibling_usable() {
+    if !support::in_subprocess(
+        "interrupted_named_initialization_keeps_its_root_claim_and_sibling_usable",
+    ) {
+        return;
+    }
+    use groove_core::{PoolName, PoolPhase, DEFAULT_GIT_TIMEOUT};
+    let repo = Repo::new();
+    let backend: PoolName = "backend".parse().unwrap();
+    let frontend: PoolName = "frontend".parse().unwrap();
+    Pool::init_named(
+        &repo.path,
+        &backend,
+        PoolOptions {
+            capacity: 1,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let back = Pool::open_named(&repo.path, &backend).unwrap();
+    drop(back.acquire(Default::default()).unwrap());
+    let root = repo.temp.path().join("frontend-root");
+    let (mut command, listener) = checkpoint_command(
+        &repo,
+        "before-ready-manifest",
+        &[
+            "--pool",
+            "frontend",
+            "init",
+            "--capacity",
+            "1",
+            "--worktree-root",
+            root.to_str().unwrap(),
+        ],
+    );
+    let mut child = support::TestChild::spawn(&mut command);
+    let stream = child
+        .checkpoint(&listener, "before-ready-manifest", support::PROCESS_TIMEOUT)
+        .unwrap();
+    // Healthy normalization needs only the sibling's own ownership descriptor.
+    let healthy = back.acquire(Default::default());
+    child.kill().unwrap();
+    child.wait().unwrap();
+    drop(stream);
+    assert_eq!(
+        healthy.unwrap().info().recovery,
+        groove_core::RecoveryOutcome::Sanitized
+    );
+    let catalog = Pool::list_pools(&repo.path, DEFAULT_GIT_TIMEOUT).unwrap();
+    assert_eq!(
+        catalog.iter().find(|p| p.name == frontend).unwrap().phase,
+        PoolPhase::Initializing
+    );
+    let lock = repo.state().join("pools/frontend/locks/wt-0001.lock");
+    let inode = std::fs::metadata(&lock).unwrap().ino();
+    assert_eq!(
+        Pool::init_named(
+            &repo.path,
+            &"competitor".parse().unwrap(),
+            PoolOptions {
+                capacity: 1,
+                worktree_root: Some(root.clone()),
+                ..Default::default()
+            }
+        )
+        .unwrap_err()
+        .code,
+        groove_core::ErrorCode::ConfigConflict
+    );
+    Pool::init_named(
+        &repo.path,
+        &frontend,
+        PoolOptions {
+            capacity: 1,
+            worktree_root: Some(root),
+            resume: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(std::fs::metadata(lock).unwrap().ino(), inode);
+    assert!(Pool::open_named(&repo.path, &frontend)
+        .unwrap()
+        .acquire(Default::default())
+        .is_ok());
+    assert!(back.acquire(Default::default()).is_ok());
+}
+
+#[test]
+fn interrupted_named_deletion_never_disables_a_siblings_workers_or_results() {
+    if !support::in_subprocess(
+        "interrupted_named_deletion_never_disables_a_siblings_workers_or_results",
+    ) {
+        return;
+    }
+    use groove_core::{DestroyOptions, ExecOptions, PoolName, PoolPhase, DEFAULT_GIT_TIMEOUT};
+    let repo = Repo::new();
+    let frontend: PoolName = "frontend".parse().unwrap();
+    let backend: PoolName = "backend".parse().unwrap();
+    for pool in [&frontend, &backend] {
+        Pool::init_named(
+            &repo.path,
+            pool,
+            PoolOptions {
+                capacity: 1,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    }
+    let front = Pool::open_named(&repo.path, &frontend).unwrap();
+    drop(front.acquire(Default::default()).unwrap());
+    let back = Pool::open_named(&repo.path, &backend).unwrap();
+    let b = back.reserve(Default::default()).unwrap();
+    std::fs::write(b.worktree_path.join("tracked.txt"), "backend result").unwrap();
+    let (mut command, listener) =
+        checkpoint_command(&repo, "pool-deleting", &["--pool", "frontend", "destroy"]);
+    let mut child = support::TestChild::spawn(&mut command);
+    let stream = child
+        .checkpoint(&listener, "pool-deleting", support::PROCESS_TIMEOUT)
+        .unwrap();
+    let ran = back.exec(
+        b.lease_id,
+        ExecOptions {
+            command: vec!["true".into()],
+            ..Default::default()
+        },
+    );
+    let catalog = Pool::list_pools(&repo.path, DEFAULT_GIT_TIMEOUT).unwrap();
+    child.kill().unwrap();
+    child.wait().unwrap();
+    drop(stream);
+    assert!(ran.unwrap().succeeded());
+    assert_eq!(
+        catalog.iter().find(|p| p.name == frontend).unwrap().phase,
+        PoolPhase::Deleting
+    );
+    assert_eq!(
+        catalog.iter().find(|p| p.name == backend).unwrap().phase,
+        PoolPhase::Ready
+    );
+    let finished = back.finish(b.lease_id, Default::default()).unwrap();
+    let resumed = Pool::destroy_named(&repo.path, &frontend, DestroyOptions::default()).unwrap();
+    assert!(resumed.deleted && resumed.resumed);
+    let snapshots =
+        groove_core::snapshot::Snapshots::open(&repo.path, DEFAULT_GIT_TIMEOUT).unwrap();
+    assert!(snapshots.show(&finished.snapshot.id).unwrap().pinned);
+    assert_eq!(
+        std::fs::read_to_string(b.worktree_path.join("tracked.txt")).unwrap(),
+        "backend result"
+    );
+    assert!(back.acquire(Default::default()).is_ok());
+}
+
+#[test]
+fn snapshot_recovery_serializes_new_namespace_claims_until_materialization_finishes() {
+    if !support::in_subprocess(
+        "snapshot_recovery_serializes_new_namespace_claims_until_materialization_finishes",
+    ) {
+        return;
+    }
+    use groove_core::{snapshot::Snapshots, PoolName, DEFAULT_GIT_TIMEOUT};
+    use std::{io::Write, time::Duration};
+    let repo = Repo::new();
+    let frontend: PoolName = "frontend".parse().unwrap();
+    let backend: PoolName = "backend".parse().unwrap();
+    Pool::init_named(
+        &repo.path,
+        &frontend,
+        PoolOptions {
+            capacity: 1,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let snapshots = Snapshots::open(&repo.path, DEFAULT_GIT_TIMEOUT).unwrap();
+    let saved = snapshots.save(Default::default()).unwrap();
+    let destination = repo.temp.path().join("recovered");
+    let (mut command, listener) = checkpoint_command(
+        &repo,
+        "snapshot-restored-files",
+        &[
+            "snapshot",
+            "restore",
+            &saved.id,
+            "--to",
+            destination.to_str().unwrap(),
+        ],
+    );
+    let mut child = support::TestChild::spawn(&mut command);
+    let mut stream = child
+        .checkpoint(
+            &listener,
+            "snapshot-restored-files",
+            support::PROCESS_TIMEOUT,
+        )
+        .unwrap();
+    let blocked = Pool::init_named(
+        &repo.path,
+        &backend,
+        PoolOptions {
+            capacity: 1,
+            git_timeout: Duration::from_secs(2),
+            ..Default::default()
+        },
+    );
+    let catalog = Pool::list_pools(&repo.path, DEFAULT_GIT_TIMEOUT).unwrap();
+    stream.write_all(b"g").unwrap();
+    assert!(child.wait().unwrap().success());
+    assert_eq!(blocked.unwrap_err().code, groove_core::ErrorCode::IoError);
+    assert_eq!(
+        catalog.iter().map(|p| p.name.clone()).collect::<Vec<_>>(),
+        vec![frontend]
+    );
+    assert_eq!(
+        std::fs::read_to_string(destination.join("tracked.txt")).unwrap(),
+        "baseline\n"
+    );
+    Pool::init_named(
+        &repo.path,
+        &backend,
+        PoolOptions {
+            capacity: 1,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(Pool::open_named(&repo.path, &backend)
+        .unwrap()
+        .acquire(Default::default())
+        .is_ok());
+}
+
+#[test]
 fn pool_growth_crash_boundaries_preserve_reservations_and_lock_inodes() {
     for name in ["pool-slot-added", "before-pool-update", "pool-updated"] {
         let r = Repo::new();

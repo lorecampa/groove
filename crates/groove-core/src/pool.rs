@@ -31,23 +31,39 @@ impl Pool {
     /// Rejects invalid options, conflicting configuration, unsafe managed paths,
     /// unsupported environments, and Git or filesystem failures.
     pub fn init(repo: impl AsRef<Path>, options: PoolOptions) -> Result<InitResult> {
+        Self::init_named(repo, &crate::PoolName::default(), options)
+    }
+
+    /// Initialize a named namespace with independent slots, settings and history.
+    /// `default` retains the original storage layout. Checkout roots cannot overlap
+    /// another namespace, including pending or retained deleted pools.
+    /// # Errors
+    /// See [`Self::init`]; also rejects overlapping checkout-root claims.
+    /// ```no_run
+    /// # fn main() -> groove_core::Result<()> {
+    /// let name = "frontend".parse()?;
+    /// groove_core::Pool::init_named("/path/to/repo", &name, Default::default())?;
+    /// # Ok(()) }
+    /// ```
+    pub fn init_named(
+        repo: impl AsRef<Path>,
+        name: &crate::PoolName,
+        options: PoolOptions,
+    ) -> Result<InitResult> {
         if !(1..=crate::MAX_CAPACITY).contains(&options.capacity) || options.git_timeout.is_zero() {
             return Err(Error::new(
                 crate::ErrorCode::InvalidArgument,
                 "Capacity must be 1..=4096 and Git timeout positive",
             ));
         }
-        let repo = Repository::discover(repo.as_ref(), options.git_timeout)?;
+        let repo = Repository::discover_named(repo.as_ref(), name, options.git_timeout)?;
         repository::mkdir(&repo.root)?;
         repository::owned_dir(&repo.root)?;
         repository::mkdir(&repo.root.join("locks"))?;
         let lifecycle_gate = crate::lifecycle::gate(&repo, true)?;
         let previous = crate::lifecycle::read(&repo)?;
-        let admin_file = locking::open(&repo.admin_lock_path(), !repo.config_path().exists())?;
-        admin_file.sync_all()?;
-        state::sync_dir(&repo.root.join("locks"))?;
-        let admin_id = locking::identity(&admin_file)?;
-        let _admin = SlotGuard::wait(&repo.admin_lock_path(), Some(admin_id), options.git_timeout)?;
+        let _admin = crate::namespace::admin(&repo, options.git_timeout)?;
+        let admin_id = locking::identity(&_admin.file)?;
         let requested = match options.worktree_root {
             Some(path) => {
                 let path = if path.is_absolute() {
@@ -61,13 +77,16 @@ impl Pool {
             }
             None => repo.default_worktree_root(),
         };
-        if repo.config_path().exists()
-            && !previous.as_ref().is_some_and(|r| {
-                matches!(
-                    r.phase,
-                    crate::lifecycle::Phase::Deleted | crate::lifecycle::Phase::Initializing
-                )
-            })
+        if previous
+            .as_ref()
+            .is_some_and(|r| r.phase == crate::lifecycle::Phase::Ready)
+            || (repo.config_path().exists()
+                && !previous.as_ref().is_some_and(|r| {
+                    matches!(
+                        r.phase,
+                        crate::lifecycle::Phase::Deleted | crate::lifecycle::Phase::Initializing
+                    )
+                }))
         {
             return Err(Error::new(
                 crate::ErrorCode::ConfigConflict,
@@ -104,6 +123,7 @@ impl Pool {
                 ),
             ));
         }
+        crate::namespace::validate_root(&repo, &requested)?;
         // Persist initialization intent before creating external storage. Conflicting
         // resumptions must fail, even when the ready manifest was never published.
         let intent = repo.root.join("initializing.json");
@@ -247,6 +267,24 @@ impl Pool {
     /// # Errors
     /// See [`Self::open`]; additionally rejects a zero timeout.
     pub fn open_with_timeout(repo: impl AsRef<Path>, git_timeout: Duration) -> Result<Self> {
+        Self::open_named_with_timeout(repo, &crate::PoolName::default(), git_timeout)
+    }
+
+    /// Open a named pool with the default discovery/Git timeout.
+    /// # Errors
+    /// See [`Self::open`]. Selection never falls back to a different namespace.
+    pub fn open_named(repo: impl AsRef<Path>, name: &crate::PoolName) -> Result<Self> {
+        Self::open_named_with_timeout(repo, name, crate::DEFAULT_GIT_TIMEOUT)
+    }
+
+    /// Open a named pool with a positive per-Git-operation timeout.
+    /// # Errors
+    /// See [`Self::open_with_timeout`].
+    pub fn open_named_with_timeout(
+        repo: impl AsRef<Path>,
+        name: &crate::PoolName,
+        git_timeout: Duration,
+    ) -> Result<Self> {
         if git_timeout.is_zero() {
             return Err(Error::new(
                 crate::ErrorCode::InvalidArgument,
@@ -254,7 +292,7 @@ impl Pool {
             ));
         }
         Self::load(
-            Repository::discover(repo.as_ref(), git_timeout)?,
+            Repository::discover_named(repo.as_ref(), name, git_timeout)?,
             git_timeout,
         )
     }
@@ -277,6 +315,17 @@ impl Pool {
     /// # Ok(()) }
     /// ```
     pub fn open_retained(repo: impl AsRef<Path>, git_timeout: Duration) -> Result<Self> {
+        Self::open_retained_named(repo, &crate::PoolName::default(), git_timeout)
+    }
+
+    /// Open retained history/storage for a named pool, including after deletion.
+    /// # Errors
+    /// See [`Self::open_retained`]; an absent namespace never selects another pool.
+    pub fn open_retained_named(
+        repo: impl AsRef<Path>,
+        name: &crate::PoolName,
+        git_timeout: Duration,
+    ) -> Result<Self> {
         if git_timeout.is_zero() {
             return Err(Error::new(
                 crate::ErrorCode::InvalidArgument,
@@ -284,7 +333,7 @@ impl Pool {
             ));
         }
         Self::load_mode(
-            Repository::discover(repo.as_ref(), git_timeout)?,
+            Repository::discover_named(repo.as_ref(), name, git_timeout)?,
             git_timeout,
             true,
         )
@@ -321,11 +370,7 @@ impl Pool {
             // Manifests and native worktree registrations record absolute paths,
             // so a moved repository leaves them pointing at its old location.
             // The default root is `<common>/groove/worktrees`.
-            let recorded_common = Some(config.worktree_root.as_path())
-                .filter(|root| root.file_name() == Some("worktrees".as_ref()))
-                .and_then(Path::parent)
-                .filter(|state| state.file_name() == Some("groove".as_ref()))
-                .and_then(Path::parent);
+            let recorded_common = repo.recorded_default_common(&config.worktree_root);
             let message = match recorded_common {
                 Some(old) if old != repo.common => format!(
                     "The pool was created for {} but the repository is now at {}; pools record absolute paths and cannot be moved. Move the repository back to its original location (see docs/operations.md)",
@@ -362,6 +407,7 @@ impl Pool {
     }
     fn init_result(&self, created: bool) -> InitResult {
         InitResult {
+            pool_name: self.repo.name.clone(),
             created,
             common_git_dir: self.repo.common.clone(),
             state_dir: self.repo.root.clone(),
@@ -375,6 +421,10 @@ impl Pool {
     /// Use [`Self::settings`] for current settings; allocation refreshes each scan.
     pub fn capacity(&self) -> usize {
         self.config.capacity
+    }
+    /// Return the selected namespace. Names never establish slot ownership.
+    pub fn name(&self) -> &crate::PoolName {
+        &self.repo.name
     }
     /// Acquire and verify a detached checkout of the requested commit.
     ///

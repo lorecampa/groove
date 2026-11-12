@@ -444,6 +444,7 @@ impl Supervision<'_> {
 /// free the execution lock while the worker survives.
 fn worker_command(
     lease: &LeaseInfo,
+    pool_name: &crate::PoolName,
     options: &ExecOptions,
     environment: BTreeMap<String, String>,
     logs: &RunLogs,
@@ -467,6 +468,7 @@ fn worker_command(
         .envs(environment)
         .envs(&options.environment)
         .env("GROOVE_LEASE_ID", lease.lease_id.to_string())
+        .env("GROOVE_POOL", pool_name.as_str())
         .env("GROOVE_WORKTREE", &lease.worktree_path)
         .env("GROOVE_SLOT_ID", lease.slot_id.as_str())
         .env("GROOVE_SLOT_INDEX", lease.slot_id.number().to_string())
@@ -590,6 +592,7 @@ impl Pool {
         state::checkpoint("execution-recorded");
         let mut command = worker_command(
             &lease,
+            &self.repo.name,
             &options,
             environment,
             &logs,

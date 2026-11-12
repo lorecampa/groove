@@ -61,10 +61,36 @@ repurpose it while the pool exists. Stop all owners before moving/restoring a po
 Restoring permanent locks onto new inodes invalidates manifest identities;
 Groove refuses automatic replacement.
 
-Use one Groove version per live pool. Every record uses schema 1; there is no
+Use one Groove version across the repository's pools. Every record uses schema 1; there is no
 migration between development versions, so recreate pools after upgrading a
 pre-release build. Current handles and acquisition waiters refresh settings, while
 already-started preparation may use its observed policy.
+
+## Workflow pools
+
+Use a named pool when workflows need separate capacity, cleanup or caches:
+
+```sh
+groove --pool frontend init --capacity 3 --cleanup warm
+groove --pool backend init --capacity 2 --cleanup pristine
+groove pools
+groove --pool frontend acquire --task fix-navigation --request-key navigation-1
+groove --pool frontend finish --task fix-navigation
+```
+
+Pass the same `--pool` on later pool commands. Omission always selects `default`,
+even from a named checkout; missing pools never fall back to another namespace.
+Labels/keys can be reused independently across pools. Named state lives under
+`<common>/groove/pools/<name>/`; default retains its original layout and keys.
+All linked checkouts share the catalog. History/storage stay scoped to the selected
+pool even after deletion, while snapshots/branches/objects/configuration are shared.
+
+Checkout roots cannot overlap another pool's published or pending root. Deleted
+pools retain their current root claim until reinitialized with a different root.
+Capacity is per pool, so total repository capacity is the sum of the pools; it
+does not bound CPU, processes or storage. `GROOVE_POOL` identifies managed worker
+context. Slot numbers and derived project ports repeat across pools; choose distinct
+project port ranges or derive workflow-specific behavior explicitly.
 
 ## Deleting and recreating a pool
 
@@ -76,7 +102,15 @@ groove destroy
 # If released workspaces still contain edits, ignored caches or broken checkouts:
 groove destroy --discard-changes --dry-run
 groove destroy --discard-changes
+groove --pool frontend destroy --dry-run
+groove --pool frontend destroy --discard-changes
 ```
+
+With several non-deleted pools, destruction requires explicit `--pool NAME`, even
+for default. Only that namespace is removed. `--pool-id` checks its generation;
+it never searches for or selects a different pool. Healthy sibling checkouts and
+workers remain usable during another pool's interrupted initialization/deletion.
+Short Git registration/root updates still serialize through the repository admin lock.
 
 The discard flag acknowledges file loss only. Descriptors, durable reservations,
 orphan execution records, observed processes and unsafe paths still block deletion.

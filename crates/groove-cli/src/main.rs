@@ -158,6 +158,7 @@ fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {
     tracing::debug!(event = "command.started", "Command started");
     let context = commands::Context {
         repo: &args.repo,
+        selected_pool: args.pool.as_ref(),
         git_timeout: Duration::from_millis(args.git_timeout_ms),
         terminal,
     };

@@ -1,6 +1,6 @@
 # Architecture
 
-Groove is a repository-local pool of reusable Git worktrees. The development
+Groove provides repository-local pools of reusable Git worktrees. The development
 protocol is v1; [protocol](protocol.md) defines its wire contract and
 [testing](testing.md) records validation boundaries.
 
@@ -61,17 +61,18 @@ The CLI keeps one handler per command in `src/commands/`, rendering through
 
 ## Storage
 
-The common Git directory identifies the pool shared by ordinary, linked and bare
-repositories. An optional dedicated external checkout root changes only worktree
-placement. The checkout root is immutable; capacity can grow and cleanup policy
-can change through an atomic settings update.
+The common Git directory identifies the namespace catalog shared by ordinary,
+linked and bare checkouts. `default` keeps its original directory; named pools
+use `<common>/groove/pools/<name>/` with the same layout below. Per-pool checkout
+roots are immutable until deletion/reinitialization. Capacity and cleanup can
+change through an atomic settings update.
 
 ```text
 <GIT_COMMON_DIR>/groove/
   config.json                     # Ready manifest (schema 1)
   lifecycle.json                  # Generation and initializing/ready/deleting/deleted phase
   locks/lifecycle.lock            # Permanent shared admission / exclusive lifecycle transitions
-  locks/admin.lock                # Administrative serialization
+  locks/admin.lock                # Repository-wide Git registration/root-claim serialization
   locks/wt-0001.lock              # Permanent slot ownership
   locks/wt-0001.execution.lock    # Permanent execution ownership
   slots/wt-0001.json              # Current generation and phase
@@ -86,7 +87,26 @@ can change through an atomic settings update.
   worktrees/wt-0001/              # Default disposable checkout
   tmp/
   retired/<pool-id>.json           # Retained manifest for historical lock identities
+  pools/<name>/                   # Named pool: independent lifecycle, slots, journals, caches/history
 ```
+
+Every manifest references the original permanent `<common>/groove/locks/admin.lock`;
+named pools do not create independent Git-administration locks. Pool-local lifecycle
+admission remains separate, so a sibling's live execution or healthy normalization
+does not need another pool's lifecycle gate. Init holds repository admin exclusion
+while validating and publishing checkout-root intent; equal, nested and existing
+filesystem-alias roots cannot be claimed by another pool. Pending initialization
+and retained deleted pools keep their current claims. A successful reinit with a
+different root relinquishes the previous claim. Names use lowercase ASCII to avoid
+case/normalization aliases, and never contain path separators or traversal.
+
+Labels, request keys/tombstones, slot IDs, execution history, receipts and artifacts
+are pool-scoped. Reusing a key/label in another namespace is independent; stale
+UUIDs never authorize operations there. Config/init/destroy results identify the
+selected name. Catalog observations include ready, initializing, deleting and
+retained deleted pools. Implicit destruction of default refuses when several
+non-deleted pools exist; the check runs under repository admin exclusion, so a
+concurrent init cannot slip between ambiguity checking and deletion.
 
 Git's native worktree administration stays in `<GIT_COMMON_DIR>/worktrees/`.
 Snapshots use separate `groove-snapshots` administration and
@@ -136,7 +156,7 @@ and publishes `deleted`. Roots, unknown files in checkout roots, permanent locks
 request journals, receipts and logs/history remain; snapshots and branches are independent.
 
 Reinitialization changes the UUID generation, preserves all recorded lock identities
-(including retired manifests) and retains repository-scoped request tombstones.
+(including retired manifests) and retains that pool's request tombstones.
 Old `Pool` and managed-slot snapshot handles reject the replacement generation.
 Reinit resets slot diagnostic records while preserving independent receipts/history.
 Retained history/storage APIs also work after deletion and use archived execution
@@ -144,7 +164,16 @@ lock identities when a replacement pool has fewer slots. Interrupted init can be
 cancelled under the same exclusion without materializing checkouts. Legacy ready
 manifests without a lifecycle record remain readable; deletion publishes their
 first generation. All newly initialized pools have lifecycle records. Use one
-Groove version per live pool; older binaries do not understand lifecycle admission.
+Groove version across the repository's pools; older binaries do not understand lifecycle admission.
+
+Snapshot services opened inside managed workspaces resolve the actual namespace
+from validated checkout roots, regardless of CLI pool selection. Main-checkout
+snapshots stay repository-wide. Restore into a new checkout takes repository admin
+exclusion, validates its destination against every published/pending root and passes
+that descriptor to mutation children; it never waits for sibling lifecycle admission
+while holding admin. Parent aliases are resolved before validation and the same
+resolved path is passed to Git. This prevents reinit from changing root ownership
+between destination validation and materialization.
 
 1. Resolve the requested revision to a full commit OID.
 2. Scan fixed slots using nonblocking ownership locks and a monotonic wait budget.
@@ -192,7 +221,7 @@ existing journal never authorizes allocating a replacement lease. Completed keys
 remain tombstoned. The same key, base and label return the original active
 reservation, even if the base branch moved.
 
-At most one active reservation carries each task label. A permanent per-label
+Within one pool, at most one active reservation carries each task label. A permanent per-label
 lock (taken after any request-key lock) serializes the duplicate check with
 protection publication. Labels and keys reject control characters, and human
 output escapes them in any stored text.

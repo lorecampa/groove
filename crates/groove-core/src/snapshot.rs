@@ -142,11 +142,13 @@ pub struct Snapshots {
     state: PathBuf,
     timeout: Duration,
     pool: Option<crate::Pool>,
+    repository: repository::Repository,
 }
 
 struct SnapshotLock {
     file: fs::File,
     admission: Option<fs::File>,
+    admin: Option<crate::locking::SlotGuard>,
 }
 impl AsRawFd for SnapshotLock {
     fn as_raw_fd(&self) -> std::os::fd::RawFd {
@@ -157,6 +159,7 @@ impl SnapshotLock {
     fn descriptors(&self) -> Vec<std::os::fd::RawFd> {
         std::iter::once(self.file.as_raw_fd())
             .chain(self.admission.as_ref().map(AsRawFd::as_raw_fd))
+            .chain(self.admin.as_ref().map(|g| g.file.as_raw_fd()))
             .collect()
     }
 }
@@ -177,14 +180,8 @@ impl Snapshots {
             &[],
         )?)?);
         let state = repo.common.join("groove-snapshots");
-        let pool = if git_dir != repo.common && repo.config_path().try_exists()? {
-            let config: crate::state::Config = crate::state::read(&repo.config_path())?;
-            config.validate()?;
-            if root.parent() == Some(config.worktree_root.as_path()) {
-                Some(crate::Pool::open_with_timeout(&root, timeout)?)
-            } else {
-                None
-            }
+        let pool = if git_dir != repo.common {
+            crate::namespace::managed_pool(&repo, &root, timeout)?
         } else {
             None
         };
@@ -192,11 +189,12 @@ impl Snapshots {
         let _ = locking::open(&state.join("lock"), true)?;
         Ok(Self {
             root,
-            common: repo.common,
+            common: repo.common.clone(),
             git_dir,
             state,
             timeout,
             pool,
+            repository: repo,
         })
     }
     fn lock(&self) -> Result<SnapshotLock> {
@@ -232,7 +230,11 @@ impl Snapshots {
                 }
             }
         }
-        Ok(SnapshotLock { file, admission })
+        Ok(SnapshotLock {
+            file,
+            admission,
+            admin: None,
+        })
     }
     fn run(
         &self,
@@ -775,12 +777,8 @@ impl Snapshots {
         // between checking its destination and finishing the new worktree. Pass
         // that admission to mutation children even though the source is outside
         // the pool. Independent snapshot reads/saves remain pool-independent.
-        if destination.is_some() && self.common.join("groove/config.json").try_exists()? {
-            let pool = crate::Pool::open_retained(&self.common, self.timeout)?;
-            let admission = pool.retained_operation()?;
-            if lock.admission.is_none() {
-                lock.admission = Some(admission);
-            }
+        if destination.is_some() {
+            lock.admin = Some(crate::namespace::admin(&self.repository, self.timeout)?);
         }
         let s = self.load(id)?;
         if let Some(destination) = destination {
@@ -789,17 +787,8 @@ impl Snapshots {
             } else {
                 std::env::current_dir()?.join(destination)
             };
-            let pool_config = self.common.join("groove/config.json");
-            if pool_config.try_exists()? {
-                let config: crate::state::Config = crate::state::read(&pool_config)?;
-                config.validate()?;
-                repository::no_symlinks(&destination)?;
-                if destination.starts_with(&config.worktree_root) {
-                    return Err(invalid(
-                        "Recovery destination must be outside the pool checkout root",
-                    ));
-                }
-            }
+            let destination =
+                crate::namespace::recovery_destination(&self.repository, &destination)?;
             if destination.exists() {
                 return Err(invalid("Recovery destination must not exist"));
             }

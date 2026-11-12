@@ -39,6 +39,17 @@ fn killed_groove_leaves_mutating_git_child_holding_both_locks() {
     )
     .unwrap();
     let pool = Pool::open(&r.path).unwrap();
+    let sibling_name = "sibling".parse().unwrap();
+    Pool::init_named(
+        &r.path,
+        &sibling_name,
+        PoolOptions {
+            capacity: 1,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let sibling = Pool::open_named(&r.path, &sibling_name).unwrap();
     let bin = r.temp.path().join("bin");
     fs::create_dir(&bin).unwrap();
     let ready = r.temp.path().join("ready.fifo");
@@ -87,6 +98,10 @@ fn killed_groove_leaves_mutating_git_child_holding_both_locks() {
             ..Default::default()
         },
     );
+    let sibling_blocked = sibling.acquire(AcquireOptions {
+        git_timeout: Duration::from_millis(100),
+        ..Default::default()
+    });
     fs::OpenOptions::new()
         .write(true)
         .open(&resume)
@@ -100,6 +115,12 @@ fn killed_groove_leaves_mutating_git_child_holding_both_locks() {
         })
         .unwrap();
     assert_eq!(deletion.unwrap_err().code, groove_core::ErrorCode::IoError);
+    assert_eq!(
+        sibling_blocked.unwrap_err().code,
+        groove_core::ErrorCode::PoolUnhealthy
+    );
+    let other = sibling.acquire(Default::default()).unwrap();
+    assert_ne!(other.info().worktree_path, _next.info().worktree_path);
     assert_eq!(
         fs::read_to_string(r.path.join("tracked.txt")).unwrap(),
         "baseline\n"

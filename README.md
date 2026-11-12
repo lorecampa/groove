@@ -18,6 +18,10 @@ or release them.
 - **Managed commands.** Run, time out and stop workers; logs stay outside the checkout.
 - **Recoverable results.** `finish` pins a local snapshot before releasing the slot.
 
+Use `--pool NAME` for workflows needing separate capacity, cleanup and caches;
+omitting it selects `default`. Run `groove pools --help` for selection and deletion
+rules. Pools share Git branches, objects and local snapshots.
+
 ## Install
 
 Linux or macOS 13+ (Apple Silicon and Intel), Git 2.40+ and local storage

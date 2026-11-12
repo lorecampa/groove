@@ -29,6 +29,7 @@ impl Pool {
 
     fn settings_snapshot(&self) -> PoolSettings {
         PoolSettings {
+            pool_name: self.repo.name.clone(),
             capacity: self.config.capacity,
             cleanup_policy: self.config.cleanup_policy,
             worktree_root: self.config.worktree_root.clone(),

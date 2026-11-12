@@ -5,10 +5,15 @@ use std::{fs::File, os::fd::AsFd};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum Phase {
+/// Durable lifecycle phase of one pool namespace.
+pub enum Phase {
+    /// Initialization has not yet published a ready pool.
     Initializing,
+    /// Reservations and managed work are allowed.
     Ready,
+    /// Removal must be explicitly retried before the pool can be used again.
     Deleting,
+    /// Workspaces were removed; history and permanent coordination remain.
     Deleted,
 }
 

@@ -13,7 +13,7 @@ pub fn history(
     lease_id: Option<LeaseId>,
     command: Option<&HistoryCommand>,
 ) -> Result<Output> {
-    let pool = groove_core::Pool::open_retained(context.repo, context.git_timeout)?;
+    let pool = context.retained_pool()?;
     match command {
         None => {
             let runs = pool.history(&HistoryFilter { task, lease_id })?;
@@ -33,7 +33,7 @@ pub fn history(
     }
 }
 pub fn storage(context: &Context<'_>, command: &StorageCommand) -> Result<Output> {
-    let pool = groove_core::Pool::open_retained(context.repo, context.git_timeout)?;
+    let pool = context.retained_pool()?;
     match command {
         StorageCommand::Show => Output::fields(json!({"storage": pool.storage_usage()?})),
         StorageCommand::Clean {

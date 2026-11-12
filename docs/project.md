@@ -164,9 +164,12 @@ the task remains reserved. Do not copy secrets or grant trust automatically.
 
 ### Workspace identity
 
-Every managed command receives `GROOVE_SLOT_ID`, one-based `GROOVE_SLOT_INDEX`,
+Every managed command receives `GROOVE_POOL`, `GROOVE_SLOT_ID`, one-based `GROOVE_SLOT_INDEX`,
 `GROOVE_LEASE_ID`, `GROOVE_WORKTREE` and `GROOVE_TASK` (empty when absent).
 `port_base + slot number` supplies `GROOVE_PORT`; overflow fails before execution.
+Slot numbers are pool-local: different pools can derive the same port. Choose
+separate project port ranges for workflows or use `GROOVE_POOL` explicitly in
+your commands. Pools do not isolate Git refs, configuration or network ports.
 This is a predictable port choice, not an OS port reservation. Project environment
 values accept `{slot}`, `{slot_index}`, `{worktree}`, `{lease}`, `{task}` as literal
 substitutions, never shell evaluation. `GIT_*`/`GROOVE_*` overrides are rejected.

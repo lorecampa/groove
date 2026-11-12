@@ -44,6 +44,9 @@ impl Default for DestroyOptions {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DestroyResult {
+    /// Namespace selected for removal.
+    #[serde(default)]
+    pub pool_name: crate::PoolName,
     /// Pool generation, absent in previews before a generation was durably assigned.
     pub pool_id: Option<PoolId>,
     /// Whether this invocation was a preview.
@@ -203,6 +206,8 @@ impl Pool {
     ///
     /// Use `pool_id` from a preview when retries must never target a replacement pool.
     /// An interrupted init can also be cancelled, without first materializing slots.
+    /// This implicit `default` selection refuses when several non-deleted pools
+    /// exist; use [`Self::destroy_named`] to select one explicitly.
     ///
     /// # Errors
     /// Refuses live descriptors, durable reservations/executions, observed processes,
@@ -218,13 +223,33 @@ impl Pool {
     /// # Ok(()) }
     /// ```
     pub fn destroy(repo: impl AsRef<Path>, options: DestroyOptions) -> Result<DestroyResult> {
+        Self::destroy_selected(repo, &crate::PoolName::default(), false, options)
+    }
+
+    /// Delete exactly the selected namespace, leaving every other pool intact.
+    /// # Errors
+    /// See [`Self::destroy`]. A mismatched `pool_id` never selects another namespace.
+    pub fn destroy_named(
+        repo: impl AsRef<Path>,
+        name: &crate::PoolName,
+        options: DestroyOptions,
+    ) -> Result<DestroyResult> {
+        Self::destroy_selected(repo, name, true, options)
+    }
+
+    fn destroy_selected(
+        repo: impl AsRef<Path>,
+        name: &crate::PoolName,
+        explicit: bool,
+        options: DestroyOptions,
+    ) -> Result<DestroyResult> {
         if options.git_timeout.is_zero() {
             return Err(Error::new(
                 ErrorCode::InvalidArgument,
                 "Git timeout must be positive",
             ));
         }
-        let repo = Repository::discover(repo.as_ref(), options.git_timeout)?;
+        let repo = Repository::discover_named(repo.as_ref(), name, options.git_timeout)?;
         if !exists(&repo.root)? {
             return Err(Error::new(
                 ErrorCode::NotInitialized,
@@ -256,6 +281,21 @@ impl Pool {
             Some(locking::identity(&admin_file)?),
             options.git_timeout,
         )?;
+        if !explicit {
+            let count = crate::namespace::repositories(&repo)?
+                .iter()
+                .map(crate::namespace::summary)
+                .collect::<Result<Vec<_>>>()?
+                .iter()
+                .filter(|p| p.phase != crate::PoolPhase::Deleted)
+                .count();
+            if count > 1 {
+                return Err(Error::new(
+                    ErrorCode::InvalidArgument,
+                    "Several pools exist; select one explicitly with --pool NAME before deletion",
+                ));
+            }
+        }
         let initializing = previous
             .as_ref()
             .is_some_and(|r| r.phase == Phase::Initializing)
@@ -302,6 +342,7 @@ impl Pool {
             ));
         }
         let mut result = DestroyResult {
+            pool_name: repo.name.clone(),
             pool_id,
             dry_run: options.dry_run,
             deleted: false,
@@ -338,7 +379,10 @@ impl Pool {
             return Err(conflict("Unsafe checkout root", root));
         }
         // A recorded default root from another repository location cannot be adopted.
-        if root.ends_with("groove/worktrees") && root != &repo.default_worktree_root() {
+        if repo
+            .recorded_default_common(root)
+            .is_some_and(|common| common != repo.common)
+        {
             return Err(conflict(
                 "Moved pool; restore the repository at its original location before deletion",
                 root,

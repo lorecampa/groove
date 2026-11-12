@@ -194,7 +194,7 @@ pub fn finish(
     save: SaveOptions,
     force: bool,
 ) -> Result<Output> {
-    let pool = groove_core::Pool::open_retained(context.repo, context.git_timeout)?;
+    let pool = context.retained_pool()?;
     let id = select_id(&pool, selector)?;
     if !force {
         // Saving changes is finish's job; only other writers block it.
