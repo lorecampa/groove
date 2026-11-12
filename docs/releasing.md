@@ -6,9 +6,9 @@ unavailable. Reviewed `vVERSION` tags explicitly invoke the release pipeline,
 including its CI matrix, and therefore still require hosted compute.
 The repository can remain private throughout preparation and rehearsal.
 
-GitHub Releases work independently of crates.io. The first `0.1.0` alpha is
-published from a maintainer's machine; it does not require GitHub compute or a
-public GitHub repository. Automatic registry publication is **off by default**;
+GitHub Releases work independently of crates.io. Local registry publication
+does not require GitHub compute or a public GitHub repository.
+Automatic registry publication is **off by default**;
 it requires the repository variable `GROOVE_PUBLISH_CRATES_IO=true` and the
 separate publisher setup below. Local publication uses the existing Cargo login
 and does not require that variable or a GitHub environment.
@@ -24,7 +24,7 @@ if using a maintainer's existing long-lived login; preserve their credentials.
 Before pushing a version tag without hosted compute, disable the Release workflow
 with `gh workflow disable publish.yml --repo lorecampa/groove`. Enable it again
 explicitly when hosted release builds are wanted. GitHub release/binary creation
-is a separate step; the first crate publication does not provide native archives.
+is a separate step; crate publication does not provide native archives.
 
 From a clean checkout, collect user-visible changes under `## Unreleased`, then:
 
@@ -105,7 +105,25 @@ To publish an already verified draft, review its notes/assets and use GitHub's
 release UI. This is an explicit maintainer action. Normal stable releases use the
 stable tag-push path. A draft's visibility is separate from repository visibility:
 releases in a private repository are visible only to authorized readers.
-See [the launch checklist](launch.md) before making the repository public.
+See [public availability](#public-availability) before making the repository public.
+
+## Public availability
+
+Before publishing source or changing visibility, review the intended source,
+reachable history, packaged contents, licenses and historical Actions logs/assets
+for private material. Rotate exposed credentials; deleting the latest copy is
+insufficient. Keep downloaded logs and review evidence outside the repository.
+
+Verify available branch/tag protections, secret scanning, private vulnerability
+reporting and account permissions directly in GitHub. The [security policy](../SECURITY.md)
+and [security maintenance](security.md) describe the reporting and credential
+boundaries. Checked-in workflows do not enable hosted settings or establish
+successful remote validation. Change visibility only as an explicit maintainer action.
+
+Verify installation, links, downloads and skill discovery from a fresh environment
+with the access level intended for users. Authenticated installation does not
+establish anonymous availability. Keep the exact revision's validation evidence
+in its release/PR record, with unrun platforms and harnesses identified.
 
 ## Retry and recover
 
@@ -129,13 +147,10 @@ flow. Even without the setting, the helper refuses to overwrite published assets
 
 ## Binary downloads
 
-Current targets:
-
-| Target | Runtime scope |
-| --- | --- |
-| `x86_64-unknown-linux-gnu` | Linux x86_64; built on Ubuntu 24.04, glibc 2.39+ |
-| `aarch64-apple-darwin` | Apple Silicon macOS; deployment target 13.0 |
-| `x86_64-apple-darwin` | Intel macOS; deployment target 13.0 |
+The [native build matrix](../.github/workflows/publish.yml) defines supported
+targets and deployment settings. Use the release's actual asset names and
+build manifest when selecting a download; the Linux binary requires a libc
+compatible with its recorded builder.
 
 Darwin builds/tests run on macOS 15; minimum macOS 13 runtime behavior is not
 established. Local APFS is required. macOS binaries are not notarized. Other
@@ -218,11 +233,12 @@ For local publication:
    ```sh
    cargo login
    bash scripts/release.sh publish --tag v0.1.0 --execute
-   cargo logout
    ```
 
-   Use the actual release tag. Enter the token only at the local login prompt;
-   revoke it after bootstrap. The tool checks propagation/checksums and installs
+   Use the actual release tag. Use existing credentials when already logged in.
+   If bootstrapping with a temporary token, enter it only at the local login prompt
+   and revoke it afterwards; preserve an existing maintainer login.
+   The tool checks propagation/checksums and installs
    and smoke-tests the exact registry version.
 The remaining setup is optional and only needed for future GitHub automation:
 
@@ -233,8 +249,7 @@ The remaining setup is optional and only needed for future GitHub automation:
 4. Set `GROOVE_PUBLISH_CRATES_IO=true` only after setup. Subsequent stable tag pushes
    publish in dependency order before the GitHub release is announced. Manual
    rehearsals and prerelease tag pushes skip registry publication.
-5. Verify registry installation, then update user-facing installation instructions
-   to `cargo install --locked groove-cli`.
+5. Verify installation of the exact published version from the registry.
 
 The Rust tool supports checksum-verified partial-publication retries: it skips an
 existing version only when its registry checksum exactly matches the packaged

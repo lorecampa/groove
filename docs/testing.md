@@ -141,151 +141,70 @@ a focused successful audit is not evidence about untested modules.
 
 ## Required checks
 
-The pinned toolchain includes rustfmt and Clippy. Run the same gate as pre-push:
+Run the same gate as pre-push:
 
 ```sh
 bash scripts/check.sh push
 ```
 
-It performs:
-
-```sh
-git diff --check
-bash scripts/security.sh
-cargo fmt --all -- --check
-cargo fmt --manifest-path fuzz/Cargo.toml -- --check
-cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-cargo test --workspace --all-targets --all-features --locked
-cargo test --workspace --doc --locked
-RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked
-```
+[scripts/check.sh](../scripts/check.sh) owns the exact security, formatting,
+Clippy, default-scheduled tests, doctests and rustdoc commands. Install its
+prerequisites using [security maintenance](security.md). Choose focused tests
+from the relevant crate's `tests/` directory while iterating; do not maintain a
+second inventory of test names here.
 
 Use default test scheduling; serial-only success does not establish concurrent
-correctness. Automatic push, pull-request and scheduled GitHub CI runs are
-disabled while hosted compute is unavailable. Run `bash scripts/check.sh push`
-locally before pushing. CI remains available through deliberate manual dispatch
-and explicit release runs; it also tests current stable, minimum Git and
-installed production binaries. Those runs require available hosted compute.
-Checked-in workflows are not evidence that remote CI has run.
+correctness. Do not use automatic retries to conceal unexplained failures.
+The checked-in [workflows](../.github/workflows/) define hosted triggers,
+platform/toolchain matrices and opt-ins. A workflow file does not prove that a
+remote run succeeded or that account permissions/compute are available. Report
+which checks actually ran, their revision/environment and any skips or failures.
 
-The standalone Security workflow supports manual dependency checks and optional
-bounded parser fuzzing. Its weekly job is gated by the explicit repository
-variable `GROOVE_SECURITY_SCHEDULE_ENABLED=true`; it consumes no runner while
-that variable is unset. See [security maintenance](security.md) for pinned tool
-installation, dependency-review exemptions and local fuzzing.
+`test-hooks` is disabled in production. Named checkpoints use
+`GROOVE_TEST_SOCKET`; the harness chooses continuation or SIGKILL. Use locks,
+sockets, FIFOs or readiness markers to arrange ownership/crash boundaries.
+Newer-Git layout cases may skip on older Git; record skips before claiming coverage.
+GitHub release-helper tests use a local `gh` peer, Bash and `jq`; they never
+contact GitHub or publish.
 
-The macOS matrix uses native Apple Silicon and Intel runners on macOS 15 with
-Rust 1.89 and stable. It runs the same full suite with default scheduling, APFS
-reflink tests separately, and packaged production smoke tests. An additional
-case-sensitive APFS disk image exercises process/descriptor, snapshot and cache
-regressions. `GROOVE_TEST_ROOT` selects disposable repository-fixture storage;
-macOS defaults those fixtures to short paths under `/private/tmp` so test sockets
-fit Darwin's path limit. This does not alter product paths or global test scheduling.
-These runners do not establish behavior on the minimum macOS 13 release.
+## Agent evaluations
 
-## Focused regressions
+Use fresh harness sessions and disposable repositories with the locally built
+production CLI and the complete [portable skill](../skills/groove/SKILL.md).
+Supply the user's task, project policy and assignment context without prescribing
+expected agent decisions. Arrange real contention/failures beforehand. Keep the
+coordinator outside the checkout and track reservation identifiers independently.
+Inspect actual responses, changed paths, retained reservations and restored bytes;
+stop all writers before cleanup.
 
-| Area | Test target |
-| --- | --- |
-| Allocation, sanitation and recovery | `groove-core` integration tests |
-| Pool deletion, retained history, generations and path preservation | `cargo test -p groove-core --test destruction --locked` and `cargo test -p groove-cli --test destruction --locked` |
-| Named namespaces, shared administration, root claims and CLI selection | `cargo test -p groove-core --test named_pools --test types --locked` and `cargo test -p groove-cli --test named_pools --test crashes --test git_child --all-features --locked` |
-| Capacity growth, retired-slot reuse, bounded descriptors and rejected unsafe infrastructure | `cargo test -p groove-core --test settings --locked`; CLI crash coverage includes fresh and reinitialized pools |
-| Durable keys, contention, inspection and release --save | `cargo test -p groove-core --test coordination --locked` |
-| Detached workspaces and lookup by task label | `cargo test -p groove-core --test tasks --locked` |
-| Fork/exec descriptor inheritance and harness failures | `cargo test -p groove-core --test fork_inheritance --test harness --locked` |
-| CLI execution, signals, timeout, logs and orphan recovery | `cargo test -p groove-cli --test execution --locked` |
-| Workspace cwd, executable and open-file diagnostics | `cargo test -p groove-core --test quiescence --locked` |
-| Human output, `--json` envelope, help and exit codes | `cargo test -p groove-cli --test protocol --locked` |
-| Single-slot inspection, optional Git status and refreshed pool growth | `cargo test -p groove-core --test inspection --locked` |
-| Deterministic crash boundaries | `cargo test -p groove-cli --test crashes --features test-hooks --locked` |
-| Surviving Git children keep slot and admin locks | `cargo test -p groove-cli --test git_child --locked` |
-| Repository layouts (reftable, separate Git dir, relative worktree links, linked-worktree HEAD) and out-of-band deletion/moves | `cargo test -p groove-core --test environments --locked` |
-| CLI contracts for deleted cwd/checkouts, label reuse/escaping and undeliverable responses | `cargo test -p groove-cli --test edge_cases --locked` |
-| Package/release tooling | `cargo test -p groove-release --locked` |
-| Named benchmark profiles, scale and tooling | [CLI benchmark lab](../benchmarks/snapshots/README.md) |
+Evaluate both coordinators and assigned workers. Test skill discovery separately
+from explicitly supplying the skill. Record the CLI/skill revision, harness/model,
+prompt, observed commands, outcome and remaining reservations in the trial or PR
+report. Distinguish product regressions, structural skill checks and real agent
+trials; none establishes the others. Mark unrun scenarios explicitly. The Rust
+suite does not invoke a paid agent service.
 
-GitHub release-helper regressions run a local `gh` peer with Bash and `jq`; they
-never contact GitHub or publish. They cover partial drafts, published-release
-immutability, failed authentication/uploads and downloaded-byte verification.
-Run `mise exec go:github.com/rhysd/actionlint/cmd/actionlint@1.7.12 -- actionlint`
-to check workflow syntax when mise/actionlint are available. Agent trials are a
-separate manual check described in [skill evaluations](skill-evaluations.md);
-the Rust suite does not invoke a paid agent service or prove skill discovery.
+## Optional host tests and limits
 
-Layout tests that need newer Git (reftable 2.45, relative worktree links 2.48)
-print a skip note and return early on the minimum-Git CI job; the current-Git job
-runs them. `verification_rejects_writes_racing_in_place_cleanup` (test-hooks)
-writes into a slot between cleanup and verification, so a no-op verifier fails it.
-On macOS, `a_filesystem_monitor_daemon_neither_blocks_release_nor_goes_stale`
-starts Git's built-in monitor daemon in a slot (Linux Git has none) and checks
-that release is not blocked and the next reservation sees fresh status.
+[The benchmark lab](../benchmarks/snapshots/README.md) owns performance profiles,
+scale checks and container/production-CLI opt-ins. Use its `profiles` command to
+inspect workloads and requirements. Normal correctness tests do not establish
+large-repository latency or concurrent throughput.
 
-`test-hooks` is disabled in production. At a named checkpoint, it connects to
-`GROOVE_TEST_SOCKET`; the harness chooses continuation or SIGKILL. Ownership and
-crash ordering use locks, sockets, FIFOs or worker readiness markers. Short sleeps
-are used for bounded polling and to observe the absence of delayed writes, not as
-proof that a lease was acquired.
-
-Increase seeded contamination coverage with:
+Reflink artifact tests need reflink-capable disposable storage. Point
+`GROOVE_TEST_REFLINK_ROOT` there and run:
 
 ```sh
-GROOVE_STRESS_SEED=2026 GROOVE_STRESS_STEPS=100 \
-  cargo test -p groove-core --test stress --locked
+cargo test -p groove-core --test preparation --locked -- --ignored reflink
 ```
 
-## Optional host tests
-
-Named CLI profiles own their workloads, sampling and environment requirements.
-Run `cargo run -p groove-bench --locked -- profiles` to inspect them, `check all`
-to verify every declared case once, or `benchmark all` for the complete fixed
-measurement matrix. Each invocation writes one ignored JSON artifact. Profiles
-cannot be resized or shortened with workload/sampling flags.
-Release-CLI/container regressions and 100k/1M core scale tests are explicit local
-opt-ins; see the lab for resources, pinned environment and commands.
-GitHub runs the normal suite and its small snapshot correctness fixtures, without
-performance measurements or a separate scale workflow.
-
-## Limits
-
-CLI execution tests verify live stderr delivery before worker completion, quiet
-mode with preserved files/results, and bounded timeout handling with blocked or
-failed stderr. Protocol tests cover severity thresholds, independent file levels,
-single terminal error rendering and JSON responses with nonempty stderr.
+Report this separate run before claiming reflink coverage. `GROOVE_TEST_ROOT`
+selects ordinary fixture storage; macOS uses short temporary paths to fit Unix
+socket limits. Platform tests establish only the OS/filesystem versions actually
+run, not minimum-version compatibility automatically.
 
 SIGKILL is not power loss or storage corruption. Filesystem rejection checks do
 not certify flock/fsync. Minimum-kernel VM coverage, malicious same-user path
-races, every Git configuration and broad editor/watch compatibility remain
+races, every Git configuration and broad editor/watcher compatibility remain
 unestablished. Process groups cover cooperative descendants only. External
 writers must stop before release/checkpoint.
-
-## Project setup, artifacts and handoff
-
-The default suite covers compatible seeding across slots, independent artifacts,
-file modes/mtimes, toolchain/input invalidation, external source imports, rejected
-tracked/escaping/symlink roots, readiness prerequisites and explicit retries.
-CLI conformance covers setup results and worker exit categories, literal agent
-arguments, unique-label selection and snapshot recovery. Removed patch-export
-flags are rejected before finishing or restoring.
-No real agent service is invoked.
-
-With test-hooks, real-process SIGKILL boundaries cover setup-recorded, completed
-steps, cache publication and readiness publication. Children retain exclusion after
-supervisor death; release remains blocked until explicit writer recovery. Tests
-preserve permanent lock inode identity. Handoff tests include SHA-1/SHA-256,
-binary and untracked files, unborn HEAD, new recovery directories, and retries after
-slot reuse without changing the successor's HEAD/index/files.
-
-Reflink artifact caches (`mode="reflink"`) need reflink-capable storage. Point
-`GROOVE_TEST_REFLINK_ROOT` at disposable storage on such a filesystem and run
-`cargo test -p groove-core --test preparation --locked -- --ignored reflink`. The
-ordinary suite leaves that test ignored; report the separate run before claiming
-coverage. Large-repository latency and concurrent throughput are separate from
-correctness regressions.
-
-Audit regressions cover log-cleanup preview/removal holding execution exclusion
-while another process attempts exec or release --save, and maintenance between the saved
-snapshot and release. Socket checkpoints establish contention without timing
-assumptions; tests assert retryability, retained reservations, permanent lock
-identity, saved receipt reuse, and restored staging/working bytes. Protocol tests
-also execute copied named-pool advice and check listing windows and spawn context.

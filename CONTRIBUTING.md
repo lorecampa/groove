@@ -35,11 +35,7 @@ focused pull request describing the behavior and the checks you ran.
 Before submitting, run:
 
 ```sh
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-cargo test --workspace --all-targets --all-features --locked
-cargo test --workspace --doc --locked
-RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked
+bash scripts/check.sh push
 ```
 
 Public APIs require rustdoc, including ownership and error behavior. Keep descriptor leases
@@ -51,6 +47,13 @@ Markdown command/response tables. Keep the README focused on installation and th
 basic workflow; guides explain concepts and operational boundaries. Update help,
 schemas and conformance tests with behavior changes, and link to them instead of
 copying their reference tables.
+Use `config project --example` for the project configuration example and the
+benchmark CLI's `profiles` command for its catalog. Keep workflow instructions
+in the portable skill and validation commands in `scripts/check.sh`. Do not add
+checked-in run reports, readiness claims, test inventories or copies of generated
+examples/defaults. Put validation evidence in the relevant PR or CI run. Keep
+design rationale, safety boundaries, contributor policy and release history here;
+link to executable definitions for reference details.
 Document user-visible changes in [CHANGELOG.md](CHANGELOG.md). Use the
 [release checklist](docs/releasing.md) before publishing.
 
@@ -71,18 +74,6 @@ local-only opt-ins; see [the snapshot lab](benchmarks/snapshots/README.md).
 
 ## Releases
 
-PR pushes and merges do not automatically run GitHub CI. Local checks remain
-required. A maintainer releases by pushing a `vVERSION` tag for
-a reviewed release commit on `main`; candidate tags stay drafts. GitHub releases
-do not require crates.io, whose publication is disabled by default.
-Prepare the version, internal dependency,
-lockfile and dated changelog with `bash scripts/release.sh prepare VERSION`
-from a clean checkout, then submit those changes as a release PR. This command
-does not commit, tag or publish. Release tooling is an unpublished Rust workspace
-package with a Bash entry point; registry checks also require `curl`.
-
-Run `cargo test --package groove-release --locked` for the release
-regressions and `bash scripts/release.sh packages --allow-dirty` to build the
-extracted package contents while developing. CI requires a clean checkout.
-See [the release guide](docs/releasing.md) for account setup, first publication,
-tagging, binary downloads and recovery from a partial release.
+See [the release guide](docs/releasing.md) for preparation, account setup,
+publication, binary downloads and recovery from a partial release. The
+unpublished release tool exposes its commands through `bash scripts/release.sh --help`.

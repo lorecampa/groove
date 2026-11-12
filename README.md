@@ -27,7 +27,7 @@ Give your agent this prompt:
 > Install Groove for this agent by following
 > https://raw.githubusercontent.com/lorecampa/groove/main/docs/install.md
 
-Then ask: “Use Groove for this task.” See [agent workflows](docs/agents.md)
+Then ask: “Use Groove for this task.” See the [portable skill](skills/groove/SKILL.md)
 for assignments and handoff.
 
 ## Use a workspace
@@ -74,11 +74,11 @@ groove destroy --help
 For scripts, add `--json` or set `GROOVE_OUTPUT=json`. Every response, including
 errors and help, is one versioned JSON object. Check `ok` and the exit status
 before using `result.worktree_path`. Use a request key to retry acquisition and
-retain the lease ID for subsequent retries; see the [agent workflow](docs/agents.md).
+retain the lease ID for subsequent retries; see the [portable skill](skills/groove/SKILL.md).
 
 ## Guides
 
-- [Agents](docs/agents.md): workspace selection, retries and handoff, with a
+- [Agent skill](skills/groove/SKILL.md): workspace selection, retries and handoff, with a
   [portable skill](skills/groove/SKILL.md).
 - [Project setup](docs/project.md): explicit setup steps, caches and named commands
   in `.groove.toml`.

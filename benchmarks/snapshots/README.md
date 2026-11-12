@@ -43,19 +43,12 @@ The first container run prepares dependencies and builds release binaries; later
 runs reuse the content-addressed image. Estimates printed by `profiles` exclude
 image preparation and depend on the host. Expensive profiles remain explicit.
 
-## Catalog v1
+## Profile definitions
 
-| Profile | Fixed cases | Measured operations |
-| --- | --- | --- |
-| `snapshot-incremental` | 10k unique text files; distributed edits and mixed staging/deletion/untracked/ignored state | First save, first changed save, checkpoint history, unchanged save |
-| `snapshot-restore` | 10k unique text files and 100k repeated small files | Clean/dirty recovery into new and existing checkouts |
-| `snapshot-scale` | 100k and 1M repeated small files; twelve distributed edits | First, changed, history and unchanged saves; recovery checked outside save timings |
-| `snapshot-binary` | 8 MiB and 64 MiB deterministic, poorly compressible binaries alongside 1k small files | Saves after rewriting distinct 64 KiB ranges, object growth and verified recovery |
-| `workspace-reuse` | 10k unique files under pristine and warm cleanup | First acquisition, clean reuse, dirty sanitation and release |
-| `workspace-setup` | 1k source files, 256 4 KiB artifacts and one 4 MiB artifact | Explicit setup/cache publication on miss and independent copy seeding on hit |
-| `workspace-concurrency` | 1k source files with 1, 2, 4 and 8 warm slots/workers | Acquire/no-op managed execution/release, per-worker latency, batch throughput and full-pool rejection |
-| `workspace-multi-pool` | 1k source files; 2 or 4 named pools with 2 workers each, repeated labels/keys across pools | Pool init, first/warm acquisition, managed execution/release, catalog, per-worker latency, batch throughput and per-pool exhaustion |
-| `workspace-deletion` | 64 lazy slots; 4 populated slots over 10k paths; 4 dirty slots; 4 external cached slots over 1k unique paths | Ambiguous-selection refusal, preview, deletion, completed retry and reinitialization while a protected sibling remains intact |
+Use `profiles` to inspect the current cases, operations, sampling and resource
+requirements from [profiles-v1.json](profiles-v1.json). The same definitions
+are validated by the runner and embedded in each report; this guide does not
+maintain a second catalog.
 
 One **repetition** runs a complete case on a fresh disposable repository: prepare
 the fixture, measure the declared operations, verify correctness and clean up.
@@ -63,12 +56,10 @@ The report calls this a statistical **block**; multiple commands within one
 repetition are not independent repetitions. With a baseline, each block contains
 both binaries' runs on separate, identical fixtures.
 
-The scale profile owns six measured repetitions and one discarded warmup per case
-and binary; other profiles own ten repetitions and one warmup. Checkpoint history
-length belongs to each case. `check` executes one repetition per case without warmups. It
-uses the same operations/assertions; it does not silently reduce a fixture's size.
-Profile sizes count generated source paths; `.gitignore`, binaries, project files
-and artifact sources add explicitly defined supporting files.
+Sampling, warmups and checkpoint history length belong to each profile/case.
+`check` executes one repetition per case without warmups and uses the same
+operations/assertions; it does not silently reduce a fixture's size. Source path
+counts exclude explicitly defined supporting project/artifact files.
 
 Cases execute sequentially. Only concurrency cases intentionally launch parallel
 workers. Fixtures are newly generated for each side/block, their Git storage is
@@ -98,8 +89,8 @@ Their first registration measurements are separate from warm batch throughput.
 Deletion cases verify every configured path/native registration is removed and
 permanent lock inodes, snapshot recovery, saved-release receipts, request-key tombstones,
 history/log bytes, root neighbors and a protected sibling survive. The external-cache
-case prepares 64 4 KiB files plus a 1 MiB artifact with the real setup/cache API;
-the dirty cases add tracked/untracked edits and 128 ignored files per slot. Fixture
+case uses the real setup/cache API; dirty cases add tracked, untracked and ignored
+files using the profile's fixture definition. Fixture
 setup, result preservation and recovery verification are outside deletion timings.
 Reinit uses a new checkout root, retaining the intentionally preserved root neighbor.
 Worker start phases use bounded readiness handshakes; startup failures disconnect
@@ -137,18 +128,18 @@ an older binary is reported as an operational failure, never a timing comparison
 
 ## Pinned software and controlled runtime
 
-`environment.lock.json` pins Linux amd64, Rust 1.89.0, Git 2.40.0, GNU time 1.9,
-the base-image digest, Debian archive date, Git checksum and resource policy. The
-acquisition phase vendors dependencies for both lockfiles. BuildKit then disables
+[environment.lock.json](environment.lock.json) pins the platform, tool versions,
+base image, archive/checksum inputs and resource policy. The acquisition phase
+vendors dependencies for both lockfiles. BuildKit then disables
 networking while Cargo compiles the runner and each CLI independently with
 `--frozen`; tool-only dependency features cannot change the measured CLI's build.
 Missing dependencies or lock drift fail. Source, binary, runner, package, vendor,
 fixture, catalog, profile and environment identities are retained in the artifact.
 
 The launcher inspects and validates the actual image, network-disabled/read-only
-container, bind mounts, CPU affinity/quota, 8 GiB memory, disabled swap and 512-PID
-limit before starting it. Four available CPUs are selected, or `--cpu-set` supplies
-exactly four IDs. Affinity is not an exclusive reservation. Host identity, kernel,
+container, bind mounts and the locked CPU/memory/swap/process policy before
+starting it. `--cpu-set` selects CPU IDs within that policy. Affinity is not an
+exclusive reservation. Host identity, kernel,
 CPU model, storage mount and cgroup CPU/memory counters are recorded. Containers
 cannot isolate host storage contention, CPU frequency or kernel differences.
 

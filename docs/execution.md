@@ -52,12 +52,6 @@ The result (text or `--json`) contains both paths. Arguments are not persisted i
 metadata; worker output may contain sensitive data. Task logs are separate from
 [CLI diagnostic logs](logging.md) and have no automatic retention policy.
 
-| Control | Default | Behavior |
-| --- | --- | --- |
-| `--timeout-ms` | `0` | No runtime deadline; positive values trigger termination. |
-| `--grace-ms` | `500` | SIGTERM grace before SIGKILL; maximum 60000 ms. |
-| `--max-log-bytes` | `8388608` | Per stream; exceeding it stops the worker and truncates retained output. |
-
 Output monitoring is periodic: temporary disk usage can exceed the retained-byte
 limit. There is no aggregate disk quota across executions.
 
@@ -66,10 +60,9 @@ the running command. The supervisor terminates its process
 group even when the direct child exits first, then checks teardown before clearing
 the execution record. A failed teardown keeps both prohibitions in place.
 
-An execution response can have `ok:true` and a nonzero worker result. CLI status
-matches the worker exit code, or `128 + signal`; timeout returns 124 and output
-limit returns 1. `result.execution.termination` (`exited`, `timed_out`,
-`cancelled`, `output_limited`) distinguishes these cases from a Groove error. The reservation remains protected after every outcome.
+An execution response can have `ok:true` and a nonzero worker result. The
+generated output contract in `groove exec --help` explains worker exit statuses
+and termination outcomes. The reservation remains protected after every outcome.
 
 ## Descendant tracking
 
@@ -129,7 +122,7 @@ be active or interrupted. Explicit recovery marks it `recovered`, with unknown
 exit status; an already-recorded completed outcome is preserved.
 
 Cleanup permanently removes stdout/stderr of terminal runs older than the requested
-age (default 30 days), retaining the small history record. `--older-than 0s` selects
+age, retaining the small history record. `--older-than 0s` selects
 all terminal runs. It rechecks eligibility under the slot execution lock and skips
 slots with live locks or orphaned execution records, even for an older run on the
 same slot. A `removing` state makes interrupted deletion retryable. Inspect every

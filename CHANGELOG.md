@@ -4,6 +4,10 @@
 
 ### Changed
 
+- Consolidated documentation around installed CLI help, the portable skill,
+  executable validation gates and benchmark profiles. Removed duplicate agent
+  instructions, dated launch/evaluation reports and copied reference inventories.
+  Configuration help now derives preference defaults from the implementation.
 - Every command's `--help` now includes its JSON output contract. Help derives
   result fields/types from the bundled conformance schema and root help derives
   error exit codes from the CLI mapping.

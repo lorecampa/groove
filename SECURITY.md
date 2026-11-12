@@ -3,7 +3,7 @@
 Groove worktrees are for cooperative agents and CI. They share Git objects,
 configuration and refs and are not sandboxes for untrusted code. Supported scope
 and destructive cleanup boundaries are documented in [operations](docs/operations.md).
-Only the current development version is maintained before the first release.
+Only the current version is maintained during the alpha.
 
 See [security maintenance](docs/security.md) for dependency policy, advisory
 checks, parser fuzzing, build-tool updates and release provenance verification.
@@ -21,4 +21,4 @@ In the private report, include the Git/Rust/kernel versions, filesystem, affecte
 command and a reproduction using a disposable repository. Maintainers should
 prepare the reporting policy while private, then enable and verify private
 vulnerability reporting when the repository becomes public. The presence of this
-policy does not enable the GitHub setting. See the [launch checklist](docs/launch.md).
+policy does not enable the GitHub setting. See [release preparation](docs/releasing.md#public-availability).
