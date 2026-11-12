@@ -1,0 +1,31 @@
+# All supported production targets, including build and test dependencies.
+[graph]
+targets = ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-apple-darwin"]
+all-features = true
+
+[advisories]
+unmaintained = "all"
+unsound = "all"
+yanked = "deny"
+ignore = []
+
+[licenses]
+confidence-threshold = 0.93
+include-dev = true
+allow = ["MIT", "MIT-0", "Apache-2.0", "Unicode-3.0", "Zlib"]
+exceptions = [
+    # libFuzzer's bundled LLVM code; confined to the unpublished fuzz harness.
+    { crate = "libfuzzer-sys", allow = ["NCSA"] },
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Maintenance uses the bounded Git CLI wrapper; don't silently add another Git
+# implementation or a native TLS/SSH stack to the product.
+deny = ["git2", "libgit2-sys", "openssl", "openssl-sys", "libssh2-sys"]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

@@ -5,7 +5,10 @@ Coding agents must also follow [AGENTS.md](AGENTS.md). The checked-in
 disabled while hosted compute is unavailable; run the required local checks.
 The optional manual/release CI matrix covers minimum Rust and current stable.
 
-Groove is a Linux/macOS Rust workspace. Install Rust 1.89+ and Git 2.40+; Node/npm are
+Groove is a Linux/macOS Rust workspace. Rust 1.89 and Git 2.40 are compatibility
+minimums; use the patched contributor toolchain and a security-maintained Git.
+Install the pinned audit/policy tools from [security maintenance](docs/security.md).
+Node/npm are
 used only for the optional build-tool compatibility test. See
 [testing](docs/testing.md) for local checks and deterministic crash tests.
 macOS requires local APFS storage. OS-specific operations belong in the core's
@@ -57,7 +60,7 @@ and disclosure of private information are not acceptable in project spaces.
 Run `./scripts/install-hooks.sh` once per clone. The installer sets the local
 `core.hooksPath` to the versioned `.githooks` directory and refuses to replace an
 existing custom path. Pre-commit checks staged whitespace and Rust formatting;
-pre-push runs formatting, Clippy, the full Rust suite
+pre-push runs the dependency security gate, formatting, Clippy, the full Rust suite
 (including release, benchmark and hook tests)
 with default scheduling, doctests and rustdoc. Hooks do not edit or stage files.
 Run the same gates directly with `./scripts/check.sh commit` or

@@ -12,6 +12,12 @@ when the GitHub repository is private. It is disabled by default here.
   A clean current tree alone is not a history review. Rotate exposed credentials;
   deleting their latest copy is insufficient.
 - Review licenses, packaged source/archive contents and third-party notices.
+- Verify Dependabot alerts/security fixes, secret scanning/push protection,
+  protected main/release refs and immutable releases in repository settings.
+  Private repository features depend on the GitHub plan: record any unavailable
+  protections instead of treating a committed workflow as evidence they exist.
+- Review the Cargo Vet exemption backlog and target SBOMs; exact-version
+  exemptions are not completed dependency audits. See [security maintenance](security.md).
 - Run `bash scripts/check.sh push` and
   `bash scripts/release.sh packages --allow-dirty` while developing. All ownership
   regressions use disposable repositories and default test scheduling.

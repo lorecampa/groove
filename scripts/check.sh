@@ -9,7 +9,9 @@ case "${1:-}" in
     ;;
   push)
     git diff --check
+    bash scripts/security.sh
     cargo fmt --all -- --check
+    cargo fmt --manifest-path fuzz/Cargo.toml -- --check
     cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
     cargo test --workspace --all-targets --all-features --locked
     cargo test --workspace --doc --locked

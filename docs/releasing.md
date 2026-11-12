@@ -142,8 +142,18 @@ established. Local APFS is required. macOS binaries are not notarized. Other
 architectures and musl builds are not covered. Older Linux libc users can build
 with Cargo in their supported environment. All installations still need Git 2.40+.
 
-Each archive includes `groove`, licenses, guides and the full portable agent skill.
-Download `groove-VERSION-TARGET.tar.gz`, its `.manifest.json` and
+Hosted native builds use the pinned contributor Rust toolchain, separately from
+Rust 1.89 compatibility testing. To reproduce the build/inventory path locally:
+
+```sh
+cargo install --locked cargo-auditable@0.7.7
+bash scripts/release.sh packages --release --auditable --target TARGET
+bash scripts/release.sh bundle --bin-dir target/package-check/TARGET/release --target TARGET --output target/distribution
+```
+
+Each archive includes `groove`, licenses, guides, the full portable agent skill
+and `SBOM.cdx.json`. Download `groove-VERSION-TARGET.tar.gz`, its `.manifest.json`,
+its `.cdx.json` inventory and
 `SHA256SUMS-TARGET` from the same release. Before extracting:
 
 ```sh
@@ -155,8 +165,28 @@ shasum -a 256 --check SHA256SUMS-TARGET
 
 Use the actual target name. Place the extracted `groove` on PATH and verify
 `groove --version`. The release also provides combined `SHA256SUMS`. Manifests
-record source, compiler, target and build platform; checksums detect corruption
-but are not independent signatures or attestations.
+record source, compiler, target and build platform. The CycloneDX 1.6 inventory
+describes the locked target CLI's normal/build graph, including registry hashes
+and licenses; dev-only dependencies are excluded. Build inputs are not all linked
+into the executable. Checksums detect corruption but are not independent signatures.
+
+The workflow generates build and SBOM attestations for public repositories.
+Private repositories need a supported GitHub plan and explicit
+`GROOVE_PRIVATE_ATTESTATIONS=true`. Without it, a private build has no GitHub
+attestation; do not claim one exists. When attestations are available, verify
+the downloaded archive before extracting (substitute the real version/target):
+
+```sh
+gh attestation verify groove-VERSION-TARGET.tar.gz --repo lorecampa/groove --signer-workflow lorecampa/groove/.github/workflows/publish.yml
+gh attestation verify groove-VERSION-TARGET.tar.gz --repo lorecampa/groove --predicate-type https://cyclonedx.org/bom
+cargo audit bin /path/to/installed/groove
+```
+
+Confirm the verified provenance identifies the intended release tag/commit.
+Embedded dependency metadata makes the binary scannable; provenance does not
+prove that dependencies or source code are free of vulnerabilities. Enable
+immutable releases and protect release-tag creation when available. These
+settings affect future publications and do not retroactively attest old assets.
 
 ## Cargo installation before crates.io
 

@@ -5,6 +5,9 @@ configuration and refs and are not sandboxes for untrusted code. Supported scope
 and destructive cleanup boundaries are documented in [operations](docs/operations.md).
 Only the current development version is maintained before the first release.
 
+See [security maintenance](docs/security.md) for dependency policy, advisory
+checks, parser fuzzing, build-tool updates and release provenance verification.
+
 For a vulnerability, use
 [GitHub's private report form](https://github.com/lorecampa/groove/security/advisories/new)
 when private vulnerability reporting is enabled. From the repository's Security

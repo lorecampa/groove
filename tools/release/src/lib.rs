@@ -10,6 +10,7 @@ mod archive;
 mod manifest;
 mod process;
 mod publish;
+mod sbom;
 
 use serde_json::{json, Value};
 use std::{fs, path::Path, path::PathBuf};
@@ -51,8 +52,15 @@ impl Release {
     }
 
     /// Compile extracted packages and exercise production binaries in a disposable repository.
-    pub fn packages(&self, allow_dirty: bool, target: Option<&str>, release: bool) -> Result<()> {
-        self.check_packages(allow_dirty, target, release)
+    /// With `auditable`, requires cargo-auditable and embeds dependency metadata.
+    pub fn packages(
+        &self,
+        allow_dirty: bool,
+        target: Option<&str>,
+        release: bool,
+        auditable: bool,
+    ) -> Result<()> {
+        self.check_packages(allow_dirty, target, release, auditable)
     }
 
     /// Publish in dependency order. An explicit execute flag and a clean tagged main commit are required.

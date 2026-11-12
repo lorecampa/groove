@@ -354,15 +354,23 @@ fn unavailable_log_warning_is_timestamped_and_does_not_break_stdout() {
 #[test]
 fn logging_lock_owner_process() {
     use std::{
-        fs::{File, FileTimes},
+        fs::{FileTimes, OpenOptions},
         io::{Read, Write},
-        os::{fd::AsRawFd, unix::net::UnixStream},
+        os::{
+            fd::AsRawFd,
+            unix::{fs::OpenOptionsExt, net::UnixStream},
+        },
         time::{Duration, SystemTime},
     };
     let Some(path) = std::env::var_os("GROOVE_TEST_LOG_OWNER_FILE") else {
         return;
     };
-    let mut file = File::create(path).unwrap();
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+        .unwrap();
     // SAFETY: file owns a valid descriptor for the complete lifetime of this lock.
     assert_eq!(unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) }, 0);
     writeln!(file, "{{}}").unwrap();
@@ -375,6 +383,126 @@ fn logging_lock_owner_process() {
     // The parent kills this child to test kernel lock release after a crash.
     let mut stop = [0];
     socket.read_exact(&mut stop).unwrap();
+}
+
+#[test]
+fn unsafe_log_destinations_never_block_commands_or_remove_existing_files() {
+    use std::{
+        ffi::CString,
+        os::unix::{
+            ffi::OsStrExt,
+            fs::{symlink, PermissionsExt},
+        },
+        time::Duration,
+    };
+    let home = tempfile::tempdir().unwrap();
+    let h = home.path();
+    let repo = support::Repo::new();
+    let invoke = |args: &[&str]| {
+        let mut cmd = command(h);
+        cmd.arg("--repo").arg(&repo.path).args(args);
+        cmd
+    };
+    ok(invoke(&["init", "--capacity", "1"])
+        .env("GROOVE_LOG_ENABLED", "false")
+        .output()
+        .unwrap());
+    let lease = ok(invoke(&["acquire", "--task", "preserve"])
+        .env("GROOVE_LOG_ENABLED", "false")
+        .output()
+        .unwrap());
+    let protection = repo.state().join("slots/wt-0001.protected.json");
+    let original_protection = fs::read(&protection).unwrap();
+
+    for case in [
+        "fifo",
+        "directory",
+        "symlink",
+        "hardlink",
+        "writable-lock",
+        "shared-directory",
+        "linked-directory",
+    ] {
+        let dir = h.join(case);
+        fs::create_dir(&dir).unwrap();
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
+        let retained = dir.join("groove-retained.jsonl");
+        fs::write(&retained, "preserve existing diagnostic data\n").unwrap();
+        fs::File::open(&retained)
+            .unwrap()
+            .set_times(
+                fs::FileTimes::new()
+                    .set_modified(std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(1)),
+            )
+            .unwrap();
+        let lock = dir.join(".cleanup.lock");
+        let unrelated = h.join(format!("unrelated-{case}"));
+        fs::write(&unrelated, "preserve unrelated data").unwrap();
+        match case {
+            "fifo" => {
+                let path = CString::new(lock.as_os_str().as_bytes()).unwrap();
+                // SAFETY: path is a live NUL-terminated fixture pathname; mode is valid.
+                assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+            }
+            "directory" => fs::create_dir(&lock).unwrap(),
+            "symlink" => symlink(&unrelated, &lock).unwrap(),
+            "hardlink" => fs::hard_link(&unrelated, &lock).unwrap(),
+            "writable-lock" => {
+                fs::write(&lock, "preserve unsafe lock").unwrap();
+                fs::set_permissions(&lock, fs::Permissions::from_mode(0o666)).unwrap();
+            }
+            "shared-directory" => {
+                fs::set_permissions(&dir, fs::Permissions::from_mode(0o777)).unwrap()
+            }
+            "linked-directory" => (),
+            _ => unreachable!(),
+        }
+        let destination = if case == "linked-directory" {
+            let link = h.join("log-directory-link");
+            symlink(&dir, &link).unwrap();
+            link
+        } else {
+            dir.clone()
+        };
+        let mut cmd = invoke(&["list"]);
+        cmd.env("GROOVE_LOG_DIR", &destination);
+        let mut child = support::TestChild::spawn(&mut cmd);
+        child.wait_timeout(Duration::from_secs(5)).unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("File logging unavailable"),
+            "{case}"
+        );
+        let listing = ok(output);
+        assert_eq!(
+            listing["leases"][0]["lease_id"], lease["lease_id"],
+            "{case}"
+        );
+        assert_eq!(
+            fs::read(&protection).unwrap(),
+            original_protection,
+            "{case}"
+        );
+        assert_eq!(
+            fs::read_to_string(&retained).unwrap(),
+            "preserve existing diagnostic data\n",
+            "{case}"
+        );
+        assert_eq!(
+            fs::read_to_string(&unrelated).unwrap(),
+            "preserve unrelated data",
+            "{case}"
+        );
+        assert_eq!(
+            fs::read_dir(&dir)
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|entry| entry.file_name().to_string_lossy().ends_with(".jsonl"))
+                .count(),
+            1,
+            "{case}"
+        );
+    }
 }
 
 #[test]

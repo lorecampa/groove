@@ -151,7 +151,9 @@ It performs:
 
 ```sh
 git diff --check
+bash scripts/security.sh
 cargo fmt --all -- --check
+cargo fmt --manifest-path fuzz/Cargo.toml -- --check
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo test --workspace --all-targets --all-features --locked
 cargo test --workspace --doc --locked
@@ -165,6 +167,12 @@ locally before pushing. CI remains available through deliberate manual dispatch
 and explicit release runs; it also tests current stable, minimum Git and
 installed production binaries. Those runs require available hosted compute.
 Checked-in workflows are not evidence that remote CI has run.
+
+The standalone Security workflow supports manual dependency checks and optional
+bounded parser fuzzing. Its weekly job is gated by the explicit repository
+variable `GROOVE_SECURITY_SCHEDULE_ENABLED=true`; it consumes no runner while
+that variable is unset. See [security maintenance](security.md) for pinned tool
+installation, dependency-review exemptions and local fuzzing.
 
 The macOS matrix uses native Apple Silicon and Intel runners on macOS 15 with
 Rust 1.89 and stable. It runs the same full suite with default scheduling, APFS
