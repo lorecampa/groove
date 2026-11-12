@@ -220,6 +220,7 @@ impl Pool {
     /// A lost response can be recovered by retrying the same key. No timeout or process
     /// exit releases a reservation.
     pub fn reserve(&self, options: ReservationOptions) -> Result<LeaseInfo> {
+        let _operation = self.operation()?;
         options.validate()?;
         repository::mkdir(&self.repo.root.join("requests"))?;
         repository::owned_dir(&self.repo.root.join("requests"))?;
@@ -344,6 +345,7 @@ impl Pool {
     /// # Errors
     /// Rejects active owners and released/stale generations; protection is never removed.
     pub fn hold_reserved(&self, id: LeaseId) -> Result<Lease> {
+        let _operation = self.operation()?;
         let pool = self.refreshed()?;
         let info = pool.lease_info(id)?;
         let expected = pool

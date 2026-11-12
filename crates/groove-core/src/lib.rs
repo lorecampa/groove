@@ -38,6 +38,7 @@ compile_error!(
     "groove-core supports Linux and macOS: ownership requires Unix descriptor locks and process supervision"
 );
 mod cache;
+mod destruction;
 mod error;
 mod execution;
 mod finish;
@@ -46,6 +47,7 @@ mod history;
 mod identifiers;
 mod inspection;
 mod lease;
+mod lifecycle;
 mod locking;
 mod platform;
 mod pool;
@@ -64,6 +66,7 @@ mod storage;
 mod test_support;
 mod types;
 
+pub use destruction::{DestroyOptions, DestroyResult};
 pub use error::{CapacityFailure, Error, ErrorCode, ErrorDetails, GitFailure, Result};
 pub use execution::{
     ExecOptions, ExecResult, ExecutionInfo, ExecutionObserver, ExecutionSignals, OutputStream,
@@ -71,7 +74,7 @@ pub use execution::{
 };
 pub use finish::FinishResult;
 pub use history::{HistoryFilter, LogState, RunHistory, RunId, RunOrigin, RunOutcome};
-pub use identifiers::{CommitOid, LeaseId, SlotId};
+pub use identifiers::{CommitOid, LeaseId, PoolId, SlotId};
 pub use inspection::{PoolInspection, SlotInspection, SlotStatus, WorkspaceGitStatus};
 pub use lease::Lease;
 pub use pool::Pool;

@@ -66,6 +66,40 @@ migration between development versions, so recreate pools after upgrading a
 pre-release build. Current handles and acquisition waiters refresh settings, while
 already-started preparation may use its observed policy.
 
+## Deleting and recreating a pool
+
+Finish/release every task and stop all writers, then run from outside the pool:
+
+```sh
+groove destroy --dry-run
+groove destroy
+# If released workspaces still contain edits, ignored caches or broken checkouts:
+groove destroy --discard-changes --dry-run
+groove destroy --discard-changes
+```
+
+The discard flag acknowledges file loss only. Descriptors, durable reservations,
+orphan execution records, observed processes and unsafe paths still block deletion.
+The process scan includes your shell and the command itself. Ignored files are
+removed even for warm pools. Unknown files beside slots are retained, and unknown
+artifact entries cause an error before removal starts.
+
+Deletion removes configured workspaces, exact native registrations and disposable
+artifact caches. Permanent locks, journals, finish receipts, execution history/logs,
+branches, snapshots and the checkout root itself survive. `history`, `storage` and
+`snapshot` remain available; logs/history use their existing explicit cleanup rules.
+No Git object collection is run. Keeping a small coordination area is intentional:
+deleting permanent locks could create two independent owners for the same path.
+
+An interruption leaves the pool disabled. Repeat the same destroy command, including
+its discard flag, to resume. Completed retries succeed. For automation, pass
+`--pool-id UUID` from the preview/result so a retry cannot target a replacement pool.
+After completion, `init` can choose new capacity, cleanup and checkout-root settings;
+old library/snapshot handles are rejected and completed request keys remain tombstoned.
+Destroy also cancels interrupted initialization without creating worktrees.
+If metadata or an original default-root location is damaged, repair/restore it
+before deletion; discard never authorizes removing foreign paths.
+
 ## Task lifecycle
 
 [Agent workflow](agents.md) covers acquire, retry, work and finish. Normal commands

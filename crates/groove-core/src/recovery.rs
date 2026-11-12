@@ -469,11 +469,14 @@ pub(crate) fn remove_owned(repo: &Repository, path: &Path) -> Result<()> {
         state::sync_dir(&registrations)?;
     }
     repository::no_symlinks(path)?;
+    state::checkpoint("owned-registrations-removed");
     if path.exists() {
         fs::remove_dir_all(path)?;
     }
     if let Some(parent) = path.parent() {
-        state::sync_dir(parent)?;
+        if parent.try_exists()? {
+            state::sync_dir(parent)?;
+        }
     }
     Ok(())
 }

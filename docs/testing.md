@@ -176,6 +176,7 @@ These runners do not establish behavior on the minimum macOS 13 release.
 | Area | Test target |
 | --- | --- |
 | Allocation, sanitation and recovery | `groove-core` integration tests |
+| Pool deletion, retained history, generations and path preservation | `cargo test -p groove-core --test destruction --locked` and `cargo test -p groove-cli --test destruction --locked` |
 | Durable keys, contention, inspection and finish | `cargo test -p groove-core --test coordination --locked` |
 | Detached workspaces and lookup by task label | `cargo test -p groove-core --test tasks --locked` |
 | Fork/exec descriptor inheritance and harness failures | `cargo test -p groove-core --test fork_inheritance --test harness --locked` |

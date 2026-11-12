@@ -141,6 +141,24 @@ pub struct Snapshots {
     git_dir: PathBuf,
     state: PathBuf,
     timeout: Duration,
+    pool: Option<crate::Pool>,
+}
+
+struct SnapshotLock {
+    file: fs::File,
+    admission: Option<fs::File>,
+}
+impl AsRawFd for SnapshotLock {
+    fn as_raw_fd(&self) -> std::os::fd::RawFd {
+        self.file.as_raw_fd()
+    }
+}
+impl SnapshotLock {
+    fn descriptors(&self) -> Vec<std::os::fd::RawFd> {
+        std::iter::once(self.file.as_raw_fd())
+            .chain(self.admission.as_ref().map(AsRawFd::as_raw_fd))
+            .collect()
+    }
 }
 impl Snapshots {
     /// Discover a non-bare Git worktree, without initializing a Groove pool.
@@ -159,6 +177,17 @@ impl Snapshots {
             &[],
         )?)?);
         let state = repo.common.join("groove-snapshots");
+        let pool = if git_dir != repo.common && repo.config_path().try_exists()? {
+            let config: crate::state::Config = crate::state::read(&repo.config_path())?;
+            config.validate()?;
+            if root.parent() == Some(config.worktree_root.as_path()) {
+                Some(crate::Pool::open_with_timeout(&root, timeout)?)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         repository::mkdir(&state)?;
         let _ = locking::open(&state.join("lock"), true)?;
         Ok(Self {
@@ -167,9 +196,11 @@ impl Snapshots {
             git_dir,
             state,
             timeout,
+            pool,
         })
     }
-    fn lock(&self) -> Result<fs::File> {
+    fn lock(&self) -> Result<SnapshotLock> {
+        let admission = self.pool.as_ref().map(crate::Pool::operation).transpose()?;
         let file = locking::open(&self.state.join("lock"), false)?;
         let started = std::time::Instant::now();
         let mut first_contention = true;
@@ -201,14 +232,14 @@ impl Snapshots {
                 }
             }
         }
-        Ok(file)
+        Ok(SnapshotLock { file, admission })
     }
     fn run(
         &self,
         args: &[&str],
         index: Option<&Path>,
         input: Option<&[u8]>,
-        lock: Option<&fs::File>,
+        lock: Option<&SnapshotLock>,
     ) -> Result<Vec<u8>> {
         self.run_env(args, index, input, lock, &[])
     }
@@ -217,7 +248,7 @@ impl Snapshots {
         args: &[&str],
         index: Option<&Path>,
         input: Option<&[u8]>,
-        lock: Option<&fs::File>,
+        lock: Option<&SnapshotLock>,
         extra: &[(&str, &OsStr)],
     ) -> Result<Vec<u8>> {
         let mut env = vec![
@@ -239,7 +270,7 @@ impl Snapshots {
                 Ok(f)
             })
             .transpose()?;
-        let fds = lock.map(|f| vec![f.as_raw_fd()]).unwrap_or_default();
+        let fds = lock.map(SnapshotLock::descriptors).unwrap_or_default();
         let mut durable_args = vec![
             "-c",
             "core.fsync=loose-object,reference",
@@ -443,7 +474,7 @@ impl Snapshots {
         names: &[u8],
         index: Option<&Path>,
         cached: bool,
-        lock: Option<&fs::File>,
+        lock: Option<&SnapshotLock>,
     ) -> Result<()> {
         let mut args = vec!["check-attr", "--all", "-z", "--stdin"];
         if cached {
@@ -470,7 +501,7 @@ impl Snapshots {
         Ok(())
     }
 
-    fn validate_restore_attributes(&self, snapshot: &Snapshot, lock: &fs::File) -> Result<()> {
+    fn validate_restore_attributes(&self, snapshot: &Snapshot, lock: &SnapshotLock) -> Result<()> {
         let temp = tempfile::Builder::new()
             .prefix("scratch-")
             .tempdir_in(&self.state)?;
@@ -498,7 +529,7 @@ impl Snapshots {
         index: &Path,
         selected: &BTreeSet<Vec<u8>>,
         options: &SaveOptions,
-        lock: &fs::File,
+        lock: &SnapshotLock,
     ) -> Result<Vec<(PathBuf, Option<Stamp>)>> {
         let mut pathspec = Vec::new();
         let mut removals = Vec::new();
@@ -541,7 +572,7 @@ impl Snapshots {
         Ok(stamps)
     }
     /// Fail if HEAD, the real index or any captured path changed while capturing.
-    fn ensure_stable(&self, before: &Observation, lock: &fs::File) -> Result<()> {
+    fn ensure_stable(&self, before: &Observation, lock: &SnapshotLock) -> Result<()> {
         let changed = before.head != self.head()?
             || before.index != self.index_bytes()?
             || before.changed != self.run(DIFF_FILES_ARGS, None, None, Some(lock))?
@@ -558,7 +589,7 @@ impl Snapshots {
         Ok(())
     }
     /// Store `snapshot` as a commit and publish its ref with compare-and-create.
-    fn publish(&self, snapshot: &Snapshot, lock: &fs::File) -> Result<()> {
+    fn publish(&self, snapshot: &Snapshot, lock: &SnapshotLock) -> Result<()> {
         let tree = format!(
             "040000 tree {}\tindex\n040000 tree {}\twork\n100644 blob {}\tuntracked\n",
             snapshot.index_tree, snapshot.work_tree, snapshot.untracked_blob
@@ -597,7 +628,12 @@ impl Snapshots {
         crate::state::checkpoint("snapshot-published");
         Ok(())
     }
-    fn capture(&self, options: &SaveOptions, lock: &fs::File, publish: bool) -> Result<Snapshot> {
+    fn capture(
+        &self,
+        options: &SaveOptions,
+        lock: &SnapshotLock,
+        publish: bool,
+    ) -> Result<Snapshot> {
         self.validate()?;
         let head = self.head()?;
         let original = self.index_bytes()?;
@@ -674,7 +710,7 @@ impl Snapshots {
         self.run(&["update-ref", &reference, &oid], None, None, Some(&lock))?;
         Ok(())
     }
-    fn delete_inner(&self, id: &str, force: bool, lock: &fs::File) -> Result<()> {
+    fn delete_inner(&self, id: &str, force: bool, lock: &SnapshotLock) -> Result<()> {
         let s = self.load(id)?;
         if s.pinned && !force {
             return Err(invalid(
@@ -734,7 +770,18 @@ impl Snapshots {
     /// Saved bytes and file types do not depend on current Git checkout preferences;
     /// active conversion attributes are checked before materializing the result.
     pub fn restore(&self, id: &str, destination: Option<&Path>) -> Result<RestoreResult> {
-        let lock = self.lock()?;
+        let mut lock = self.lock()?;
+        // A main-checkout recovery must also exclude root/settings replacement
+        // between checking its destination and finishing the new worktree. Pass
+        // that admission to mutation children even though the source is outside
+        // the pool. Independent snapshot reads/saves remain pool-independent.
+        if destination.is_some() && self.common.join("groove/config.json").try_exists()? {
+            let pool = crate::Pool::open_retained(&self.common, self.timeout)?;
+            let admission = pool.retained_operation()?;
+            if lock.admission.is_none() {
+                lock.admission = Some(admission);
+            }
+        }
         let s = self.load(id)?;
         if let Some(destination) = destination {
             let destination = if destination.is_absolute() {
@@ -742,6 +789,17 @@ impl Snapshots {
             } else {
                 std::env::current_dir()?.join(destination)
             };
+            let pool_config = self.common.join("groove/config.json");
+            if pool_config.try_exists()? {
+                let config: crate::state::Config = crate::state::read(&pool_config)?;
+                config.validate()?;
+                repository::no_symlinks(&destination)?;
+                if destination.starts_with(&config.worktree_root) {
+                    return Err(invalid(
+                        "Recovery destination must be outside the pool checkout root",
+                    ));
+                }
+            }
             if destination.exists() {
                 return Err(invalid("Recovery destination must not exist"));
             }
@@ -784,7 +842,7 @@ impl Snapshots {
                         repository::utf8(&self.common)?,
                         &self.reference(id)?,
                     ],
-                    &[lock.as_raw_fd()],
+                    &lock.descriptors(),
                 )?;
             }
             let target = Self::open(&destination, self.timeout)?;
@@ -824,7 +882,7 @@ impl Snapshots {
             safety_snapshot_id: Some(safety.id),
         })
     }
-    fn apply(&self, s: &Snapshot, current: Option<&Snapshot>, lock: &fs::File) -> Result<()> {
+    fn apply(&self, s: &Snapshot, current: Option<&Snapshot>, lock: &SnapshotLock) -> Result<()> {
         self.validate_restore_attributes(s, lock)?;
         // Git can overwrite ignored files during checkout. Reject collisions explicitly first.
         let ignored = self.run(

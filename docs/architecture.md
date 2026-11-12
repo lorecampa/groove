@@ -69,6 +69,8 @@ can change through an atomic settings update.
 ```text
 <GIT_COMMON_DIR>/groove/
   config.json                     # Ready manifest (schema 1)
+  lifecycle.json                  # Generation and initializing/ready/deleting/deleted phase
+  locks/lifecycle.lock            # Permanent shared admission / exclusive lifecycle transitions
   locks/admin.lock                # Administrative serialization
   locks/wt-0001.lock              # Permanent slot ownership
   locks/wt-0001.execution.lock    # Permanent execution ownership
@@ -83,6 +85,7 @@ can change through an atomic settings update.
   task-logs/<run-id>/             # Captured stdout/stderr and durable run.json
   worktrees/wt-0001/              # Default disposable checkout
   tmp/
+  retired/<pool-id>.json           # Retained manifest for historical lock identities
 ```
 
 Git's native worktree administration stays in `<GIT_COMMON_DIR>/worktrees/`.
@@ -103,6 +106,45 @@ lazy. Handles refresh the manifest for acquisition scans, reservation lookup and
 inspection; in-flight preparation may use its earlier observed policy.
 
 ## Allocation and cleanup
+
+Pool mutations first take shared admission on `locks/lifecycle.lock` and check
+their pool generation. This guard covers the entire operation, including request
+infrastructure before slot acquisition and finish receipts after slot release.
+Nested shared admission is allowed; exclusive transitions use nonblocking admission
+so no queued exclusive waiter can deadlock a nested shared operation. The guard is
+not retained by an idle `Pool` handle. Normal slot/execution/admin locking and
+descriptor inheritance remain authoritative for surviving children.
+
+`init` and `destroy` take exclusive admission before admin exclusion. Destroy
+probes every existing slot/execution lock nonblockingly, including unpublished
+growth and retired slots, and checks that every configured identity still exists.
+It never waits for slot ownership while holding admin. Live/protected reservations
+and orphan execution records always refuse deletion; no discard option bypasses them.
+Exclusive admission prevents new cooperating owners, so successful probes can close
+individually instead of consuming two descriptors per slot for the whole deletion.
+Snapshot operations originating in a managed slot take shared admission too and
+pass it to mutating Git children. Independent snapshots in the main checkout
+remain available after deletion. New restore destinations must be outside pool roots.
+
+Destroy preflights all configured paths, observed processes (including the caller
+and ancestors), residual changes and artifact entries before persisting `deleting`.
+It removes only configured slot paths/exact registrations and recognized disposable
+cache directories, syncing each removal. A crash leaves allocation disabled;
+retrying with the same discard policy revalidates ownership/paths/processes and
+completes removal. Already-removed paths are accepted. It then archives the manifest
+and publishes `deleted`. Roots, unknown files in checkout roots, permanent locks,
+request journals, receipts and logs/history remain; snapshots and branches are independent.
+
+Reinitialization changes the UUID generation, preserves all recorded lock identities
+(including retired manifests) and retains repository-scoped request tombstones.
+Old `Pool` and managed-slot snapshot handles reject the replacement generation.
+Reinit resets slot diagnostic records while preserving independent receipts/history.
+Retained history/storage APIs also work after deletion and use archived execution
+lock identities when a replacement pool has fewer slots. Interrupted init can be
+cancelled under the same exclusion without materializing checkouts. Legacy ready
+manifests without a lifecycle record remain readable; deletion publishes their
+first generation. All newly initialized pools have lifecycle records. Use one
+Groove version per live pool; older binaries do not understand lifecycle admission.
 
 1. Resolve the requested revision to a full commit OID.
 2. Scan fixed slots using nonblocking ownership locks and a monotonic wait budget.

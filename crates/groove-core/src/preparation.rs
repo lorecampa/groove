@@ -491,6 +491,7 @@ impl Pool {
         profile: &str,
         options: PreparationOptions,
     ) -> Result<Preparation> {
+        let _operation = self.operation()?;
         if !valid_name(profile) || options.timeout.is_zero() {
             return Err(invalid(
                 "Setup needs a valid profile and positive artifact timeout",
@@ -608,6 +609,7 @@ impl Pool {
         args: &[std::ffi::OsString],
         mut options: ExecOptions,
     ) -> Result<ExecResult> {
+        let _operation = self.operation()?;
         let name = target.name();
         if !valid_name(name) {
             return Err(invalid("Recipe/agent name must be a simple identifier"));

@@ -6,8 +6,12 @@ use std::{
 };
 
 /// Scan `/proc` for processes using `root`, skipping this process and its ancestors.
-pub(super) fn processes_using(root: &Path) -> Result<Vec<WorkspaceProcess>> {
-    let skip = self_and_ancestors();
+pub(super) fn processes_using(root: &Path, skip_ancestors: bool) -> Result<Vec<WorkspaceProcess>> {
+    let skip = if skip_ancestors {
+        self_and_ancestors()
+    } else {
+        Default::default()
+    };
     let entries = fs::read_dir("/proc")?;
     let mut found = Vec::new();
     for entry in entries.flatten() {

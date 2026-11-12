@@ -10,6 +10,7 @@ INSPECTION AND SETTINGS:
   groove show --task NAME          one reservation in detail
   groove snapshot list             local checkpoints
   groove config set --capacity 8   grow the pool
+  groove destroy --dry-run         preview deletion of an idle pool
   groove completions bash          print a shell completion script
   groove history --task NAME       past executions, even after release
   groove storage show              logical storage usage

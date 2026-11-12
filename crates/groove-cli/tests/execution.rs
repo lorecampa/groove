@@ -309,12 +309,17 @@ fn supervisor_sigkill_leaves_execution_and_reservation_protected() {
     wait_file(&repo.slot(1).join("ready"));
     worker.kill().unwrap();
     worker.wait().unwrap();
+    let deletion = cli(&repo, &["destroy", "--discard-changes"]);
+    assert_eq!(checked(&deletion)["error"]["code"], "CONFIG_CONFLICT");
+    assert!(repo.slot(1).join("ready").exists());
     for operation in ["release", "recover", "stop"] {
         assert!(!cli(&repo, &[operation, "--lease-id", id]).status.success());
     }
     assert!(!cli(&repo, &["acquire"]).status.success());
     // The explicitly launched sleep has a bounded lifetime. Its exit does not clear state.
     std::thread::sleep(Duration::from_millis(1200));
+    let deletion = cli(&repo, &["destroy", "--discard-changes"]);
+    assert_eq!(checked(&deletion)["error"]["code"], "CONFIG_CONFLICT");
     assert!(!cli(&repo, &["release", "--lease-id", id]).status.success());
     assert_success(&cli(&repo, &["recover", "--lease-id", id]));
     release(&repo, id);

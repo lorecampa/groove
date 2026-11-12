@@ -1,7 +1,7 @@
 //! Command-line grammar. Every command and option carries help; long help lives in `help/`.
 
 use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
-use groove_core::{LeaseId, RunId, SlotId};
+use groove_core::{LeaseId, PoolId, RunId, SlotId};
 use std::{ffi::OsString, path::PathBuf};
 
 macro_rules! help {
@@ -88,6 +88,19 @@ impl From<Cleanup> for groove_core::CleanupPolicy {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Delete an idle pool's checkouts and caches, retaining snapshots and history.
+    #[command(after_help = help!("destroy"))]
+    Destroy {
+        /// Validate and preview deletion without removing data or changing lifecycle state.
+        #[arg(long)]
+        dry_run: bool,
+        /// Discard residual edits, ignored files and broken checkouts; never bypasses owners or reservations.
+        #[arg(long)]
+        discard_changes: bool,
+        /// Require the generation returned by a previous preview; protects a replacement pool.
+        #[arg(long)]
+        pool_id: Option<PoolId>,
+    },
     /// Create a pool of reusable worktree slots for this repository.
     #[command(after_help = help!("init"))]
     Init {
@@ -421,6 +434,7 @@ impl Command {
     /// Stable command name for logs.
     pub fn name(&self) -> &'static str {
         match self {
+            Self::Destroy { .. } => "destroy",
             Self::Init { .. } => "init",
             Self::Acquire { .. } => "acquire",
             Self::Exec { .. } => "exec",

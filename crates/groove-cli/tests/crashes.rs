@@ -62,6 +62,360 @@ fn initialization_crash_boundaries_resume_without_replacing_locks() {
 }
 
 #[test]
+fn deletion_crashes_resume_with_the_same_policy_and_preserve_results_and_inodes() {
+    if !support::in_subprocess(
+        "deletion_crashes_resume_with_the_same_policy_and_preserve_results_and_inodes",
+    ) {
+        return;
+    }
+    use groove_core::{
+        snapshot::{SaveOptions, Snapshots},
+        DestroyOptions, ErrorCode,
+    };
+    use std::{fs, os::unix::fs::PermissionsExt, time::Duration};
+    for name in [
+        "pool-deleting",
+        "pool-slot-removed",
+        "pool-artifact-removed",
+        "pool-deleted",
+    ] {
+        let repo = Repo::new();
+        Pool::init(
+            &repo.path,
+            PoolOptions {
+                capacity: 2,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let pool = Pool::open(&repo.path).unwrap();
+        let a = pool.acquire(Default::default()).unwrap();
+        let b = pool.acquire(Default::default()).unwrap();
+        drop(a);
+        drop(b);
+        let cache = repo.state().join("artifacts");
+        fs::create_dir(&cache).unwrap();
+        fs::set_permissions(&cache, fs::Permissions::from_mode(0o700)).unwrap();
+        let data = cache.join("b".repeat(64));
+        fs::create_dir(&data).unwrap();
+        fs::set_permissions(&data, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::write(data.join("bytes"), "cache").unwrap();
+        let snapshots = Snapshots::open(&repo.path, Duration::from_secs(10)).unwrap();
+        let snapshot = snapshots.save(SaveOptions::default()).unwrap();
+        let inodes: Vec<_> = fs::read_dir(repo.state().join("locks"))
+            .unwrap()
+            .map(|e| {
+                let path = e.unwrap().path();
+                let ino = fs::metadata(&path).unwrap().ino();
+                (path, ino)
+            })
+            .collect();
+        let (mut command, listener) =
+            checkpoint_command(&repo, name, &["destroy", "--discard-changes"]);
+        kill_at_checkpoint(&mut command, listener, name);
+        assert_eq!(
+            Pool::open(&repo.path).unwrap_err().code,
+            if name == "pool-deleted" {
+                ErrorCode::NotInitialized
+            } else {
+                ErrorCode::ConfigConflict
+            }
+        );
+        if name != "pool-deleted" {
+            assert_eq!(
+                Pool::init(
+                    &repo.path,
+                    PoolOptions {
+                        capacity: 2,
+                        ..Default::default()
+                    }
+                )
+                .unwrap_err()
+                .code,
+                ErrorCode::ConfigConflict
+            );
+            assert_eq!(
+                Pool::destroy(&repo.path, Default::default())
+                    .unwrap_err()
+                    .code,
+                ErrorCode::ConfigConflict
+            );
+        }
+        let before = fs::read(repo.state().join("lifecycle.json")).unwrap();
+        let preview = Pool::destroy(
+            &repo.path,
+            DestroyOptions {
+                dry_run: true,
+                discard_changes: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read(repo.state().join("lifecycle.json")).unwrap(),
+            before
+        );
+        let result = Pool::destroy(
+            &repo.path,
+            DestroyOptions {
+                discard_changes: true,
+                pool_id: preview.pool_id,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(result.deleted);
+        assert!(!repo.slot(1).exists() && !repo.slot(2).exists() && !data.exists());
+        for (path, ino) in inodes {
+            assert_eq!(fs::metadata(path).unwrap().ino(), ino);
+        }
+        assert_eq!(snapshots.show(&snapshot.id).unwrap().id, snapshot.id);
+        Pool::init(
+            &repo.path,
+            PoolOptions {
+                capacity: 1,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(Pool::open(&repo.path)
+            .unwrap()
+            .acquire(Default::default())
+            .is_ok());
+    }
+}
+
+#[test]
+fn deletion_excludes_new_operations_and_covers_finish_metadata_after_unlock() {
+    if !support::in_subprocess(
+        "deletion_excludes_new_operations_and_covers_finish_metadata_after_unlock",
+    ) {
+        return;
+    }
+    use groove_core::{DestroyOptions, ErrorCode, PoolUpdate};
+    use std::io::Write;
+    for point in [
+        "before-normalization",
+        "before-pool-update",
+        "finish-released",
+    ] {
+        let repo = Repo::new();
+        Pool::init(
+            &repo.path,
+            PoolOptions {
+                capacity: 1,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let pool = Pool::open(&repo.path).unwrap();
+        drop(pool.acquire(Default::default()).unwrap());
+        let id = if point == "finish-released" {
+            Some(
+                pool.reserve(Default::default())
+                    .unwrap()
+                    .lease_id
+                    .to_string(),
+            )
+        } else {
+            None
+        };
+        let args = match point {
+            "before-normalization" => vec!["acquire"],
+            "before-pool-update" => vec!["config", "set", "--capacity", "2"],
+            _ => vec!["finish", "--lease-id", id.as_deref().unwrap()],
+        };
+        let (mut command, listener) = checkpoint_command(&repo, point, &args);
+        let mut child = support::TestChild::spawn(&mut command);
+        let mut stream = child
+            .checkpoint(&listener, point, support::PROCESS_TIMEOUT)
+            .unwrap();
+        let rejected = Pool::destroy(
+            &repo.path,
+            DestroyOptions {
+                discard_changes: true,
+                ..Default::default()
+            },
+        );
+        stream.write_all(b"g").unwrap();
+        assert!(child.wait().unwrap().success());
+        assert_eq!(rejected.unwrap_err().code, ErrorCode::ConfigConflict);
+        // Reservation creation may have succeeded in the acquire case.
+        for lease in pool.protected_leases().unwrap() {
+            pool.release_lease(lease.lease_id).unwrap();
+        }
+        let (mut command, listener) =
+            checkpoint_command_after_removing_socket(&repo, "pool-deleting", &["destroy"]);
+        let mut child = support::TestChild::spawn(&mut command);
+        let mut stream = child
+            .checkpoint(&listener, "pool-deleting", support::PROCESS_TIMEOUT)
+            .unwrap();
+        let acquire = pool.acquire(Default::default());
+        let configure = pool.configure(PoolUpdate {
+            capacity: Some(3),
+            ..Default::default()
+        });
+        stream.write_all(b"g").unwrap();
+        assert!(child.wait().unwrap().success());
+        assert_eq!(acquire.unwrap_err().code, ErrorCode::ConfigConflict);
+        assert_eq!(configure.unwrap_err().code, ErrorCode::ConfigConflict);
+        assert!(!repo.slot(1).exists());
+    }
+}
+
+fn checkpoint_command_after_removing_socket(
+    repo: &Repo,
+    name: &str,
+    args: &[&str],
+) -> (Command, UnixListener) {
+    std::fs::remove_file(repo.temp.path().join("checkpoint.sock")).unwrap();
+    checkpoint_command(repo, name, args)
+}
+
+#[test]
+fn interrupted_initialization_can_be_cancelled_and_reinitialized() {
+    if !support::in_subprocess("interrupted_initialization_can_be_cancelled_and_reinitialized") {
+        return;
+    }
+    for name in ["metadata-renamed", "before-ready-manifest"] {
+        let repo = Repo::new();
+        let (mut command, listener) = checkpoint_command(&repo, name, &["init", "--capacity", "2"]);
+        kill_at_checkpoint(&mut command, listener, name);
+        let result = Pool::destroy(&repo.path, Default::default()).unwrap();
+        assert!(result.deleted);
+        assert!(!repo.state().join("initializing.json").exists());
+        Pool::init(
+            &repo.path,
+            PoolOptions {
+                capacity: 1,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(Pool::open(&repo.path)
+            .unwrap()
+            .reserve(Default::default())
+            .is_ok());
+    }
+}
+
+#[test]
+fn deletion_retries_after_unregistering_and_after_a_reported_io_failure() {
+    if !support::in_subprocess(
+        "deletion_retries_after_unregistering_and_after_a_reported_io_failure",
+    ) {
+        return;
+    }
+    use std::{fs, io::Write};
+    for point in ["owned-registrations-removed", "pool-slot-removed"] {
+        let repo = Repo::new();
+        Pool::init(
+            &repo.path,
+            PoolOptions {
+                capacity: 1,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let p = Pool::open(&repo.path).unwrap();
+        drop(p.acquire(Default::default()).unwrap());
+        let (mut command, listener) = checkpoint_command(&repo, point, &["destroy"]);
+        let mut child = support::TestChild::spawn(&mut command);
+        let mut stream = child
+            .checkpoint(&listener, point, support::PROCESS_TIMEOUT)
+            .unwrap();
+        if point == "owned-registrations-removed" {
+            assert!(repo.slot(1).exists());
+            child.kill().unwrap();
+            child.wait().unwrap();
+        } else {
+            // Inject a durable publication failure after workspace removal.
+            fs::write(repo.state().join("retired"), "obstruction").unwrap();
+            stream.write_all(b"g").unwrap();
+            let output = child.wait_with_output().unwrap();
+            assert!(!output.status.success());
+            let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(response["error"]["code"], "UNSUPPORTED_CONFIGURATION");
+            fs::remove_file(repo.state().join("retired")).unwrap();
+        }
+        assert_eq!(
+            Pool::open(&repo.path).unwrap_err().code,
+            groove_core::ErrorCode::ConfigConflict
+        );
+        let result = Pool::destroy(&repo.path, Default::default()).unwrap();
+        assert!(result.deleted && result.resumed);
+        assert!(!repo.slot(1).exists());
+    }
+}
+
+#[test]
+fn reinit_intent_crashes_can_be_cancelled_without_overwriting_retired_identity() {
+    if !support::in_subprocess(
+        "reinit_intent_crashes_can_be_cancelled_without_overwriting_retired_identity",
+    ) {
+        return;
+    }
+    use groove_core::{DestroyOptions, ErrorCode};
+    let repo = Repo::new();
+    Pool::init(
+        &repo.path,
+        PoolOptions {
+            capacity: 2,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let old = Pool::destroy(&repo.path, Default::default()).unwrap();
+    let archive = repo
+        .state()
+        .join("retired")
+        .join(format!("{}.json", old.pool_id.unwrap()));
+    let original = std::fs::read(&archive).unwrap();
+    let (mut command, listener) =
+        checkpoint_command(&repo, "metadata-renamed", &["init", "--capacity", "1"]);
+    kill_at_checkpoint(&mut command, listener, "metadata-renamed");
+    let preview = Pool::destroy(
+        &repo.path,
+        DestroyOptions {
+            dry_run: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(preview.pool_id, None);
+    assert!(!preview.deleted);
+    assert_eq!(
+        Pool::destroy(
+            &repo.path,
+            DestroyOptions {
+                pool_id: old.pool_id,
+                ..Default::default()
+            }
+        )
+        .unwrap_err()
+        .code,
+        ErrorCode::ConfigConflict
+    );
+    let cancelled = Pool::destroy(&repo.path, Default::default()).unwrap();
+    assert_ne!(cancelled.pool_id, old.pool_id);
+    assert!(cancelled.deleted);
+    assert_eq!(std::fs::read(archive).unwrap(), original);
+    assert!(!repo.state().join("initializing.json").exists());
+    Pool::init(
+        &repo.path,
+        PoolOptions {
+            capacity: 2,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(Pool::open(&repo.path)
+        .unwrap()
+        .acquire(Default::default())
+        .is_ok());
+}
+
+#[test]
 fn pool_growth_crash_boundaries_preserve_reservations_and_lock_inodes() {
     for name in ["pool-slot-added", "before-pool-update", "pool-updated"] {
         let r = Repo::new();

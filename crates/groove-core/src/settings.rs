@@ -7,7 +7,15 @@ use std::{collections::BTreeMap, fs};
 
 impl Pool {
     pub(crate) fn refreshed(&self) -> Result<Self> {
-        Self::load(self.repo.clone(), self.git_timeout)
+        self.check_lifecycle(self.retained)?;
+        let current = Self::load_mode(self.repo.clone(), self.git_timeout, self.retained)?;
+        if current.pool_id != self.pool_id {
+            return Err(Error::new(
+                ErrorCode::ConfigConflict,
+                "Pool was reinitialized; open it again",
+            ));
+        }
+        Ok(current)
     }
 
     /// Read current settings, including updates made after this handle was opened.
@@ -49,6 +57,7 @@ impl Pool {
     /// # Ok(()) }
     /// ```
     pub fn configure(&self, update: PoolUpdate) -> Result<PoolUpdateResult> {
+        let _operation = self.operation()?;
         if update.timeout.is_zero()
             || update
                 .capacity
@@ -65,6 +74,7 @@ impl Pool {
             update.timeout,
         )?;
         let mut current = self.refreshed()?;
+        crate::lifecycle::validate_retired_locks(&self.repo)?;
         let capacity = update.capacity.unwrap_or(current.config.capacity);
         let cleanup = update
             .cleanup_policy

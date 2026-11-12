@@ -49,6 +49,7 @@ impl Lease {
     /// Rejects inactive handles or reports metadata I/O failures. On failure, do
     /// not expose the path: persistence may have partially completed.
     pub fn protect_from_reuse(&self) -> Result<()> {
+        let _operation = self.pool.operation()?;
         if self.guard.is_none() {
             return Err(Error::new(
                 crate::ErrorCode::InvalidLease,
@@ -108,6 +109,7 @@ impl Lease {
     /// Returns an error if the lease is inactive or spawning/waiting fails. A worker's
     /// nonzero exit is returned as an [`ExitStatus`], not a library error.
     pub fn run_worker(&mut self, mut command: Command) -> Result<ExitStatus> {
+        let _operation = self.pool.operation()?;
         let fd = self
             .guard
             .as_ref()
@@ -153,6 +155,7 @@ pub(crate) fn release(
     lease_id: crate::LeaseId,
     fd: BorrowedFd<'_>,
 ) -> Result<ReleaseResult> {
+    let _operation = pool.operation()?;
     let expected = pool
         .config
         .slots

@@ -9,6 +9,41 @@ use groove_core::{LeaseInfo, Pool, PoolInspection, PoolOptions, Result, SlotId, 
 use serde_json::json;
 use std::path::PathBuf;
 
+pub fn destroy(
+    context: &Context<'_>,
+    dry_run: bool,
+    discard_changes: bool,
+    pool_id: Option<groove_core::PoolId>,
+) -> Result<Output> {
+    let result = Pool::destroy(
+        context.repo,
+        groove_core::DestroyOptions {
+            dry_run,
+            discard_changes,
+            pool_id,
+            git_timeout: context.git_timeout,
+        },
+    )?;
+    let mut text = if result.already_deleted {
+        "Pool is already deleted.\n".to_owned()
+    } else {
+        format!(
+            "{} {} workspace slots and {} artifact directories.\n",
+            if dry_run { "Would remove" } else { "Removed" },
+            result.slots.len(),
+            result.artifacts.len()
+        )
+    };
+    text.push_str(&format!(
+        "Retained locks, history, receipts and snapshots; state: {}\n",
+        result.state_dir.display()
+    ));
+    if let Some(id) = result.pool_id {
+        text.push_str(&format!("Pool ID: {id}\n"));
+    }
+    Output::text(json!({"destruction": result}), text)
+}
+
 pub fn init(
     context: &Context<'_>,
     capacity: usize,

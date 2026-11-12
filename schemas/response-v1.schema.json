@@ -1,5 +1,27 @@
 {
   "$defs": {
+    "destruction_result": {
+      "type": "object",
+      "required": ["destruction"],
+      "properties": {
+        "destruction": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["pool_id", "dry_run", "deleted", "already_deleted", "resumed", "state_dir", "worktree_root", "slots", "artifacts"],
+          "properties": {
+            "pool_id": {"anyOf": [{"$ref": "#/$defs/uuid"}, {"type": "null"}]},
+            "dry_run": {"type": "boolean"},
+            "deleted": {"type": "boolean"},
+            "already_deleted": {"type": "boolean"},
+            "resumed": {"type": "boolean"},
+            "state_dir": {"type": "string", "pattern": "^/"},
+            "worktree_root": {"type": "string", "pattern": "^/"},
+            "slots": {"type": "array", "items": {"$ref": "#/$defs/slot"}},
+            "artifacts": {"type": "array", "items": {"type": "string", "pattern": "^/"}}
+          }
+        }
+      }
+    },
     "preparation": {
       "type": "object",
       "required": [
@@ -1477,6 +1499,9 @@
         },
         "result": {
           "anyOf": [
+            {
+              "$ref": "#/$defs/destruction_result"
+            },
             {
               "$ref": "#/$defs/init"
             },

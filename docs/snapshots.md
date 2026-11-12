@@ -89,7 +89,11 @@ objects alive. There is no byte quota; the maximum-file limit bounds ordinary
 growth. Groove never runs GC itself.
 
 Snapshots are local and ordinary branch pushes do not publish them. Deleting the
-repository's Git directory loses them. Remote export/backup is not implemented.
+repository's Git directory loses them. `groove destroy` preserves snapshots and
+pins; recover with restore from the main or another surviving checkout. Restore
+destinations must be outside the pool checkout root. Snapshot handles opened in a
+managed slot reject a subsequently reinitialized pool. Remote export/backup is
+not implemented.
 
 ## Supported boundaries
 

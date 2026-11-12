@@ -42,6 +42,7 @@ impl Lease {
     /// # Errors
     /// Reports active managed execution, snapshot or release failures. Error details retain a saved snapshot ID.
     pub fn finish(&mut self, options: SaveOptions) -> Result<FinishResult> {
+        let _operation = self.pool.operation()?;
         self.protect_from_reuse()?;
         let execution = self.pool.execution_guard(&self.info.slot_id)?;
         self.pool.require_execution_clear(&self.info.slot_id)?;
@@ -109,6 +110,7 @@ impl Pool {
     /// # Errors
     /// Rejects active owners, invalid IDs or failed snapshots without authorizing reuse.
     pub fn finish(&self, id: LeaseId, options: SaveOptions) -> Result<FinishResult> {
+        let _operation = self.retained_operation()?;
         match self.completed_finish(id)? {
             Some(result) => Ok(result),
             None => self.hold_reserved(id)?.finish(options),
@@ -132,7 +134,12 @@ impl Pool {
         let current_generation = record.lease.as_ref().map(|i| i.lease_id) == Some(id);
         // A successor proves release completed, even if the process died before
         // publishing the final receipt. Return history without touching its lock.
-        let release = if receipt.released || !current_generation {
+        let deleted = crate::lifecycle::read(&self.repo)?
+            .is_some_and(|r| r.phase == crate::lifecycle::Phase::Deleted);
+        let release = if receipt.released
+            || !current_generation
+            || (deleted && record.phase == SlotPhase::Released)
+        {
             ReleaseResult {
                 slot_id: receipt.slot_id.clone(),
                 lease_id: id,

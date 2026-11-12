@@ -496,10 +496,11 @@ impl Pool {
         // Re-read the manifest: growth may have added this slot after `self` was opened.
         let config: state::Config = state::read(&self.repo.config_path())?;
         config.validate()?;
-        let identity = config.execution_locks.get(slot).ok_or_else(|| {
-            Error::new(ErrorCode::ConfigConflict, "Missing execution lock identity")
-        })?;
-        crate::locking::SlotGuard::try_lock(&self.repo.execution_lock_path(slot), Some(*identity))?
+        let identity = match config.execution_locks.get(slot) {
+            Some(identity) => *identity,
+            None => self.archived_execution_identity(slot)?,
+        };
+        crate::locking::SlotGuard::try_lock(&self.repo.execution_lock_path(slot), Some(identity))?
             .ok_or_else(|| {
                 Error::new(
                     ErrorCode::InvalidLease,
@@ -528,6 +529,7 @@ impl Pool {
     /// Rejects stale/released leases, concurrent or orphaned execution, invalid commands and I/O failures.
     /// Failed teardown leaves a durable execution prohibition requiring explicit recovery.
     pub fn exec(&self, id: LeaseId, options: ExecOptions) -> Result<ExecResult> {
+        let _operation = self.operation()?;
         let initial = self.lease_info(id)?;
         let execution = self.execution_guard(&initial.slot_id)?;
         self.exec_guarded(id, options, &execution)
@@ -661,6 +663,7 @@ impl Pool {
     /// # Errors
     /// Rejects live owners and mismatched records. This does not release the lease.
     pub fn recover_execution(&self, id: LeaseId) -> Result<ExecutionInfo> {
+        let _operation = self.operation()?;
         let lease = self.lease_info(id)?;
         let _guard = self.execution_guard(&lease.slot_id)?;
         let info: ExecutionInfo = state::read(&self.repo.execution_path(&lease.slot_id))?;

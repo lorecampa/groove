@@ -3,6 +3,48 @@ use serde::{Deserialize, Serialize};
 use std::{fmt, str::FromStr};
 use uuid::Uuid;
 
+/// Identity of one initialized pool, preserved through deletion and changed by reinit.
+/// This is an optimistic precondition, never proof of descriptor ownership.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct PoolId(Uuid);
+impl PoolId {
+    pub(crate) fn generate() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
+impl FromStr for PoolId {
+    type Err = Error;
+    fn from_str(value: &str) -> Result<Self> {
+        let id = Uuid::parse_str(value).map_err(|e| {
+            Error::new(ErrorCode::InvalidArgument, "Pool ID must be a UUID").with_source(e)
+        })?;
+        if id.get_version_num() != 4 {
+            return Err(Error::new(
+                ErrorCode::InvalidArgument,
+                "Pool ID must be UUID v4",
+            ));
+        }
+        Ok(Self(id))
+    }
+}
+impl fmt::Display for PoolId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl TryFrom<String> for PoolId {
+    type Error = Error;
+    fn try_from(value: String) -> Result<Self> {
+        value.parse()
+    }
+}
+impl From<PoolId> for String {
+    fn from(value: PoolId) -> Self {
+        value.to_string()
+    }
+}
+
 /// A validated permanent slot name (`wt-0001` through `wt-4096`).
 ///
 /// Parsing and deserialization enforce the same rules. Constructing an ID does

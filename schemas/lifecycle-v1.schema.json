@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Groove pool lifecycle v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "pool_id", "phase", "lock_identity", "discard_changes"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "pool_id": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
+    "phase": {"enum": ["initializing", "ready", "deleting", "deleted"]},
+    "discard_changes": {"type": "boolean"},
+    "lock_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dev", "ino"],
+      "properties": {
+        "dev": {"type": "integer", "minimum": 0},
+        "ino": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

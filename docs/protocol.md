@@ -61,6 +61,7 @@ failed invocation. Codes, retryability and exit categories are unchanged.
 
 ```text
 groove [global options] init --capacity N [--cleanup pristine|warm] [--worktree-root PATH] [--resume]
+groove [global options] destroy [--dry-run] [--discard-changes] [--pool-id UUID]
 groove [global options] acquire [--base REV] [--task LABEL] [--request-key KEY]
        [--wait-ms MS] [--setup PROFILE [--retry] [--cache-source PATH]]
 groove [global options] exec SELECTOR [limits] -- PROGRAM [ARG...]
@@ -160,6 +161,46 @@ even after the slot was reused. Recover saved results with
 
 ### Pool settings
 
+`destroy` removes an idle pool's configured checkouts, their exact native Git
+registrations and disposable artifact/cache staging directories. Finish/release all
+reservations and stop every writer first. Live slot/execution descriptors,
+protection/execution records (including malformed ones) and observed processes
+always refuse deletion. Unlike release's convenience scan, destroy also checks
+inactive slots and includes the caller/ancestors. Run it from outside the pool.
+Residual changes, untracked/ignored files and broken checkouts require explicit
+`--discard-changes`; warm policy does not preserve ignored files during deletion.
+Path, ownership and process checks cannot be overridden.
+Without discard, HEAD must be reachable from a repository ref (a branch, tag or
+snapshot suffices); hidden index flags and interrupted Git operations also refuse
+removal. Inspection is bounded and fails closed, including for oversized Git output.
+
+`--dry-run` validates and returns the plan without removing data or changing the
+lifecycle record; it can briefly exclude concurrent operations. Both preview and
+execution fail when preconditions are unmet. Permanent locks, request journals and
+completed-key tombstones, finish receipts, logs/history, snapshots, branches and
+checkout-root directories remain. Unknown root contents are retained; unknown
+artifact entries refuse removal. History/storage and snapshot commands remain
+usable after deletion; explicit finish retries by lease ID can return retained
+receipts. New work requires a fresh init, which may choose different capacity/root.
+
+Deletion durably transitions `ready` to `deleting` to `deleted`. Normal pool use
+and init refuse incomplete deletion; repeat destroy with the original discard
+policy to resume. A completed retry returns `already_deleted: true`.
+Do not edit or repurpose removal paths during incomplete deletion: the original
+preflight authorized their removal, and retries may encounter partially removed Git
+registrations. Ownership, paths and processes are revalidated on each retry.
+Supply `--pool-id` from the preview/result to prevent a lost-response retry from deleting
+a subsequently initialized pool. Omission targets the current pool at invocation.
+A preview before a generation has been durably assigned (legacy pools or very
+early interrupted initialization) has `pool_id: null`.
+Destroy also cancels interrupted init, retaining permanent locks. Damaged/moved
+paths or malformed metadata are never adopted as permission to delete foreign data.
+
+`lifecycle.json` uses [lifecycle schema 1](../schemas/lifecycle-v1.schema.json),
+including UUID v4 `pool_id`, `phase`, permanent `lock_identity` and the persisted
+`discard_changes` policy. Retired manifests retain the existing config schema.
+Lifecycle additions do not change existing manifest/slot formats or exit categories.
+
 `init` creates capacity 1..4096 and rejects a ready pool with `CONFIG_CONFLICT`,
 even for identical settings. Interrupted initialization must be resumed with
 `--resume` and identical settings. A custom checkout root must be empty, owned by
@@ -179,6 +220,7 @@ part of the verified baseline and a rebuild can discard them.
 | Command | `result` |
 | --- | --- |
 | init | `created`, `common_git_dir`, `state_dir`, `capacity`, `slots`, `cleanup_policy`, `worktree_root` |
+| destroy | `destruction` (`pool_id`, `dry_run`, `deleted`, `already_deleted`, `resumed`, `state_dir`, `worktree_root`, `slots`, `artifacts`) |
 | acquire | lease fields (below); plus `preparation` with `--setup` |
 | exec | `execution` (below), or `preparation` with `--setup` |
 | stop | `stop_requested` (execution record) or `preparation_stop_requested` |

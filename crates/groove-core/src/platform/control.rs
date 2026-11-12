@@ -221,7 +221,8 @@ impl Drop for SocketPath {
 }
 
 /// Called only under execution exclusion after validating an orphan's record,
-/// or during an explicit setup retry after obtaining the same exclusion.
+/// during an explicit setup retry, or by idle-pool deletion holding exclusive
+/// admission after probing every execution lock and validating the setup record.
 pub(crate) fn cleanup_endpoint(name: &str) -> Result<()> {
     #[cfg(target_os = "linux")]
     let _ = name; // Abstract endpoints have no filesystem entry to clean up.

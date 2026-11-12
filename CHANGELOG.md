@@ -7,6 +7,11 @@ development experiments are omitted.
 
 ### Added
 
+- Explicit idle-pool deletion with `destroy`, read-only previews, narrowly scoped
+  `--discard-changes`, generation preconditions and crash-safe retries. Permanent
+  locks, request tombstones, finish receipts, execution history/logs, branches and
+  snapshots survive. Reinitialization can choose new settings while stale pool
+  and snapshot handles remain invalid; history cleanup supports retired slots.
 - macOS 13+ backends for Apple Silicon and Intel on local APFS: cancellation
   signals, authenticated stop/setup sockets, workspace process inspection and
   strict reflink caches. Descriptor ownership, durable protection and explicit

@@ -79,6 +79,14 @@ fn killed_groove_leaves_mutating_git_child_holding_both_locks() {
     // SAFETY: admin is an open descriptor; the operation is nonblocking.
     let locked = unsafe { libc::flock(admin.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
     assert_eq!(locked, -1);
+    let deletion = Pool::destroy(
+        &r.path,
+        groove_core::DestroyOptions {
+            discard_changes: true,
+            git_timeout: Duration::from_millis(100),
+            ..Default::default()
+        },
+    );
     fs::OpenOptions::new()
         .write(true)
         .open(&resume)
@@ -91,6 +99,7 @@ fn killed_groove_leaves_mutating_git_child_holding_both_locks() {
             ..Default::default()
         })
         .unwrap();
+    assert_eq!(deletion.unwrap_err().code, groove_core::ErrorCode::IoError);
     assert_eq!(
         fs::read_to_string(r.path.join("tracked.txt")).unwrap(),
         "baseline\n"

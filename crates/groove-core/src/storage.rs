@@ -152,7 +152,9 @@ impl Pool {
         let artifacts = pool.repo.root.join("artifacts");
         repository::no_symlinks(&artifacts)?;
         usage.artifact_bytes = tree_bytes(&artifacts)?;
-        repository::owned_dir(&pool.config.worktree_root)?;
+        if pool.config.worktree_root.exists() {
+            repository::owned_dir(&pool.config.worktree_root)?;
+        }
         for slot in pool.config.slots.keys() {
             usage.workspace_bytes = usage
                 .workspace_bytes
@@ -172,6 +174,7 @@ impl Pool {
     /// Initial scan errors abort before deletion. Per-run failures appear in `entries`;
     /// callers must inspect them. Successfully removed logs cannot be restored by Groove.
     pub fn clean_logs(&self, older_than: Duration, dry_run: bool) -> Result<LogCleanup> {
+        let _operation = self.retained_operation()?;
         let pool = self.refreshed()?;
         let records = pool.history(&HistoryFilter::default())?;
         let now = crate::reservation::now_ms();
@@ -269,6 +272,7 @@ impl Pool {
     /// Refuses unresolved runs, retained logs, active/orphaned executions, unexpected
     /// directory contents and unsafe paths. Never releases reservations or deletes receipts.
     pub fn history_delete(&self, id: RunId) -> Result<()> {
+        let _operation = self.retained_operation()?;
         let pool = self.refreshed()?;
         let record = pool.read_run(id)?;
         let _guard = pool.execution_guard(&record.slot_id)?;

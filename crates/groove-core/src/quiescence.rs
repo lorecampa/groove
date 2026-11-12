@@ -11,11 +11,19 @@ mod os;
 #[cfg(target_os = "macos")]
 #[path = "quiescence/macos.rs"]
 mod os;
-use os::{parent_of, processes_using};
+use os::parent_of;
 
 use crate::{Error, ErrorCode, LeaseId, Pool, Result, WorkspaceGitStatus};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, fs, time::Duration};
+
+fn processes_using(root: &std::path::Path) -> Result<Vec<WorkspaceProcess>> {
+    os::processes_using(root, true)
+}
+
+pub(crate) fn all_processes_using(root: &std::path::Path) -> Result<Vec<WorkspaceProcess>> {
+    os::processes_using(root, false)
+}
 
 /// How a process was observed using a workspace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

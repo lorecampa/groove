@@ -165,7 +165,6 @@ impl Pool {
         let record: RunHistory = state::read(&path)?;
         if record.schema_version != state::SCHEMA_VERSION
             || record.run_id != id
-            || !self.config.slots.contains_key(&record.slot_id)
             || record.stdout_path != dir.join("stdout.log")
             || record.stderr_path != dir.join("stderr.log")
             || (record.outcome == RunOutcome::Unresolved) != record.ended_at_unix_ms.is_none()
@@ -176,6 +175,16 @@ impl Pool {
                 Error::new(ErrorCode::ProtocolError, "Invalid run history record")
                     .with_details(|d| d.path = Some(path)),
             );
+        }
+        if !self.config.slots.contains_key(&record.slot_id) {
+            self.archived_execution_identity(&record.slot_id)
+                .map_err(|e| {
+                    Error::new(
+                        ErrorCode::ProtocolError,
+                        "Run history names an unknown slot",
+                    )
+                    .with_source(e)
+                })?;
         }
         Ok(record)
     }

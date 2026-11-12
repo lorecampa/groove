@@ -1,0 +1,34 @@
+EXAMPLES:
+  groove destroy --dry-run
+  groove destroy
+  groove destroy --discard-changes --dry-run
+  groove destroy --discard-changes --pool-id POOL_UUID
+
+Finish or release every reservation and stop ALL writers first. Live lease and
+execution descriptors, protected reservations and orphaned execution records
+always refuse deletion. Use stop/recover before release where necessary. Run
+destroy from outside every directory being removed, including your shell's cwd.
+
+Deletion removes every configured checkout, its exact Git worktree registration,
+and disposable artifact caches, including ignored files even for warm pools.
+Residual edits, untracked/ignored files and broken registrations require explicit
+--discard-changes. That flag never bypasses ownership, process or path checks.
+Unreferenced detached commits must first be preserved on a branch or snapshot.
+Index flags that hide edits and interrupted Git operations also block inspection;
+repair them or explicitly acknowledge their loss with --discard-changes. Inspection
+uses bounded Git output; an inspection failure never authorizes removal.
+
+Permanent locks, request-key tombstones, finish receipts, execution history/logs,
+branches and snapshots remain. Checkout root directories (including external
+roots) and unknown files in them remain. History, storage and snapshot commands
+remain available; log cleanup/history deletion retain their existing rules.
+
+An interrupted deletion blocks normal pool use. Retry destroy with the same
+--discard-changes policy to resume. Retrying a completed deletion succeeds.
+Do not edit or repurpose checkout/cache paths while deletion is incomplete;
+retries continue the removal already authorized by the first invocation.
+Use --pool-id from the preview/result to ensure a retry cannot delete a newly
+initialized pool. After deletion, init can create a new pool with new settings;
+permanent lock identities and repository-scoped request-key tombstones survive.
+Destroy can also cancel matching interrupted initialization. Unsafe or malformed
+metadata requires repair; it is never ignored to force deletion.

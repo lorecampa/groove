@@ -139,7 +139,10 @@ Snapshots preserve staged, working and non-ignored untracked files, with the
 [documented exclusions](snapshots.md). All writers must stop before capture;
 this is not an atomic filesystem snapshot. Explicitly unpin/delete finished
 snapshots when no longer needed. Request-key journals and finish receipts do not
-expire and should remain with the pool.
+expire and survive explicit pool deletion, together with execution history/logs.
+After `destroy`, history/storage and snapshot commands remain available; completed
+finish receipts can still be retrieved by lease ID. A replacement pool with fewer
+slots retains the execution-lock identities needed to clean older logs safely.
 
 ## Project commands
 

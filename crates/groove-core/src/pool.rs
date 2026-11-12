@@ -21,6 +21,8 @@ pub struct Pool {
     pub(crate) repo: Repository,
     pub(crate) config: Config,
     pub(crate) git_timeout: Duration,
+    pub(crate) pool_id: Option<crate::PoolId>,
+    pub(crate) retained: bool,
 }
 impl Pool {
     /// Create a pool, or explicitly resume matching interrupted initialization.
@@ -39,6 +41,8 @@ impl Pool {
         repository::mkdir(&repo.root)?;
         repository::owned_dir(&repo.root)?;
         repository::mkdir(&repo.root.join("locks"))?;
+        let lifecycle_gate = crate::lifecycle::gate(&repo, true)?;
+        let previous = crate::lifecycle::read(&repo)?;
         let admin_file = locking::open(&repo.admin_lock_path(), !repo.config_path().exists())?;
         admin_file.sync_all()?;
         state::sync_dir(&repo.root.join("locks"))?;
@@ -57,11 +61,33 @@ impl Pool {
             }
             None => repo.default_worktree_root(),
         };
-        if repo.config_path().exists() {
+        if repo.config_path().exists()
+            && !previous.as_ref().is_some_and(|r| {
+                matches!(
+                    r.phase,
+                    crate::lifecycle::Phase::Deleted | crate::lifecycle::Phase::Initializing
+                )
+            })
+        {
             return Err(Error::new(
                 crate::ErrorCode::ConfigConflict,
                 "Pool already initialized; inspect or update it instead of running init again",
             ));
+        }
+        if previous
+            .as_ref()
+            .is_some_and(|r| r.phase == crate::lifecycle::Phase::Deleting)
+        {
+            return Err(Error::new(
+                crate::ErrorCode::ConfigConflict,
+                "Complete destroy before initializing another pool",
+            ));
+        }
+        crate::lifecycle::validate_retired_locks(&repo)?;
+        if repo.config_path().try_exists()? {
+            let config: Config = state::read(&repo.config_path())?;
+            config.validate()?;
+            crate::lifecycle::validate_config_locks(&repo, &config)?;
         }
         if overlaps_administration(&repo, &requested) {
             return Err(Error::new(
@@ -115,6 +141,17 @@ impl Pool {
             }
             state::write(&intent, &expected)?;
         }
+        let mut lifecycle = crate::lifecycle::Lifecycle {
+            schema_version: state::SCHEMA_VERSION,
+            pool_id: previous
+                .as_ref()
+                .filter(|r| r.phase == crate::lifecycle::Phase::Initializing)
+                .map_or_else(crate::PoolId::generate, |r| r.pool_id),
+            phase: crate::lifecycle::Phase::Initializing,
+            lock_identity: locking::identity(&lifecycle_gate)?,
+            discard_changes: false,
+        };
+        crate::lifecycle::write(&repo, &lifecycle)?;
         repository::mkdir(&requested)?;
         repository::owned_dir(&requested)?;
         for name in ["slots", "tmp"] {
@@ -126,9 +163,48 @@ impl Pool {
             let slot = crate::SlotId::new(i)?;
             slots.insert(slot.clone(), create_lock(&repo.lock_path(&slot))?);
             execution_locks.insert(slot.clone(), create_lock(&repo.execution_lock_path(&slot))?);
-            if !repo.record_path(&slot).exists() {
-                state::write(&repo.record_path(&slot), &SlotRecord::empty())?;
+            let _slot = SlotGuard::try_lock(&repo.lock_path(&slot), slots.get(&slot).copied())?
+                .ok_or_else(|| {
+                    Error::new(
+                        crate::ErrorCode::ConfigConflict,
+                        "Slot still has a live owner",
+                    )
+                })?;
+            let _execution = SlotGuard::try_lock(
+                &repo.execution_lock_path(&slot),
+                execution_locks.get(&slot).copied(),
+            )?
+            .ok_or_else(|| {
+                Error::new(
+                    crate::ErrorCode::ConfigConflict,
+                    "Execution still has a live owner",
+                )
+            })?;
+            for path in [repo.protection_path(&slot), repo.execution_path(&slot)] {
+                match fs::symlink_metadata(&path) {
+                    Ok(_) => {
+                        return Err(Error::new(
+                            crate::ErrorCode::ConfigConflict,
+                            "Slot retains durable protection",
+                        )
+                        .with_details(|d| d.path = Some(path)))
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
+                    Err(e) => return Err(e.into()),
+                }
             }
+            if repo.record_path(&slot).try_exists()? {
+                let record: SlotRecord = state::read(&repo.record_path(&slot))?;
+                if record.schema_version != state::SCHEMA_VERSION {
+                    return Err(Error::new(
+                        crate::ErrorCode::UnsupportedConfiguration,
+                        "Unsupported slot metadata version",
+                    ));
+                }
+            }
+            // New initialization resets diagnostic records; finish receipts and
+            // execution history are separate and remain available.
+            state::write(&repo.record_path(&slot), &SlotRecord::empty())?;
         }
         state::sync_dir(&repo.root.join("locks"))?;
         state::sync_dir(&repo.root)?;
@@ -143,12 +219,16 @@ impl Pool {
         };
         state::checkpoint("before-ready-manifest");
         state::write(&repo.config_path(), &config)?;
+        lifecycle.phase = crate::lifecycle::Phase::Ready;
+        crate::lifecycle::write(&repo, &lifecycle)?;
         fs::remove_file(intent)?;
         state::sync_dir(&repo.root)?;
         Ok(Self {
             repo,
             config,
             git_timeout: options.git_timeout,
+            pool_id: Some(lifecycle.pool_id),
+            retained: false,
         }
         .init_result(true))
     }
@@ -179,6 +259,42 @@ impl Pool {
         )
     }
     pub(crate) fn load(repo: Repository, git_timeout: Duration) -> Result<Self> {
+        Self::load_mode(repo, git_timeout, false)
+    }
+
+    /// Open retained history and storage after deletion, as well as a ready pool.
+    ///
+    /// This does not authorize acquiring workspaces or running tasks in a deleted pool.
+    /// # Errors
+    /// Reports invalid metadata, changed lock identities, unsafe paths and Git/I/O errors.
+    ///
+    /// ```no_run
+    /// # fn main() -> groove_core::Result<()> {
+    /// use groove_core::{HistoryFilter, Pool, DEFAULT_GIT_TIMEOUT};
+    /// let retained = Pool::open_retained("/path/to/repo", DEFAULT_GIT_TIMEOUT)?;
+    /// let runs = retained.history(&HistoryFilter::default())?;
+    /// # let _ = runs;
+    /// # Ok(()) }
+    /// ```
+    pub fn open_retained(repo: impl AsRef<Path>, git_timeout: Duration) -> Result<Self> {
+        if git_timeout.is_zero() {
+            return Err(Error::new(
+                crate::ErrorCode::InvalidArgument,
+                "Git timeout must be positive",
+            ));
+        }
+        Self::load_mode(
+            Repository::discover(repo.as_ref(), git_timeout)?,
+            git_timeout,
+            true,
+        )
+    }
+
+    pub(crate) fn load_mode(
+        repo: Repository,
+        git_timeout: Duration,
+        retained: bool,
+    ) -> Result<Self> {
         let not_initialized =
             || Error::new(crate::ErrorCode::NotInitialized, "Pool is not initialized");
         if !repo.root.exists() {
@@ -188,6 +304,9 @@ impl Pool {
         if !repo.config_path().exists() {
             return Err(not_initialized());
         }
+        let _gate = crate::lifecycle::gate(&repo, false)?;
+        let lifecycle = crate::lifecycle::read(&repo)?;
+        crate::lifecycle::require_phase(lifecycle.as_ref(), retained)?;
         let config: Config = state::read(&repo.config_path())?;
         config.validate()?;
         if !config.worktree_root.is_absolute()
@@ -198,7 +317,7 @@ impl Pool {
                 "Unsafe manifest worktree root",
             ));
         }
-        if !config.worktree_root.exists() {
+        if !config.worktree_root.exists() && !retained {
             // Manifests and native worktree registrations record absolute paths,
             // so a moved repository leaves them pointing at its old location.
             // The default root is `<common>/groove/worktrees`.
@@ -221,7 +340,9 @@ impl Pool {
             return Err(Error::new(crate::ErrorCode::ConfigConflict, message)
                 .with_details(|d| d.path = Some(config.worktree_root.clone())));
         }
-        repository::owned_dir(&config.worktree_root)?;
+        if config.worktree_root.exists() {
+            repository::owned_dir(&config.worktree_root)?;
+        }
         repository::owned_dir(&repo.root.join("locks"))?;
         repository::owned_dir(&repo.root.join("slots"))?;
         let admin = locking::open(&repo.admin_lock_path(), false)?;
@@ -235,6 +356,8 @@ impl Pool {
             repo,
             config,
             git_timeout,
+            pool_id: lifecycle.map(|r| r.pool_id),
+            retained,
         })
     }
     fn init_result(&self, created: bool) -> InitResult {
@@ -261,6 +384,7 @@ impl Pool {
     /// Rejects invalid revisions and unsupported Git configuration. Reports exhausted
     /// capacity, capacity wait timeout, unusable slots, and Git or filesystem failures.
     pub fn acquire(&self, options: AcquireOptions) -> Result<Lease> {
+        let _operation = self.operation()?;
         if options.git_timeout.is_zero() {
             return Err(Error::new(
                 crate::ErrorCode::InvalidArgument,
@@ -318,7 +442,7 @@ impl Pool {
         let start = Instant::now();
         let mut failed = BTreeMap::new();
         loop {
-            let current = Self::load(self.repo.clone(), self.git_timeout)?;
+            let current = self.refreshed()?;
             let slots: Vec<_> = current.config.slots.iter().collect();
             let start_slot = (scan_seed % slots.len() as u128) as usize;
             let mut busy = 0;
@@ -517,6 +641,7 @@ impl Pool {
         slot: &crate::SlotId,
         lease_id: crate::LeaseId,
     ) -> Result<crate::ReleaseResult> {
+        let _operation = self.operation()?;
         let pool = self.refreshed()?;
         let identity = pool
             .config
@@ -571,16 +696,16 @@ impl Pool {
 /// `init` can only be resumed with identical settings.
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-struct InitIntent {
-    schema_version: u32,
-    capacity: usize,
-    cleanup_policy: crate::CleanupPolicy,
-    worktree_root: std::path::PathBuf,
+pub(crate) struct InitIntent {
+    pub schema_version: u32,
+    pub capacity: usize,
+    pub cleanup_policy: crate::CleanupPolicy,
+    pub worktree_root: std::path::PathBuf,
 }
 
 /// Whether a checkout root would place worktrees inside, or around, Git or Groove
 /// administration. Only the default `<state>/worktrees` root may live there.
-fn overlaps_administration(repo: &Repository, root: &Path) -> bool {
+pub(crate) fn overlaps_administration(repo: &Repository, root: &Path) -> bool {
     root == repo.root
         || repo.common.starts_with(root)
         || (root.starts_with(&repo.common) && root != repo.default_worktree_root())
@@ -588,7 +713,7 @@ fn overlaps_administration(repo: &Repository, root: &Path) -> bool {
 
 /// The registered working tree (main or linked) that would contain `root`, if any.
 /// The default root lives inside Git administration, which Git never scans.
-fn enclosing_checkout(
+pub(crate) fn enclosing_checkout(
     repo: &Repository,
     root: &Path,
     timeout: Duration,
