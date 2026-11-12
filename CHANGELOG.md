@@ -4,6 +4,10 @@
 
 ### Changed
 
+- Explain bounded workspace pools for parallel agents and the runner's
+  scheduling, communication and integration responsibilities. Agent onboarding
+  includes a concrete prompt for pool reuse, task assignments and preserving
+  results before release.
 - JSON output now requires `--json` on each command; `GROOVE_OUTPUT` is no
   longer read. Replace exported `GROOVE_OUTPUT=json` settings with explicit
   flags in scripts and agent commands. JSON response schemas are unchanged.
@@ -12,6 +16,7 @@
 
 - The README opens with a compact badge bar linking documentation, licensing,
   Rust requirements and supported platforms, and drops the vague alpha warning.
+
 ### Fixed
 
 - Snapshot reads and deletion refuse unreadable, corrupt or inconsistent pins.
