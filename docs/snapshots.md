@@ -116,24 +116,14 @@ Git 2.40+, matching Groove's platform contract.
 cargo test -p groove-core --test snapshots --locked
 cargo test -p groove-cli --test snapshots --all-features --locked
 cargo build -p groove-cli --release --locked
-cargo run -p groove-bench --locked -- run --mode benchmark \
-  --real-repo /path/to/your/repository --profile large --profile million \
-  --temp-root /path/on/local/disk --runs 5 --output /tmp/snapshot-benchmark.json
+cargo run -p groove-bench --locked -- profiles
+cargo run -p groove-bench --locked -- benchmark snapshot-incremental
+cargo run -p groove-bench --locked -- check snapshot-scale
 ```
 
-The benchmark copies source Git objects (`clone --no-hardlinks`), verifies the
-source's HEAD, index, status, tracked diff and refs before/after, and removes its
-disposable clones on completion. Source uncommitted changes are not copied.
-It exercises save and both restore modes on the real repository's committed
-checkout. Synthetic files share small baseline contents to isolate path/index
-costs; they do not model large binary histories. Timings include process startup;
-first-save results do not imply cold OS caches. GNU time records peak RSS on Linux;
-macOS uses native `/usr/bin/time -l` and converts its byte count to KiB.
-
-The 1M-file benchmark and its recovered checkout require several million inodes.
-Use `--temp-root /path/on/a/large/local/disk`; a typical temporary tmpfs can run
-out of inodes before the fixture is ready. Timings include per-Git-step
-diagnostics for profiling. See [benchmark results](snapshot-benchmarks.md).
-
-For opt-in local high-load regressions, pinned benchmark environments and JSON
-reports, use the [snapshot lab](../benchmarks/snapshots/README.md).
+The lab uses complete versioned profiles with disposable deterministic repositories,
+independent Git oracles, repeated restore/save measurements and paired baseline
+comparisons. Each invocation writes one self-contained JSON report; benchmark
+results are not checked in or published. For workload choices, hermetic builds,
+host requirements, native macOS limitations and scale regressions, use the
+[benchmark lab](../benchmarks/snapshots/README.md).

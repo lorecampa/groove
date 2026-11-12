@@ -6,9 +6,9 @@
   "content_pool": 256,
   "content_repetitions": 16,
   "changed_files": 12,
-  "runs": 5,
   "profiles": {
     "smoke": 1000,
+    "medium": 10000,
     "large": 100000,
     "million": 1000000
   },

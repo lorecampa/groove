@@ -188,7 +188,7 @@ These runners do not establish behavior on the minimum macOS 13 release.
 | Repository layouts (reftable, separate Git dir, relative worktree links, linked-worktree HEAD) and out-of-band deletion/moves | `cargo test -p groove-core --test environments --locked` |
 | CLI contracts for deleted cwd/checkouts, label reuse/escaping and undeliverable responses | `cargo test -p groove-cli --test edge_cases --locked` |
 | Package/release tooling | `cargo test -p groove-release --locked` |
-| Snapshot scale and benchmark tooling | [Snapshot lab](../benchmarks/snapshots/README.md) |
+| Named benchmark profiles, scale and tooling | [CLI benchmark lab](../benchmarks/snapshots/README.md) |
 
 Layout tests that need newer Git (reftable 2.45, relative worktree links 2.48)
 print a skip note and return early on the minimum-Git CI job; the current-Git job
@@ -213,8 +213,13 @@ GROOVE_STRESS_SEED=2026 GROOVE_STRESS_STEPS=100 \
 
 ## Optional host tests
 
-The benchmark roundtrip and 100k/1M-file scale tests run locally only and must
-be explicitly selected; see the lab for resources, pinned environment and commands.
+Named CLI profiles own their workloads, sampling and environment requirements.
+Run `cargo run -p groove-bench --locked -- profiles` to inspect them, `check all`
+to verify every declared case once, or `benchmark all` for the complete fixed
+measurement matrix. Each invocation writes one ignored JSON artifact. Profiles
+cannot be resized or shortened with workload/sampling flags.
+Release-CLI/container regressions and 100k/1M core scale tests are explicit local
+opt-ins; see the lab for resources, pinned environment and commands.
 GitHub runs the normal suite and its small snapshot correctness fixtures, without
 performance measurements or a separate scale workflow.
 

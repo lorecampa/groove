@@ -1,7 +1,7 @@
 use crate::{
     fixture::lock,
     util::{digest, hash, require, root, write_json, Result, Runner},
-    ContainerArgs,
+    ExecuteArgs, Mode,
 };
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -73,11 +73,9 @@ fn manifest(context: &Path) -> Result<String> {
     }
     Ok(crate::util::hex(&hash.finalize()))
 }
-pub(crate) fn build() -> Result<(String, String)> {
-    let context = tempfile::Builder::new()
-        .prefix("groove-bench-build-")
-        .tempdir()?;
-    let root = root();
+
+fn source_tree(source: &Path, target: &Path) -> Result<serde_json::Value> {
+    fs::create_dir_all(target)?;
     for name in [
         "Cargo.toml",
         "Cargo.lock",
@@ -88,48 +86,69 @@ pub(crate) fn build() -> Result<(String, String)> {
         "schemas",
         "benchmarks",
         "tools",
+        "rust-toolchain.toml",
+        ".cargo",
     ] {
-        copy(&root.join(name), &context.path().join(name))?;
+        if source.join(name).exists() {
+            copy(&source.join(name), &target.join(name))?;
+        }
     }
-    let runner = Runner::new();
-    let source = json!({"revision":runner.git_text(&root,&["rev-parse","HEAD"])?,
-        "dirty":!runner.git(&root,["status","--porcelain"])?.is_empty(),"manifest_sha256":manifest(context.path())?});
-    write_json(&context.path().join("benchmark-source.json"), &source)?;
+    let runner = Runner::launcher();
+    Ok(
+        json!({"revision":runner.git_text(source,&["rev-parse","HEAD"])?,"dirty":!runner.git(source,["status","--porcelain"])?.is_empty(),"manifest_sha256":manifest(target)?}),
+    )
+}
+
+pub(crate) fn build(baseline: Option<&Path>) -> Result<(String, String)> {
+    let context = tempfile::Builder::new()
+        .prefix("groove-bench-build-")
+        .tempdir()?;
+    let source = root();
+    let candidate = source_tree(&source, context.path())?;
+    let baseline = source_tree(
+        baseline.unwrap_or(&source),
+        &context.path().join("baseline"),
+    )?;
+    let provenance = json!({"candidate":candidate,"baseline":baseline,"build_policy":"vendored dependencies; network-disabled frozen compilation; fixed paths and image toolchain"});
+    write_json(&context.path().join("benchmark-source.json"), &provenance)?;
     let tag = format!(
-        "groove-snapshot-bench:{}",
-        &hash(&serde_json::to_vec(&source)?)[..16]
+        "groove-bench:{}",
+        &hash(&serde_json::to_vec(&provenance)?)[..20]
     );
+    let runner = Runner::launcher();
     if runner
-        .run("docker", ["image", "inspect", &tag], &root)
+        .run("docker", ["image", "inspect", &tag], &source)
         .is_err()
     {
-        eprintln!("Building {tag}; this can take several minutes (Docker layer cache is reused)");
+        eprintln!("Preparing dependencies and compiling offline in {tag}");
         let mut build = runner.clone();
         build.timeout = Duration::from_secs(1800);
-        let args: Vec<OsString> = vec![
-            "build".into(),
-            "--platform".into(),
-            lock()["platform"].as_str().expect("platform").into(),
-            "-t".into(),
-            tag.clone().into(),
-            "-f".into(),
-            context
-                .path()
-                .join("benchmarks/snapshots/Dockerfile")
-                .into(),
-            context.path().into(),
-        ];
-        build.run("docker", args, &root)?;
+        build.run(
+            "docker",
+            vec![
+                OsString::from("build"),
+                "--platform".into(),
+                lock()["platform"].as_str().expect("platform").into(),
+                "-t".into(),
+                tag.clone().into(),
+                "-f".into(),
+                context
+                    .path()
+                    .join("benchmarks/snapshots/Dockerfile")
+                    .into(),
+                context.path().into(),
+            ],
+            &source,
+        )?;
     }
     let id = runner.text(
         "docker",
         ["image", "inspect", "--format={{.Id}}", &tag],
-        &root,
+        &source,
     )?;
     Ok((tag, id))
 }
 fn mount(path: &Path, target: &str, readonly: bool) -> Result<OsString> {
-    // Docker's --mount parser uses commas, even when argv itself is correctly quoted.
     require(
         !path.as_os_str().as_bytes().contains(&b','),
         "Docker bind paths cannot contain commas",
@@ -142,39 +161,93 @@ fn mount(path: &Path, target: &str, readonly: bool) -> Result<OsString> {
     }
     Ok(value)
 }
-pub(crate) fn run(mode: &str, args: ContainerArgs) -> Result<()> {
-    require(args.runs > 0, "--runs must be positive")?;
-    require(
-        args.real_repo.is_none() || mode == "benchmark",
-        "--real-repo is for benchmark mode",
-    )?;
-    let output = std::path::absolute(&args.output)?;
+fn cpu_list(value: &str) -> Result<Vec<u32>> {
+    let mut cpus = std::collections::BTreeSet::new();
+    for part in value.trim().split(',') {
+        let (first, last) = part.split_once('-').unwrap_or((part, part));
+        let parse = |v: &str| {
+            v.parse::<u32>()
+                .map_err(|_| crate::util::Error::Invalid("Invalid CPU list".into()))
+        };
+        let (first, last) = (parse(first)?, parse(last)?);
+        require(first <= last && last < 4096, "Invalid CPU range")?;
+        cpus.extend(first..=last);
+    }
+    require(!cpus.is_empty(), "Empty CPU list")?;
+    Ok(cpus.into_iter().collect())
+}
+struct Container {
+    id: String,
+    scratch: Option<tempfile::TempDir>,
+    removed: bool,
+}
+impl Container {
+    fn remove(&mut self) -> Result<()> {
+        let mut runner = Runner::launcher();
+        runner.interruptible = false;
+        runner.timeout = Duration::from_secs(30);
+        runner.run("docker", ["rm", "--force", &self.id], &root())?;
+        self.removed = true;
+        Ok(())
+    }
+}
+impl Drop for Container {
+    fn drop(&mut self) {
+        if !self.removed {
+            if let Err(error) = self.remove() {
+                // A failed daemon cleanup does not establish stopped writers.
+                // Keep this exact scratch directory for explicit operator recovery.
+                let preserved = self.scratch.take().map(tempfile::TempDir::keep);
+                eprintln!(
+                    "Owned container cleanup failed: {error}; retained scratch {preserved:?}"
+                );
+            }
+        }
+    }
+}
+fn launch(mode: Mode, args: &ExecuteArgs) -> Result<()> {
+    let plan = &args.plan;
+    let output = std::path::absolute(&plan.output)?;
     let parent = output.parent().expect("absolute output parent");
     fs::create_dir_all(parent)?;
-    fs::create_dir_all(&args.temp_root)?;
+    fs::create_dir_all(&plan.temp_root)?;
     let scratch = tempfile::Builder::new()
         .prefix("groove-bench-runtime-")
-        .tempdir_in(&args.temp_root)?;
-    let mut mounts = vec![
-        "--mount".into(),
-        mount(&scratch.path().canonicalize()?, "/scratch", false)?,
-        "--mount".into(),
-        mount(&parent.canonicalize()?, "/results", false)?,
-    ];
-    if let Some(repo) = &args.real_repo {
-        mounts.extend([
-            "--mount".into(),
-            mount(&repo.canonicalize()?, "/real-source", true)?,
-        ]);
-    }
-    let (tag, image) = build()?;
-    let runner = Runner::new();
+        .tempdir_in(&plan.temp_root)?;
+    let (tag, _) = build(args.baseline_source.as_deref())?;
+    let runner = Runner::launcher();
     let lock = lock();
+    let available = fs::read_to_string("/proc/self/status")?;
+    let available = available
+        .lines()
+        .find_map(|l| l.strip_prefix("Cpus_allowed_list:"))
+        .ok_or_else(|| {
+            crate::util::Error::Invalid("Canonical benchmarks require a native Linux host".into())
+        })?;
+    let available = cpu_list(available)?;
+    let selected = if let Some(cpus) = &args.cpu_set {
+        cpu_list(cpus)?
+    } else {
+        available
+            .iter()
+            .copied()
+            .take(lock["cpus"].as_u64().unwrap_or(4) as usize)
+            .collect()
+    };
+    require(
+        selected.len() == lock["cpus"].as_u64().unwrap_or(4) as usize
+            && selected.iter().all(|c| available.contains(c)),
+        "Select exactly four available CPUs",
+    )?;
+    let cpus = selected
+        .iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(",");
     let uid = runner.text("id", ["-u"], &root())?;
     let gid = runner.text("id", ["-g"], &root())?;
     let mut command: Vec<OsString> = [
-        "run",
-        "--rm",
+        "create",
         "--platform",
         lock["platform"].as_str().expect("platform"),
         "--network=none",
@@ -183,6 +256,8 @@ pub(crate) fn run(mode: &str, args: ContainerArgs) -> Result<()> {
         &format!("{uid}:{gid}"),
         "--cpus",
         &lock["cpus"].to_string(),
+        "--cpuset-cpus",
+        &cpus,
         "--memory",
         &lock["memory_bytes"].to_string(),
         "--memory-swap",
@@ -191,65 +266,133 @@ pub(crate) fn run(mode: &str, args: ContainerArgs) -> Result<()> {
         &lock["pids_limit"].to_string(),
         "--tmpfs",
         "/tmp:rw,nosuid,nodev,size=268435456",
-        "--env",
-        &format!("GROOVE_BENCH_IMAGE_ID={image}"),
     ]
     .map(Into::into)
     .to_vec();
-    command.append(&mut mounts);
+    command.extend([
+        "--mount".into(),
+        mount(&scratch.path().canonicalize()?, "/scratch", false)?,
+        "--mount".into(),
+        mount(&parent.canonicalize()?, "/results", false)?,
+    ]);
     let mut report_path = OsString::from("/results/");
     report_path.push(output.file_name().expect("output name"));
     command.extend([
         tag.into(),
-        "run".into(),
-        "--canonical".into(),
+        "__run".into(),
         "--mode".into(),
-        mode.into(),
-        "--runs".into(),
-        args.runs.to_string().into(),
+        mode.name().into(),
+        "--runtime-contract".into(),
+        "/scratch/runtime.json".into(),
         "--temp-root".into(),
         "/scratch".into(),
         "--output".into(),
         report_path,
     ]);
-    for profile in &args.profile {
-        command.extend(["--profile".into(), profile.into()]);
+    command.extend(plan.profiles.iter().map(OsString::from));
+    if args.baseline_source.is_some() {
+        command.extend([
+            "--baseline".into(),
+            "/baseline/target/release/groove".into(),
+        ]);
     }
-    if args.real_repo.is_some() {
-        command.extend(["--real-repo".into(), "/real-source".into()]);
-    }
+    let id = runner.text("docker", command, &root())?;
+    require(
+        id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit()),
+        "Docker returned an invalid owned container ID",
+    )?;
+    let mut container = Container {
+        id,
+        scratch: Some(scratch),
+        removed: false,
+    };
+    let scratch = container.scratch.as_ref().expect("owned runtime scratch");
+    let inspection: serde_json::Value =
+        serde_json::from_str(&runner.text("docker", ["inspect", &container.id], &root())?)?;
+    let storage = runner.text(
+        "findmnt",
+        [
+            OsString::from("--noheadings"),
+            "--target".into(),
+            scratch.path().as_os_str().to_owned(),
+            "--output".into(),
+            "SOURCE,FSTYPE,OPTIONS,MAJ:MIN".into(),
+        ],
+        &root(),
+    )?;
+    let contract = json!({"inspection":inspection[0],"host_identity":hash(&fs::read("/etc/machine-id")?),"storage":{"mount":storage},"cpu_policy":"affinity and quota, no exclusive CPU reservation","kernel":runner.text("uname",["-r"],&root())?});
+    crate::report::validate_contract(&contract)?;
+    write_json(&scratch.path().join("runtime.json"), &contract)?;
     let mut runtime = runner;
-    runtime.timeout = Duration::from_secs(3600);
-    eprintln!("Running {mode} in {image}");
-    let cid_dir = tempfile::tempdir()?;
-    let cid_file = cid_dir.path().join("container-id");
-    command.splice(
-        1..1,
-        [OsString::from("--cidfile"), cid_file.as_os_str().to_owned()],
+    runtime.progress_path = Some(output);
+    runtime.timeout = Duration::from_secs(24 * 3600);
+    eprintln!(
+        "Measuring on CPUs {cpus}; image {}",
+        contract["inspection"]["Image"]
     );
-    let result = runtime.run("docker", command, &root());
-    if result.is_err() {
-        // Killing a Docker client does not stop its daemon-owned container.
-        // Remove only the container ID written for this invocation.
-        if let Ok(id) = fs::read_to_string(&cid_file) {
-            let id = id.trim();
-            if id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit()) {
-                if let Err(cleanup) = Runner::new().run("docker", ["rm", "--force", id], &root()) {
-                    eprintln!("Container cleanup for {id}: {cleanup}");
-                }
-            }
-        }
-    }
-    if let Ok(out) = &result {
-        eprint!("{}", String::from_utf8_lossy(&out.stderr));
-    }
-    result?;
-    println!("{}", json!({"status":"passed","output":output}));
+    let out = runtime.run("docker", ["start", "--attach", &container.id], &root())?;
+    eprint!("{}", String::from_utf8_lossy(&out.stderr));
+    // Attached start can succeed after a failed container process; inspect its actual exit.
+    let exit = runtime.text(
+        "docker",
+        ["inspect", "--format={{.State.ExitCode}}", &container.id],
+        &root(),
+    )?;
+    require(
+        exit == "0",
+        "Benchmark container failed; inspect the single output report",
+    )?;
+    container.remove()?;
     Ok(())
+}
+pub(crate) fn run(mode: Mode, args: ExecuteArgs) -> Result<()> {
+    write_json(
+        &args.plan.output,
+        &json!({"status":"running","phase":"build","summary":null}),
+    )?;
+    let result = launch(mode, &args);
+    if let Err(error) = &result {
+        crate::report::record_failure(&args.plan.output, error)?;
+    }
+    result
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn failed_daemon_cleanup_keeps_owned_scratch() {
+        const CHILD: &str = "GROOVE_BENCH_CLEANUP_TEST";
+        if let Some(path) = std::env::var_os(CHILD) {
+            let scratch = tempfile::tempdir_in(path).unwrap();
+            let preserved = scratch.path().to_owned();
+            fs::write(preserved.join("result"), b"preserve").unwrap();
+            drop(Container {
+                id: "a".repeat(64),
+                scratch: Some(scratch),
+                removed: false,
+            });
+            assert_eq!(fs::read(preserved.join("result")).unwrap(), b"preserve");
+            return;
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let tools = temp.path().join("tools");
+        fs::create_dir(&tools).unwrap();
+        let docker = tools.join("docker");
+        fs::write(&docker, b"#!/bin/bash\nexit 1\n").unwrap();
+        fs::set_permissions(docker, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut path = tools.into_os_string();
+        path.push(":/usr/bin:/bin");
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "container::tests::failed_daemon_cleanup_keeps_owned_scratch",
+            ])
+            .env(CHILD, temp.path())
+            .env("PATH", path)
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
     #[test]
     fn context_hash_tracks_content_and_modes_without_following_symlinks() {
         let temp = tempfile::tempdir().unwrap();

@@ -1,6 +1,13 @@
-use crate::util::{require, Result, Runner};
+use crate::{
+    profiles::{Case, Contents},
+    util::{require, Result, Runner},
+};
 use serde::Deserialize;
-use std::{collections::BTreeMap, fs, path::Path};
+use std::{
+    collections::BTreeMap,
+    fs,
+    path::{Path, PathBuf},
+};
 
 pub(crate) const SPEC_BYTES: &[u8] = include_bytes!("../workloads-v1.json");
 pub(crate) const LOCK_BYTES: &[u8] = include_bytes!("../environment.lock.json");
@@ -22,6 +29,60 @@ pub(crate) fn lock() -> serde_json::Value {
     serde_json::from_slice(LOCK_BYTES).expect("versioned environment is valid")
 }
 impl Spec {
+    pub(crate) fn create_workload(
+        &self,
+        runner: &Runner,
+        repo: &Path,
+        case: &Case,
+    ) -> Result<(String, Vec<PathBuf>)> {
+        let count = case.files;
+        self.create(runner, repo, count)?;
+        if case.contents == Contents::Unique {
+            for i in 0..count {
+                fs::write(
+                    repo.join(self.path(i)),
+                    format!("unique-{i:016x}\n").repeat(64),
+                )?;
+            }
+        }
+        let mut selected: Vec<_> = self
+            .positions(count)
+            .into_iter()
+            .map(|i| PathBuf::from(self.path(i)))
+            .collect();
+        if let Contents::Binary { bytes: size } = case.contents {
+            let mut state = 17_u64;
+            let bytes: Vec<u8> = (0..size)
+                .map(|_| {
+                    state ^= state << 13;
+                    state ^= state >> 7;
+                    state ^= state << 17;
+                    state as u8
+                })
+                .collect();
+            fs::write(repo.join("large.bin"), bytes)?;
+            selected = vec!["large.bin".into()];
+        }
+        runner.git(repo, ["add", "-A"])?;
+        runner.git(
+            repo,
+            [
+                "-c",
+                "user.name=Snapshot Scale",
+                "-c",
+                "user.email=scale@example.invalid",
+                "commit",
+                "--allow-empty",
+                "-qm",
+                "profile-fixture-v1",
+            ],
+        )?;
+        runner.git(repo, ["repack", "-ad", "--depth=50", "--window=10"])?;
+        Ok((
+            runner.git_text(repo, &["rev-parse", "HEAD^{tree}"])?,
+            selected,
+        ))
+    }
     pub(crate) fn path(&self, index: usize) -> String {
         format!("d{:05}/f{index:07}.txt", index / self.files_per_directory)
     }

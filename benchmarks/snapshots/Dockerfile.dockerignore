@@ -17,3 +17,8 @@
 **/__pycache__
 
 !benchmark-source.json
+!baseline/
+!baseline/**
+!rust-toolchain.toml
+!.cargo/
+!.cargo/**

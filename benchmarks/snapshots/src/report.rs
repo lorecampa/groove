@@ -2,6 +2,7 @@ use crate::{
     fixture::lock,
     util::{digest, require, Error, Result, Runner},
 };
+use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::{fs, path::Path};
 
@@ -13,7 +14,9 @@ pub(crate) fn versions(runner: &Runner) -> Result<Value> {
     #[cfg(target_os = "linux")]
     let gnu_time = Some(runner.text("/usr/bin/time", ["--version"], cwd)?);
     #[cfg(target_os = "linux")]
-    let package = Some(runner.text("dpkg-query", ["-W", "-f=${Version}", "time"], cwd)?);
+    let package = runner
+        .text("dpkg-query", ["-W", "-f=${Version}", "time"], cwd)
+        .ok();
     #[cfg(target_os = "macos")]
     let (gnu_time, package): (Option<String>, Option<String>) = (None, None);
     Ok(json!({
@@ -98,18 +101,24 @@ pub(crate) fn storage(_runner: &Runner, root: &Path) -> Result<(String, u64, u64
         stat.f_ffree,
     ))
 }
-pub(crate) fn preflight(runner: &Runner, root: &Path, count: usize) -> Result<()> {
+pub(crate) fn preflight(
+    runner: &Runner,
+    root: &Path,
+    required_bytes: u64,
+    required_inodes: u64,
+) -> Result<()> {
     let (_, bytes, inodes) = storage(runner, root)?;
     require(
-        inodes >= count as u64 * 3 + 10000,
+        inodes >= required_inodes,
         "Insufficient free inodes for fixture and recovery",
     )?;
-    require(
-        bytes >= count as u64 * 12288 + 512 * 1024 * 1024,
-        "Insufficient free disk space",
-    )
+    require(bytes >= required_bytes, "Insufficient free disk space")
 }
-pub(crate) fn environment(runner: &Runner, root: &Path, canonical: bool) -> Result<Value> {
+pub(crate) fn environment(runner: &Runner, root: &Path, runtime: Option<&Value>) -> Result<Value> {
+    let canonical = runtime.is_some();
+    if let Some(contract) = runtime {
+        validate_contract(contract)?;
+    }
     let (filesystem, bytes, inodes) = storage(runner, root)?;
     let quota = text_file("/sys/fs/cgroup/cpu.max");
     let memory = text_file("/sys/fs/cgroup/memory.max");
@@ -119,6 +128,20 @@ pub(crate) fn environment(runner: &Runner, root: &Path, canonical: bool) -> Resu
         versions(runner)?
     };
     if canonical {
+        require(
+            text_file("/sys/fs/cgroup/memory.swap.max").as_deref() == Some("0"),
+            "Swap must be disabled",
+        )?;
+        require(
+            text_file("/sys/fs/cgroup/pids.max") == Some(lock()["pids_limit"].to_string()),
+            "PID limit differs from lock",
+        )?;
+        require(
+            Path::new("/opt/benchmark-source.json").is_file()
+                && Path::new("/opt/benchmark-packages.txt").is_file()
+                && Path::new("/opt/benchmark-vendor.sha256").is_file(),
+            "Canonical image provenance is missing",
+        )?;
         require(
             ["ext2/ext3", "xfs", "btrfs", "zfs"].contains(&filesystem.as_str()),
             "Canonical scratch requires bind-mounted local disk",
@@ -140,233 +163,263 @@ pub(crate) fn environment(runner: &Runner, root: &Path, canonical: bool) -> Resu
             "Memory limit differs from lock",
         )?;
     }
+    #[cfg(target_os = "linux")]
     let cpu = text_file("/proc/cpuinfo").and_then(|s| {
         s.lines()
             .find(|l| l.starts_with("model name"))
             .and_then(|l| l.split_once(':'))
             .map(|(_, v)| v.trim().to_owned())
     });
+    #[cfg(target_os = "macos")]
+    let cpu = Some(runner.text("/usr/sbin/sysctl", ["-n", "machdep.cpu.brand_string"], root)?);
     let packages = Path::new("/opt/benchmark-packages.txt");
     Ok(json!({"canonical": canonical, "tools": tools,
         "kernel": runner.text("uname", ["-r"], root)?, "architecture": std::env::consts::ARCH,
         "cpu_model": cpu, "cpu_quota": quota, "memory_limit": memory, "filesystem": filesystem,
         "available_bytes": bytes, "available_inodes": inodes,
         "packages_sha256": if packages.exists() { Some(digest(packages)?) } else { None },
-        "image_id": std::env::var("GROOVE_BENCH_IMAGE_ID").ok()}))
+        "vendor_manifest":text_file("/opt/benchmark-vendor.sha256"),
+        "runtime": runtime,
+        "umask":text_file("/proc/self/status").and_then(|s|s.lines().find_map(|line|line.strip_prefix("Umask:").map(|v|v.trim().to_owned()))),
+        "cpu_affinity": text_file("/sys/fs/cgroup/cpuset.cpus.effective"),
+        "cpu_stat": text_file("/sys/fs/cgroup/cpu.stat"),
+        "memory_events": text_file("/sys/fs/cgroup/memory.events"),
+        "swap_limit":text_file("/sys/fs/cgroup/memory.swap.max"),
+        "pids_limit":text_file("/sys/fs/cgroup/pids.max")}))
 }
-fn required<'a>(value: &'a Value, key: &str) -> Result<&'a Value> {
-    value
-        .get(key)
-        .ok_or_else(|| Error::Invalid(format!("Missing report field: {key}")))
-}
-/// Fastest and slowest warm changed-save timing of one profile result.
-fn sample_range(result: &Value) -> Result<(f64, f64)> {
-    let samples: Vec<f64> = result["warm_changed_saves"]
+
+pub(crate) fn validate_contract(contract: &Value) -> Result<()> {
+    let host = &contract["inspection"]["HostConfig"];
+    let lock = lock();
+    for (key, expected) in [
+        ("ReadonlyRootfs", json!(true)),
+        ("NetworkMode", json!("none")),
+        ("Memory", lock["memory_bytes"].clone()),
+        ("MemorySwap", lock["memory_bytes"].clone()),
+        (
+            "NanoCpus",
+            json!(lock["cpus"].as_u64().unwrap_or(0) * 1_000_000_000),
+        ),
+        ("PidsLimit", lock["pids_limit"].clone()),
+    ] {
+        require(
+            host[key] == expected,
+            format!("Runtime contract differs: {key}"),
+        )?;
+    }
+    require(
+        host["CpusetCpus"].as_str().is_some_and(|s| !s.is_empty()),
+        "Missing CPU affinity",
+    )?;
+    for value in [
+        &contract["inspection"]["Image"],
+        &contract["host_identity"],
+        &contract["storage"]["mount"],
+    ] {
+        require(
+            value.as_str().is_some_and(|s| !s.is_empty()),
+            "Missing runtime provenance",
+        )?;
+    }
+    let mounts = contract["inspection"]["Mounts"]
         .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|t| t["seconds"].as_f64())
-        .collect();
-    require(
-        !samples.is_empty() && samples.iter().all(|s| *s > 0.0),
-        "Missing warm save samples",
-    )?;
-    Ok(samples
-        .iter()
-        .fold((f64::INFINITY, 0.0_f64), |(low, high), s| {
-            (low.min(*s), high.max(*s))
-        }))
+        .ok_or_else(|| Error::Invalid("Missing runtime mounts".into()))?;
+    for (destination, writable) in [("/scratch", true), ("/results", true)] {
+        require(
+            mounts.iter().any(|m| {
+                m["Destination"] == destination && m["RW"] == writable && m["Type"] == "bind"
+            }),
+            format!("Missing runtime bind: {destination}"),
+        )?;
+    }
+    for mount in mounts {
+        require(
+            match mount["Destination"].as_str() {
+                Some("/scratch" | "/results") => mount["Type"] == "bind" && mount["RW"] == true,
+                Some("/tmp") => mount["Type"] == "tmpfs",
+                _ => false,
+            },
+            "Unexpected runtime mount or writable fixture",
+        )?;
+    }
+    Ok(())
 }
-pub(crate) fn compare(a: &Value, b: &Value) -> Result<Value> {
+
+pub(crate) fn summarize(report: &mut Value) -> Result<()> {
     require(
-        a["schema_version"] == 2 && b["schema_version"] == 2,
-        "Legacy or unsupported report schema; generate version 2 reports",
+        report["schema_version"] == 4 && report["measurement_version"] == 4,
+        "Unsupported benchmark report version",
     )?;
     require(
-        a["environment"]["canonical"] == true && b["environment"]["canonical"] == true,
-        "Only canonical reports support regression comparisons",
+        report["status"] == "passed",
+        "Only completed successful reports can be summarized",
     )?;
-    require(
-        a["status"] == "passed" && b["status"] == "passed",
-        "Only successful runs can be compared",
-    )?;
-    require(
-        a["mode"] == "benchmark" && b["mode"] == "benchmark",
-        "Correctness reports have no latency comparison",
-    )?;
+    let mode: crate::Mode = serde_json::from_value(report["mode"].clone())?;
     for key in [
-        "schema_version",
-        "measurement_version",
-        "mode",
-        "fixture_version",
-        "workload_sha256",
+        "fixture_sha256",
+        "catalog_sha256",
         "environment_lock_sha256",
-        "runs",
+        "runner_sha256",
     ] {
         require(
-            required(a, key)? == required(b, key)?,
-            format!("Workload differs: {key}"),
+            report[key]
+                .as_str()
+                .is_some_and(|s| s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())),
+            format!("Missing report provenance: {key}"),
         )?;
     }
-    for key in [
-        "canonical",
-        "tools",
-        "kernel",
-        "architecture",
-        "cpu_model",
-        "cpu_quota",
-        "memory_limit",
-        "filesystem",
-        "packages_sha256",
-    ] {
+    let canonical = report["environment"]["canonical"] == true;
+    if canonical {
+        validate_contract(&report["environment"]["runtime"])?;
         require(
-            required(&a["environment"], key)? == required(&b["environment"], key)?,
-            format!("Environment differs: {key}"),
+            report["environment"]["packages_sha256"]
+                .as_str()
+                .is_some_and(|s| s.len() == 64)
+                && report["environment"]["vendor_manifest"].is_string(),
+            "Missing package/vendor provenance",
         )?;
     }
-    let results = |v: &Value| -> Result<Map<String, Value>> {
-        v["results"]
-            .as_object()
-            .cloned()
-            .ok_or_else(|| Error::Invalid("Missing results".into()))
-    };
-    let (a, b) = (results(a)?, results(b)?);
+    for side in ["candidate", "baseline"] {
+        if side == "candidate" || !report["binaries"][side].is_null() {
+            let binary: BinaryRecord = serde_json::from_value(report["binaries"][side].clone())?;
+            require(
+                binary.sha256.len() == 64
+                    && binary.sha256.bytes().all(|b| b.is_ascii_hexdigit())
+                    && !binary.path.is_empty(),
+                "Invalid binary provenance",
+            )?;
+        }
+    }
+    let paired = report["binaries"]["baseline"].is_object();
     require(
-        !a.is_empty() && a.keys().eq(b.keys()),
-        "Profile sets differ or are empty",
+        mode != crate::Mode::Check || !paired,
+        "Correctness reports cannot compare baselines",
     )?;
-    let mut output = Map::new();
-    for (name, a) in a {
-        let b = &b[&name];
-        let identity = |v: &Value| {
-            v.get("fixture_tree")
-                .or_else(|| v.get("base_commit"))
-                .cloned()
-        };
+    let definitions = report["profiles"]
+        .as_object()
+        .ok_or_else(|| Error::Invalid("Missing profile definitions".into()))?;
+    require(!definitions.is_empty(), "No selected profiles")?;
+    let cases = report["cases"]
+        .as_object()
+        .ok_or_else(|| Error::Invalid("Missing cases".into()))?;
+    let mut expected = std::collections::BTreeSet::new();
+    let mut summary = Map::new();
+    for (id, value) in definitions {
+        let selected: SelectedProfile = serde_json::from_value(value.clone())?;
+        let profile = selected.definition;
+        crate::profiles::validate(&profile)?;
         require(
-            identity(&a).is_some() && identity(&a) == identity(b),
-            "Fixture or real-repository revision differs",
+            profile.id == *id && profile.sha256()? == selected.sha256,
+            "Profile identity/hash contradicts embedded definition",
         )?;
-        require(
-            a["recovery_verified"] == true && b["recovery_verified"] == true,
-            "Recovery must be verified",
-        )?;
-        require(
-            a["dirty_recovery_verified"] == true && b["dirty_recovery_verified"] == true,
-            "Dirty recovery must be verified; regenerate older reports",
-        )?;
-        let before = a["warm_median_seconds"].as_f64().unwrap_or(0.0);
-        let after = b["warm_median_seconds"].as_f64().unwrap_or(0.0);
-        require(before > 0.0 && after > 0.0, "Invalid median timing")?;
-        let (low_a, high_a) = sample_range(&a)?;
-        let (low_b, high_b) = sample_range(b)?;
-        // Separate runs drift with host load and CPU frequency. Only a change whose
-        // samples do not overlap at all gets a direction; otherwise the medians are
-        // within run-to-run noise and need repeated or interleaved runs.
-        let verdict = if low_b > high_a {
-            "slower"
-        } else if high_b < low_a {
-            "faster"
-        } else {
-            "within_noise"
-        };
-        output.insert(
-            name,
-            json!({"before_seconds": before, "after_seconds": after, "ratio": after / before,
-                "before_range_seconds": [low_a, high_a], "after_range_seconds": [low_b, high_b],
-                "verdict": verdict}),
-        );
+        for case in &profile.cases {
+            let key = format!("{id}/{}", case.id);
+            expected.insert(key.clone());
+            let result: MeasurementCase = serde_json::from_value(
+                cases
+                    .get(&key)
+                    .ok_or_else(|| Error::Invalid(format!("Missing profile case {key}")))?
+                    .clone(),
+            )?;
+            require(!result.identity.is_empty(), "Missing fixture identity")?;
+            let count = if mode == crate::Mode::Check {
+                1
+            } else {
+                profile.sampling.blocks as usize
+            };
+            require(
+                result.blocks.len() == count,
+                "Raw block count differs from profile sampling",
+            )?;
+            for block in &result.blocks {
+                for observation in std::iter::once(&block.candidate).chain(block.baseline.iter()) {
+                    let evidence: crate::evidence::Evidence =
+                        serde_json::from_value(observation.detail.clone())?;
+                    let recomputed = crate::evidence::observation(case, evidence)?;
+                    require(
+                        recomputed.verified
+                            && observation.verified
+                            && recomputed.metrics == observation.metrics,
+                        "Stored aggregates contradict raw profile evidence",
+                    )?;
+                }
+            }
+            let metrics = crate::statistics::summarize(&result.blocks, paired, canonical)?;
+            summary.insert(
+                key,
+                if mode == crate::Mode::Check {
+                    json!({"verified":true})
+                } else {
+                    metrics
+                },
+            );
+        }
     }
-    Ok(output.into())
+    require(
+        expected.iter().eq(cases.keys()),
+        "Unexpected report cases outside selected profiles",
+    )?;
+    report["summary"] = summary.into();
+    Ok(())
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SelectedProfile {
+    sha256: String,
+    definition: crate::profiles::Profile,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BinaryRecord {
+    sha256: String,
+    path: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MeasurementCase {
+    identity: String,
+    blocks: Vec<crate::statistics::Block>,
+}
+pub(crate) fn record_failure(output: &Path, error: &Error) -> Result<()> {
+    let mut report = fs::read(output)
+        .ok()
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        .unwrap_or_else(|| json!({}));
+    report["status"] = json!("failed");
+    report["error"] = json!(error.to_string());
+    crate::util::write_json(output, &report)
 }
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn sample() -> Value {
-        json!({"schema_version":2,"measurement_version":2,"status":"passed","mode":"benchmark","fixture_version":1,
-        "workload_sha256":"work","environment_lock_sha256":"lock","runs":5,
-        "source":{"revision":"old"},"binary_sha256":"old",
-        "environment":{"canonical":true,"tools":{"git":"2.40.0"},"kernel":"kernel",
-        "architecture":"x86_64","cpu_model":"cpu","cpu_quota":"400000 100000",
-        "memory_limit":"8589934592","filesystem":"ext2/ext3","packages_sha256":"packages","image_id":"old"},
-        "results":{"smoke":{"warm_median_seconds":2,"warm_changed_saves":[{"seconds":1.9},{"seconds":2},{"seconds":2.2}],"fixture_tree":"same","recovery_verified":true,"dirty_recovery_verified":true}}})
+    #[test]
+    fn unsupported_reports_and_incomplete_runtime_provenance_are_rejected() {
+        let mut report = json!({"schema_version":4,"measurement_version":999,"status":"passed"});
+        assert!(summarize(&mut report).is_err());
+        assert!(validate_contract(&json!({})).is_err());
     }
     #[test]
-    fn comparisons_allow_new_code_but_reject_environment_or_workload_drift() {
-        let a = sample();
-        let mut b = sample();
-        b["source"]["revision"] = json!("new");
-        b["binary_sha256"] = json!("new");
-        b["environment"]["image_id"] = json!("new");
-        b["results"]["smoke"]["warm_median_seconds"] = json!(1);
-        assert_eq!(compare(&a, &b).unwrap()["smoke"]["ratio"], 0.5);
-        // The median moved, but the samples overlap: not a measured change.
-        assert_eq!(compare(&a, &b).unwrap()["smoke"]["verdict"], "within_noise");
-        let mut slower = b.clone();
-        slower["results"]["smoke"]["warm_changed_saves"] =
-            json!([{"seconds": 2.3}, {"seconds": 2.5}]);
-        let compared = compare(&a, &slower).unwrap();
-        assert_eq!(compared["smoke"]["verdict"], "slower");
-        assert_eq!(compared["smoke"]["before_range_seconds"], json!([1.9, 2.2]));
-        assert_eq!(compare(&slower, &a).unwrap()["smoke"]["verdict"], "faster");
-        let mut empty = b.clone();
-        empty["results"]["smoke"]["warm_changed_saves"] = json!([]);
-        assert!(compare(&a, &empty).is_err());
-        for key in [
-            "tools",
-            "kernel",
-            "cpu_quota",
-            "memory_limit",
-            "filesystem",
-            "packages_sha256",
-            "canonical",
-        ] {
-            let mut drift = b.clone();
-            drift["environment"][key] = json!("different");
-            assert!(compare(&a, &drift).is_err(), "{key}");
-        }
-        for key in [
-            "status",
-            "schema_version",
-            "measurement_version",
-            "workload_sha256",
-            "runs",
-            "mode",
-        ] {
-            let mut drift = b.clone();
-            drift[key] = json!("different");
-            assert!(compare(&a, &drift).is_err(), "{key}");
-        }
+    fn runtime_contract_requires_isolation_limits_affinity_and_owned_mounts() {
+        let contract = json!({"inspection":{"Image":"sha256:image","HostConfig":{"ReadonlyRootfs":true,"NetworkMode":"none","Memory":8589934592_u64,"MemorySwap":8589934592_u64,"NanoCpus":4000000000_u64,"PidsLimit":512,"CpusetCpus":"0,1,2,3"},"Mounts":[{"Destination":"/scratch","RW":true,"Type":"bind"},{"Destination":"/results","RW":true,"Type":"bind"}]},"host_identity":"host","storage":{"mount":"ext4"}});
+        validate_contract(&contract).unwrap();
         for (key, value) in [
-            ("fixture_tree", json!("different")),
-            ("warm_median_seconds", json!(0)),
-            ("recovery_verified", json!(false)),
-            ("dirty_recovery_verified", json!(false)),
+            ("ReadonlyRootfs", json!(false)),
+            ("NetworkMode", json!("bridge")),
+            ("Memory", json!(0)),
+            ("MemorySwap", json!(-1)),
+            ("NanoCpus", json!(0)),
+            ("PidsLimit", json!(0)),
+            ("CpusetCpus", json!("")),
         ] {
-            let mut drift = b.clone();
-            drift["results"]["smoke"][key] = value;
-            assert!(compare(&a, &drift).is_err());
+            let mut broken = contract.clone();
+            broken["inspection"]["HostConfig"][key] = value;
+            assert!(
+                validate_contract(&broken).is_err(),
+                "Accepted changed {key}"
+            );
         }
-        assert!(compare(&json!({}), &json!({})).is_err());
-        let mut legacy = b.clone();
-        legacy
-            .as_object_mut()
-            .unwrap()
-            .remove("measurement_version");
-        assert!(compare(&legacy, &legacy).is_err());
-        let mut unverified = b.clone();
-        unverified["results"]["smoke"]
-            .as_object_mut()
-            .unwrap()
-            .remove("dirty_recovery_verified");
-        assert!(compare(&unverified, &unverified).is_err());
-        let mut missing = b.clone();
-        missing["environment"]
-            .as_object_mut()
-            .unwrap()
-            .remove("kernel");
-        assert!(compare(&missing, &missing).is_err());
-        b["results"].as_object_mut().unwrap().remove("smoke");
-        assert!(compare(&a, &b).is_err());
+        let mut broken = contract;
+        broken["inspection"]["Mounts"] = json!([]);
+        assert!(validate_contract(&broken).is_err());
     }
 }
