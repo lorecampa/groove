@@ -143,10 +143,23 @@ pub(crate) fn normalize(
     let admin = registration_from_file(path)?;
     let index = admin.join("index");
     repository::no_symlinks(&index)?;
+    let had_index = index.exists();
     match fs::remove_file(index) {
         Ok(()) => (),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
         Err(e) => return Err(e.into()),
+    }
+    if had_index {
+        // Rebuild from trusted objects, then verify working bytes before filling
+        // stat entries. Checkout can retain matching files without trusting any
+        // flags or stat data left behind by the previous reservation.
+        git.run(path, &["read-tree", oid.as_str()], fds)?;
+        match git.run(path, &["update-index", "-q", "--refresh"], fds) {
+            Ok(_) => (),
+            // Dirty/missing paths remain unrefreshed and are replaced by checkout.
+            Err(error) if error.git_exit_code() == Some(1) => (),
+            Err(error) => return Err(error),
+        }
     }
     git.run(
         path,

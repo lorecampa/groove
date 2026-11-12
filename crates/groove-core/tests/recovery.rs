@@ -87,6 +87,37 @@ fn warm_preserves_ignored_but_resets_tracked() {
     );
 }
 #[test]
+fn reuse_preserves_clean_file_identity_but_replaces_hidden_same_size_edits() {
+    for policy in [CleanupPolicy::Warm, CleanupPolicy::Pristine] {
+        let r = Repo::new();
+        let p = pool(&r, policy);
+        let lease = p.acquire(Default::default()).unwrap();
+        let path = lease.info().worktree_path.clone();
+        let file = path.join("tracked.txt");
+        let original = fs::metadata(&file).unwrap();
+        drop(lease);
+        let lease = p.acquire(Default::default()).unwrap();
+        let retained = fs::metadata(&file).unwrap();
+        assert_eq!(retained.ino(), original.ino());
+        assert_eq!(retained.modified().unwrap(), original.modified().unwrap());
+        git(
+            &path,
+            &["update-index", "--assume-unchanged", "tracked.txt"],
+        );
+        fs::write(&file, "tampered\n").unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_times(fs::FileTimes::new().set_modified(original.modified().unwrap()))
+            .unwrap();
+        drop(lease);
+        let _lease = p.acquire(Default::default()).unwrap();
+        assert_eq!(fs::read(&file).unwrap(), b"baseline\n");
+        assert!(git(&path, &["status", "--porcelain"]).is_empty());
+    }
+}
+#[test]
 fn repairs_index_and_interrupted_operations_without_changing_lock_inode() {
     let r = Repo::new();
     let p = pool(&r, CleanupPolicy::Pristine);

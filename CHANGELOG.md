@@ -4,6 +4,8 @@
 
 ### Changed
 
+- Reused workspaces rebuild and refresh a trusted index before checkout, retaining
+  matching files while still clearing stale index flags and replacing dirty data.
 - JSON output now requires `--json` on each command; `GROOVE_OUTPUT` is no
   longer read. Replace exported `GROOVE_OUTPUT=json` settings with explicit
   flags in scripts and agent commands. JSON response schemas are unchanged.
