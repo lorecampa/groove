@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Agent installation instructions use the latest published CLI and let the
+  current agent choose its skill installation location. The README setup prompt
+  no longer requires users to choose an installation scope or pin an alpha.
+
 - Diagnostic logging rejects unsafe directories and nonregular, multiply linked
   or writable cleanup locks without blocking commands or deleting existing logs.
   A FIFO at `.cleanup.lock` can no longer stall a CLI response.

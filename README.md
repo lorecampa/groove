@@ -18,23 +18,17 @@ cargo install --locked groove-cli
 ```
 
 The package is `groove-cli`; the installed command is `groove`.
-Cargo builds the published source package locally. The first release is
-`0.1.0`, an alpha. See [installation](docs/install.md) for version-pinned and
-development installation, updates and the status of native binary downloads.
+Cargo builds the latest published release locally.
 
 ## Set up your coding agent
 
 Give your agent this prompt:
 
-> Read https://github.com/lorecampa/groove/blob/main/docs/install.md and install
-> Groove and its complete agent skill for this harness at user scope. Preserve
-> existing configuration, verify the CLI and skill discovery, and report any
-> remaining steps. Do not initialize project pools as part of installation.
+> Install Groove for this agent by following
+> https://raw.githubusercontent.com/lorecampa/groove/main/docs/install.md
 
-The guide covers Codex, Claude Code and other Agent Skills harnesses. While the
-repository is private, use authenticated access or point the agent at a local
-checkout's `docs/install.md`. Then ask: “Use Groove for this task and preserve
-the result.” See [agent workflows](docs/agents.md) for assignments and handoff.
+Then ask: “Use Groove for this task.” See [agent workflows](docs/agents.md)
+for assignments and handoff.
 
 ## Use a workspace
 
