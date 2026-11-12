@@ -63,6 +63,8 @@ the execution record. A failed teardown keeps both prohibitions in place.
 An execution response can have `ok:true` and a nonzero worker result. The
 generated output contract in `groove exec --help` explains worker exit statuses
 and termination outcomes. The reservation remains protected after every outcome.
+Cancellation observed before launch records a cancelled run with no leader PID;
+no worker starts. Its empty captured logs and terminal history remain available.
 
 ## Descendant tracking
 

@@ -57,6 +57,10 @@ pub(crate) fn prepare(
     let fd = guard.file.as_raw_fd();
     let exists = path.exists();
     if exists && registration(repo, &path).is_ok() && !interrupted(repo, &path)? {
+        // Slot ownership excludes cooperating registration changes for this path.
+        // Read-only duplicate detection must not wait behind a sibling's init or
+        // destroy: healthy checkout normalization needs only this slot's lock.
+        matching_registration(repo, &path)?;
         state::checkpoint("before-normalization");
         match normalize(&git, &path, oid, config.cleanup_policy, &[fd])
             .inspect(|()| state::checkpoint("normalized-in-place"))
@@ -445,28 +449,12 @@ pub(crate) fn interrupted(repo: &Repository, path: &Path) -> Result<bool> {
         .any(|name| fs::symlink_metadata(admin.join(name)).is_ok()))
 }
 pub(crate) fn remove_owned(repo: &Repository, path: &Path) -> Result<()> {
+    let registration = validate_disposal(repo, path)?;
     // Find registrations by their exact backlink, never via an untrusted .git pointer
     // and never with a repository-wide prune. Corrupt unrelated entries are left alone.
-    let registrations = repo.common.join("worktrees");
-    repository::no_symlinks(&registrations)?;
-    if registrations.exists() {
-        for item in fs::read_dir(&registrations)? {
-            let item = item?;
-            if !item.file_type()?.is_dir() {
-                continue;
-            }
-            let backlink = item.path().join("gitdir");
-            if repository::no_symlinks(&backlink).is_err() {
-                continue;
-            }
-            if let Ok(raw) = fs::read(backlink) {
-                if backlink_matches(&item.path(), &raw, path) {
-                    repository::no_symlinks(&item.path())?;
-                    fs::remove_dir_all(item.path())?;
-                }
-            }
-        }
-        state::sync_dir(&registrations)?;
+    if let Some(registration) = registration {
+        fs::remove_dir_all(registration)?;
+        state::sync_dir(&repo.common.join("worktrees"))?;
     }
     repository::no_symlinks(path)?;
     state::checkpoint("owned-registrations-removed");
@@ -479,4 +467,125 @@ pub(crate) fn remove_owned(repo: &Repository, path: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Preflight disposal without changing the occupant or any registration. Callers
+/// hold repository admin exclusion and either slot ownership or exclusive lifecycle
+/// admission. Return the sole exact registration that removal may discard.
+pub(crate) fn validate_disposal(repo: &Repository, path: &Path) -> Result<Option<PathBuf>> {
+    let refusal = |reason: &str| disposal_refusal(path, reason);
+    repository::no_symlinks(path)?;
+    let registrations = repo.common.join("worktrees");
+    let claim = matching_registration(repo, path)?;
+    if !path.try_exists()? {
+        return Ok(claim);
+    }
+    let dotgit = path.join(".git");
+    repository::no_symlinks(&dotgit)?;
+    if dotgit.is_dir() {
+        return Err(refusal("A standalone repository occupies this slot"));
+    }
+    if let Ok(admin) = registration_from_file(path) {
+        // A forged pointer to this repository's primary store is damaged slot
+        // metadata, not authority over that store. Preserve bounded rebuilding
+        // while only ever removing registrations found by their exact backlink.
+        if admin != repo.common {
+            let own_admin = admin.parent() == Some(registrations.as_path());
+            let backlink = admin.join("gitdir");
+            repository::no_symlinks(&backlink)?;
+            match fs::read(&backlink) {
+                Ok(raw) if !own_admin || !backlink_matches(&admin, &raw, path) => {
+                    return Err(refusal("Another linked worktree occupies this slot"));
+                }
+                Ok(_) => {
+                    // A matching backlink alone cannot adopt another common store.
+                    let common = admin.join("commondir");
+                    repository::no_symlinks(&common)?;
+                    match fs::read(&common) {
+                        Ok(raw) => {
+                            use std::os::unix::ffi::OsStrExt;
+                            let common = resolve_link(&admin, OsStr::from_bytes(trim(&raw)))?;
+                            if common.try_exists()? && fs::canonicalize(common)? != repo.common {
+                                return Err(refusal("Worktree belongs to another repository"));
+                            }
+                        }
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
+                        Err(e) => return Err(e.into()),
+                    }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    if !own_admin
+                        && (recognizable_store(&admin)? || admin.join("commondir").try_exists()?)
+                    {
+                        return Err(refusal("A foreign Git store occupies this slot"));
+                    }
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+    }
+    // Only inspect the occupant itself: Git discovery here could walk into the
+    // primary repository. Task-created nested repositories remain disposable.
+    if !dotgit.try_exists()? && recognizable_store(path)? {
+        return Err(refusal("A bare Git store occupies this slot"));
+    }
+    Ok(claim)
+}
+
+fn recognizable_store(path: &Path) -> Result<bool> {
+    let head = path.join("HEAD");
+    let objects = path.join("objects");
+    repository::no_symlinks(&head)?;
+    repository::no_symlinks(&objects)?;
+    Ok(head.is_file() && objects.is_dir())
+}
+
+fn disposal_refusal(path: &Path, reason: &str) -> Error {
+    Error::new(
+        crate::ErrorCode::RecoveryFailed,
+        format!(
+            "{}: {reason}; safely move the occupant or restore its original location before retrying",
+            path.display()
+        ),
+    )
+    .with_details(|d| d.path = Some(path.into()))
+}
+
+/// Inventory exact backlinks, without following the occupant's pointer. Removal
+/// callers hold admin exclusion; healthy normalization holds the slot lock and
+/// tolerates unrelated registrations disappearing during this read-only scan.
+fn matching_registration(repo: &Repository, path: &Path) -> Result<Option<PathBuf>> {
+    let registrations = repo.common.join("worktrees");
+    repository::no_symlinks(&registrations)?;
+    let mut claim = None;
+    if registrations.try_exists()? {
+        for item in fs::read_dir(&registrations)? {
+            let item = item?;
+            let kind = match item.file_type() {
+                Ok(kind) => kind,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(e.into()),
+            };
+            if !kind.is_dir() {
+                continue;
+            }
+            let backlink = item.path().join("gitdir");
+            if repository::no_symlinks(&backlink).is_err() {
+                continue;
+            }
+            if let Ok(raw) = fs::read(backlink) {
+                if backlink_matches(&item.path(), &raw, path) {
+                    if claim.is_some() {
+                        return Err(disposal_refusal(
+                            path,
+                            "Multiple worktree registrations claim this slot",
+                        ));
+                    }
+                    repository::no_symlinks(&item.path())?;
+                    claim = Some(item.path());
+                }
+            }
+        }
+    }
+    Ok(claim)
 }

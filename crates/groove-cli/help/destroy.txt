@@ -19,6 +19,9 @@ Deletion removes every configured checkout, its exact Git worktree registration,
 and disposable artifact caches, including ignored files even for warm pools.
 Residual edits, untracked/ignored files and broken registrations require explicit
 --discard-changes. That flag never bypasses ownership, process or path checks.
+Recognizable foreign repositories, moved worktrees and conflicting registration
+claims at slot paths are preserved, including with --discard-changes. Safely
+restore or move the occupant before retrying deletion.
 Unreferenced detached commits must first be preserved on a branch or snapshot.
 Index flags that hide edits and interrupted Git operations also block inspection;
 repair them or explicitly acknowledge their loss with --discard-changes. Inspection

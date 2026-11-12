@@ -38,6 +38,28 @@ changes are reviewed together and documented; protocol v1 has not yet been
 formally frozen. Unknown protocol major versions must be rejected. Submit a
 focused pull request describing the behavior and the checks you ran.
 
+## Development workspaces
+
+Every development change, including code fixes, tests and documentation, must use
+a reserved Groove pool worktree and a pull request to `main`. Keep the primary
+checkout for inspection, pool administration and PR coordination. Do not make task
+edits there or create an ad hoc Git worktree to bypass the pool.
+
+A coordinator acquires the task's reservation from the selected pool using the
+intended base from current `main`; an assigned worker reuses its coordinator's
+pool, lease ID and path. Keep those identifiers outside the reusable checkout.
+Worktrees start detached: create a topic branch in the returned path, then make
+edits, run checks, commit and push from that worktree. If the pool is unavailable,
+inspect and report the reason; do not bypass capacity or reservation protection.
+See [the portable skill](skills/groove/SKILL.md) and installed command help for
+the acquisition, retry and recovery procedures.
+
+Open a PR against `main` and merge only after validation and the repository's
+review requirements are satisfied. Do not commit or push fixes directly to `main`.
+Before releasing the reservation, stop all workers and other writers, preserve
+the result, and follow the skill's checkpoint/release procedure. A released path
+must not be reused by the previous task.
+
 ## Coding and documentation style
 
 - Use the pinned toolchain's default rustfmt style (`cargo fmt --all`) and keep

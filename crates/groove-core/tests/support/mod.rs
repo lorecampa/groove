@@ -2,7 +2,7 @@
 use std::{
     ffi::OsStr,
     fs,
-    io::{self, Read},
+    io::{self, Read, Write},
     os::unix::{
         fs::FileExt,
         net::{UnixListener, UnixStream},
@@ -274,20 +274,34 @@ pub fn accept_child(
 /// Fixtures whose assertions require no unrelated descriptor owners run in separate
 /// processes, concurrently. Explicit ownership/concurrency scenarios still arrange
 /// their own participating children and are never retried by this helper.
+/// The parent requires both entry into this helper and successful child exit.
 pub fn in_subprocess(name: &str) -> bool {
+    const ENTRY_MARKER: &str = "GROOVE_ISOLATED_TEST_ENTRY";
     if std::env::var("GROOVE_ISOLATED_TEST").as_deref() == Ok(name) {
+        let marker = std::env::var_os(ENTRY_MARKER).expect("isolated fixture entry marker path");
+        fs::File::create_new(marker)
+            .unwrap()
+            .write_all(name.as_bytes())
+            .unwrap();
         return true;
     }
+    // Each invocation owns its marker, even when concurrent callers select the
+    // same fixture. A successful libtest exit alone can mean zero tests ran.
+    let temp = tempfile::tempdir().unwrap();
+    let marker = temp.path().join("entered");
     let output = TestChild::spawn(
         Command::new(std::env::current_exe().unwrap())
             .args(["--exact", name, "--nocapture"])
-            .env("GROOVE_ISOLATED_TEST", name),
+            .env("GROOVE_ISOLATED_TEST", name)
+            .env(ENTRY_MARKER, &marker),
     )
     .wait_with_output()
     .unwrap();
+    let entry = fs::read_to_string(&marker);
     assert!(
-        output.status.success(),
-        "{name}: stdout={} stderr={}",
+        output.status.success() && matches!(&entry, Ok(entry) if entry == name),
+        "{name}: status={} fixture entry={entry:?} stdout={} stderr={}",
+        output.status,
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );

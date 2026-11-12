@@ -27,6 +27,9 @@ cache roots, seeds compatible artifacts and runs ordered steps. A failed,
 interrupted or changed setup needs an explicit --retry, which restarts from the
 first step. --recipe and --agent run named commands; trailing arguments are
 appended literally. Required setup is never run implicitly.
+All approved cache roots are checked before cleanup starts. Nested Git stores,
+worktrees and unsafe paths refuse setup without clearing another approved root;
+move the repository safely or narrow the cache definition, then explicitly retry.
 
 A positive --timeout-ms overrides each step or recipe deadline; zero keeps the
 configured default (unlimited for raw commands). If the supervisor is killed,

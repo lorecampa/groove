@@ -1,10 +1,11 @@
 use crate::{Error, Result};
 use std::{
     ffi::OsStr,
-    io::Read,
+    io::{Read, Write},
     os::{fd::RawFd, unix::process::CommandExt},
     path::Path,
     process::{Command, Stdio},
+    sync::mpsc,
     thread,
     time::{Duration, Instant},
 };
@@ -36,7 +37,7 @@ pub(crate) enum OutputMode {
 }
 
 /// Optional knobs for one Git subprocess. Defaults describe isolated maintenance.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub(crate) struct Invocation<'a> {
     /// Descriptors the child (and its children) must inherit, e.g. ownership locks.
     pub inherit: &'a [RawFd],
@@ -50,6 +51,13 @@ pub(crate) struct Invocation<'a> {
     pub stdout_limit: Option<usize>,
     /// How stdout is consumed.
     pub output: OutputMode,
+    /// Fail on diagnostics even after exit zero, for ref inventories where Git
+    /// may warn and omit an unreadable or broken reference.
+    pub reject_stderr: bool,
+    /// Validate while an update-ref transaction is prepared and its refs locked.
+    /// `stdin` supplies only the prefix through `prepare`; success sends commit,
+    /// failure closes stdin to abort. The callback must honor the remaining budget.
+    pub prepared: Option<Box<dyn FnOnce(Duration) -> Result<()> + 'a>>,
 }
 impl Invocation<'_> {
     /// Snapshot plumbing: user configuration and a larger stdout bound.
@@ -109,7 +117,7 @@ impl Git {
         &self,
         cwd: &Path,
         args: impl IntoIterator<Item = &'a OsStr>,
-        invocation: Invocation<'_>,
+        mut invocation: Invocation<'_>,
     ) -> Result<Capture> {
         tracing::trace!(event = "git.started", "Starting Git operation");
         let scan_tree = invocation.output == OutputMode::ScanGitlinks;
@@ -161,7 +169,14 @@ impl Git {
         for (key, value) in invocation.env {
             cmd.env(key, value);
         }
-        if let Some(input) = invocation.stdin {
+        let prepared_transaction = invocation.prepared.is_some();
+        let mut transaction_input = None;
+        if prepared_transaction {
+            transaction_input = Some(invocation.stdin.take().ok_or_else(|| {
+                Error::new(crate::ErrorCode::GitError, "Missing ref transaction input")
+            })?);
+            cmd.stdin(Stdio::piped());
+        } else if let Some(input) = invocation.stdin.take() {
             cmd.stdin(input);
         }
         let inherit = invocation.inherit.to_vec();
@@ -178,34 +193,104 @@ impl Git {
                 Ok(())
             });
         }
+        let start = Instant::now();
         let mut child = cmd.spawn()?;
         let stdout = child.stdout.take().expect("stdout is piped above");
         let stderr = child.stderr.take().expect("stderr is piped above");
         let limit = invocation.stdout_limit.unwrap_or(OUTPUT_LIMIT);
-        let out_thread = thread::spawn(move || capture(stdout, scan_tree, limit));
-        let err_thread = thread::spawn(move || capture(stderr, false, OUTPUT_LIMIT));
-        let start = Instant::now();
+        let (prepare_sender, prepare_receiver) = match prepared_transaction.then(mpsc::channel) {
+            Some((sender, receiver)) => (Some(sender), Some(receiver)),
+            None => (None, None),
+        };
+        let out_thread = thread::spawn(move || capture(stdout, scan_tree, limit, prepare_sender));
+        let err_thread = thread::spawn(move || capture(stderr, false, OUTPUT_LIMIT, None));
+        let (mut commit_sender, input_thread) = if let Some(mut input) = transaction_input {
+            let (sender, receiver) = mpsc::channel();
+            // Only prepared transactions request piped stdin above.
+            let mut stdin = child
+                .stdin
+                .take()
+                .expect("transaction stdin is piped above");
+            let writer = thread::spawn(move || -> std::io::Result<()> {
+                std::io::copy(&mut input, &mut stdin)?;
+                if receiver.recv().is_ok() {
+                    stdin.write_all(b"commit\n")?;
+                }
+                // EOF aborts a prepared transaction when validation failed.
+                Ok(())
+            });
+            (Some(sender), Some(writer))
+        } else {
+            (None, None)
+        };
+        let mut operation_error = None;
+        let mut validation_panic = None;
+        let mut committed = false;
         // Observe exit without reaping: the unreaped leader reserves its PID and
         // process-group ID, so the group kill below can never reach a process
         // that reused that identity.
-        let timed_out = loop {
-            match crate::platform::process::exited(&child) {
-                Ok(true) => break false,
-                Ok(false) => (),
-                Err(e) => {
-                    // SAFETY: the leader is unreaped and owns the group created by process_group(0).
-                    unsafe {
-                        libc::kill(-(child.id() as i32), libc::SIGKILL);
+        let timed_out =
+            loop {
+                match crate::platform::process::exited(&child) {
+                    Ok(true) => break false,
+                    Ok(false) => (),
+                    Err(e) => {
+                        operation_error = Some(e);
+                        break false;
                     }
-                    let _ = child.wait();
-                    return Err(e);
                 }
-            }
-            if start.elapsed() >= self.timeout {
-                break true;
-            }
-            thread::sleep(Duration::from_millis(2));
-        };
+                if start.elapsed() >= self.timeout {
+                    break true;
+                }
+                if invocation.prepared.is_some() {
+                    match prepare_receiver
+                        .as_ref()
+                        .expect("prepared transaction has a receiver")
+                        .try_recv()
+                    {
+                        Ok(true) => {
+                            // The callback is taken once, only after the exact
+                            // protocol prefix has been drained by the stdout reader.
+                            let validate = invocation.prepared.take().expect("checked above");
+                            let validation =
+                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    validate(self.timeout.saturating_sub(start.elapsed()))
+                                }));
+                            match validation {
+                                Ok(Ok(())) if start.elapsed() < self.timeout => {
+                                    if let Some(sender) = commit_sender.take() {
+                                        match sender.send(()) {
+                                            Ok(()) => committed = true,
+                                            Err(error) => {
+                                                operation_error = Some(Error::new(
+                                                crate::ErrorCode::GitError,
+                                                "Ref transaction stdin closed before commit",
+                                            ).with_source(error));
+                                            }
+                                        }
+                                    }
+                                }
+                                Ok(Ok(())) => break true,
+                                Ok(Err(error)) => operation_error = Some(error),
+                                Err(payload) => validation_panic = Some(payload),
+                            }
+                            // Disconnecting tells the writer to close stdin on error.
+                            drop(commit_sender.take());
+                        }
+                        Ok(false) | Err(mpsc::TryRecvError::Disconnected) => {
+                            operation_error = Some(Error::new(
+                                crate::ErrorCode::GitError,
+                                "Invalid ref transaction preparation response",
+                            ));
+                            invocation.prepared.take();
+                            drop(commit_sender.take());
+                        }
+                        Err(mpsc::TryRecvError::Empty) => (),
+                    }
+                }
+                thread::sleep(Duration::from_millis(2));
+            };
+        drop(commit_sender);
         // Stop a timed-out mutation, and close pipe-owning descendants too;
         // background processes are unsupported in maintenance.
         // SAFETY: the leader is still unreaped, so this is the dedicated group established above.
@@ -220,6 +305,40 @@ impl Git {
         let err = err_thread
             .join()
             .map_err(|_| Error::new(crate::ErrorCode::IoError, "stderr reader panicked"))??;
+        if let Some(input_thread) = input_thread {
+            let result = input_thread.join().map_err(|_| {
+                Error::new(
+                    crate::ErrorCode::IoError,
+                    "transaction stdin writer panicked",
+                )
+            })?;
+            if operation_error.is_none() && !timed_out {
+                if let Err(error) = result {
+                    operation_error = Some(
+                        Error::new(
+                            crate::ErrorCode::GitError,
+                            "Writing ref transaction input failed",
+                        )
+                        .with_source(error),
+                    );
+                }
+            }
+        }
+        if let Some(payload) = validation_panic {
+            // Reap Git and join its pipe threads before resuming an internal
+            // callback panic; unwinding must not strand a prepared ref lock.
+            std::panic::resume_unwind(payload);
+        }
+        if operation_error.is_none()
+            && prepared_transaction
+            && !timed_out
+            && (!committed || out.bytes != b"start: ok\nprepare: ok\ncommit: ok\n")
+        {
+            operation_error = Some(Error::new(
+                crate::ErrorCode::GitError,
+                "Incomplete ref transaction response",
+            ));
+        }
         tracing::debug!(
             event = "git.completed",
             elapsed_ms = start.elapsed().as_millis() as u64,
@@ -227,23 +346,34 @@ impl Git {
             timed_out = status.is_none(),
             "Git operation finished"
         );
-        if !status.is_some_and(|s| s.success()) || (out.large && !scan_tree) || err.large {
-            return Err(Error::new(
-                crate::ErrorCode::GitError,
-                if status.is_none() {
-                    "Git operation timed out"
-                } else {
-                    "Git operation failed or exceeded its output limit"
-                },
-            )
-            .with_details(|d| {
-                d.git = Some(crate::GitFailure {
-                    exit_code: status.and_then(|s| s.code()),
-                    stdout: String::from_utf8_lossy(&out.bytes).into_owned(),
-                    stderr: String::from_utf8_lossy(&err.bytes).into_owned(),
-                    output_truncated: out.large || err.large,
+        if operation_error.is_some()
+            || !status.is_some_and(|s| s.success())
+            || (out.large && !scan_tree)
+            || err.large
+            || (invocation.reject_stderr && !err.bytes.is_empty())
+        {
+            return Err(operation_error
+                .unwrap_or_else(|| {
+                    Error::new(
+                        crate::ErrorCode::GitError,
+                        if status.is_none() {
+                            "Git operation timed out"
+                        } else {
+                            "Git operation failed or exceeded its output limit"
+                        },
+                    )
                 })
-            }));
+                .with_details(|d| {
+                    // Keep a failed validation subprocess's diagnostics intact.
+                    if d.git.is_none() {
+                        d.git = Some(crate::GitFailure {
+                            exit_code: status.and_then(|s| s.code()),
+                            stdout: String::from_utf8_lossy(&out.bytes).into_owned(),
+                            stderr: String::from_utf8_lossy(&err.bytes).into_owned(),
+                            output_truncated: out.large || err.large,
+                        });
+                    }
+                }));
         }
         Ok(out)
     }
@@ -254,13 +384,20 @@ struct Capture {
     large: bool,
     gitlink: bool,
 }
-fn capture(mut reader: impl Read, scan_tree: bool, limit: usize) -> std::io::Result<Capture> {
+fn capture(
+    mut reader: impl Read,
+    scan_tree: bool,
+    limit: usize,
+    mut prepare: Option<mpsc::Sender<bool>>,
+) -> std::io::Result<Capture> {
     let mut out = Vec::new();
     let mut large = false;
     let mut buffer = [0; 8192];
     let mut prefix = [0; 7];
     let mut prefix_len = 0;
     let mut gitlink = false;
+    let mut prepared_bytes = 0;
+    const PREPARED: &[u8] = b"start: ok\nprepare: ok\n";
     loop {
         let n = reader.read(&mut buffer)?;
         if n == 0 {
@@ -269,6 +406,18 @@ fn capture(mut reader: impl Read, scan_tree: bool, limit: usize) -> std::io::Res
         let keep = n.min(limit.saturating_sub(out.len()));
         out.extend_from_slice(&buffer[..keep]);
         large |= keep != n;
+        if prepare.is_some() {
+            for &byte in &buffer[..n] {
+                let matches = byte == PREPARED[prepared_bytes];
+                prepared_bytes += 1;
+                if !matches || prepared_bytes == PREPARED.len() {
+                    if let Some(sender) = prepare.take() {
+                        let _ = sender.send(matches);
+                    }
+                    break;
+                }
+            }
+        }
         if scan_tree {
             for &byte in &buffer[..n] {
                 if byte == 0 {

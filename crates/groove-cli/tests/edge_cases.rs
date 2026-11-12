@@ -227,6 +227,73 @@ fn human_patches_reach_stdout_byte_for_byte() {
     );
 }
 
+#[test]
+fn redirected_human_and_json_patches_apply_with_forced_color_and_custom_prefixes() {
+    let repo = Repo::new();
+    repo.git(&["config", "color.ui", "always"]);
+    repo.git(&["config", "diff.noprefix", "true"]);
+    repo.git(&["config", "diff.srcprefix", "old/"]);
+    repo.git(&["config", "diff.dstprefix", "new/"]);
+    let before = assert_success(&cli(&repo.path, &["snapshot", "save", "before"]));
+    fs::write(repo.path.join("tracked.txt"), b"changed\r\nsecond\r\n").unwrap();
+    fs::write(repo.path.join("binary"), b"binary\0\xff").unwrap();
+    let after = assert_success(&cli(&repo.path, &["snapshot", "save", "after"]));
+    let args = [
+        "snapshot",
+        "diff",
+        before["result"]["snapshot"]["id"].as_str().unwrap(),
+        after["result"]["snapshot"]["id"].as_str().unwrap(),
+    ];
+    let human_file = repo.temp.path().join("human.patch");
+    let human = support::groove_in(&repo.path)
+        .env_remove("GROOVE_OUTPUT")
+        .env("GROOVE_LOG_ENABLED", "false")
+        .args(args)
+        .stdout(fs::File::create(&human_file).unwrap())
+        .output()
+        .unwrap();
+    assert!(human.status.success(), "{human:?}");
+    assert!(human.stderr.is_empty(), "{human:?}");
+    let output = support::groove_in(&repo.path)
+        .env("GROOVE_LOG_ENABLED", "false")
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert!(output.stderr.is_empty(), "{output:?}");
+    let json = checked(&output);
+    assert_eq!(json["ok"], true);
+    let patch = json["result"]["patch"].as_str().unwrap();
+    assert!(!patch.contains('\u{1b}'));
+    assert_eq!(fs::read(&human_file).unwrap(), patch.as_bytes());
+    let json_file = repo.temp.path().join("json.patch");
+    fs::write(&json_file, patch).unwrap();
+    let index = repo.temp.path().join("scratch.index");
+    for patch_file in [&human_file, &json_file] {
+        for git_args in [
+            vec![
+                "read-tree",
+                before["result"]["snapshot"]["work_tree"].as_str().unwrap(),
+            ],
+            vec!["apply", "--cached", patch_file.to_str().unwrap()],
+            vec!["write-tree"],
+        ] {
+            let applied = support::command(&repo.path, "git")
+                .env("GIT_INDEX_FILE", &index)
+                .args(&git_args)
+                .output()
+                .unwrap();
+            assert!(applied.status.success(), "{git_args:?}: {applied:?}");
+            if git_args[0] == "write-tree" {
+                assert_eq!(
+                    String::from_utf8(applied.stdout).unwrap().trim(),
+                    after["result"]["snapshot"]["work_tree"].as_str().unwrap()
+                );
+            }
+        }
+    }
+}
+
 /// An agent's own `git status` with `core.fsmonitor=true` leaves a Git filesystem
 /// monitor daemon running for the slot. Git moves the daemon's working directory
 /// out of the checkout and watches it by path, so it must neither block release as a

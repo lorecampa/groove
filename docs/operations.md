@@ -205,6 +205,12 @@ Recovery normalizes or rebuilds under slot/admin locks, then verifies the baseli
 Native registrations use `git worktree add --lock` against external pruning,
 independently of flock. Only registrations with exact owned backlinks are removed;
 Groove never sweeps shared Git locks or unrelated metadata.
+Recognizable foreign repositories or moved linked worktrees occupying a slot,
+and multiple registrations claiming one slot, refuse acquisition and destruction.
+Safely restore the occupant's original location or move it outside the pool before
+retrying. `--discard-changes` does not bypass this identity check. Normal contents
+of a released Groove checkout, including task-created nested repositories, remain
+disposable under its cleanup policy.
 
 Never delete/replace lock or protection records to force capacity. Read-only
 `/proc/*/fd` investigation on Linux, or process inspection on macOS, may help

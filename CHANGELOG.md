@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Changed
+
+- Development changes require a reserved Groove pool worktree and a pull request
+  to `main`, including fixes, tests and documentation. The primary checkout stays
+  available for coordination.
+
+### Fixed
+
+- Snapshot reads and deletion refuse unreadable, corrupt or inconsistent pins.
+  Deletion verifies pin and snapshot references together, preserving snapshots
+  when either reference changes before removal.
+- Snapshot diffs export applicable binary patches independently of Git color
+  and prefix preferences, preserving patch bytes in human and JSON output.
+- Setup checks every approved cache root before clearing any, refusing nested
+  Git repositories, worktrees and unsafe paths while retaining the reservation.
+- Acquisition and destruction preserve recognizable foreign repositories or
+  moved worktrees occupying a slot and reject duplicate registration claims.
+- Execution observed as cancelled before launch records cancellation without
+  starting the worker, retaining logs, history and reservation protection.
+- Isolated process tests require evidence that the selected fixture entered;
+  a missing or stale exact test selector can no longer silently pass.
+
 ## [0.2.0] - 2026-11-12
 
 ### Changed
