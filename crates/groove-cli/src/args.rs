@@ -27,7 +27,7 @@ pub struct Args {
     /// Pool namespace (default: default). Use an explicit name for destroy when several pools exist.
     #[arg(long, global = true)]
     pub pool: Option<PoolName>,
-    /// Print one versioned JSON object on stdout instead of text (or set GROOVE_OUTPUT=json).
+    /// Print one versioned JSON object on stdout instead of text.
     #[arg(long, global = true)]
     pub json: bool,
     /// Echo this ID in JSON responses and logs for correlation; not an idempotency key.

@@ -4,6 +4,12 @@
 
 ### Changed
 
+- JSON output now requires `--json` on each command; `GROOVE_OUTPUT` is no
+  longer read. Replace exported `GROOVE_OUTPUT=json` settings with explicit
+  flags in scripts and agent commands. JSON response schemas are unchanged.
+- Installation and completion help include shell setup, Oh My Zsh ordering,
+  verification and upgrade instructions for humans and agents.
+
 - Development changes require a reserved Groove pool worktree and a pull request
   to `main`, including fixes, tests and documentation. The primary checkout stays
   available for coordination.

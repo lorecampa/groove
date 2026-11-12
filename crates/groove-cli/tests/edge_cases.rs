@@ -48,9 +48,8 @@ fn a_deleted_working_directory_is_reported_plainly() {
     // The shell enters the directory, which is then removed underneath it, as when
     // a released checkout is rebuilt while an agent's shell still sits inside.
     let output = support::command(&gone, "sh")
-        .args(["-c", "rmdir \"$PWD\" && exec \"$0\" list"])
+        .args(["-c", "rmdir \"$PWD\" && exec \"$0\" --json list"])
         .arg(support::groove_binary())
-        .env("GROOVE_OUTPUT", "json")
         .output()
         .unwrap();
     let response = failure(&output, 2, "INVALID_ARGUMENT");
@@ -109,8 +108,7 @@ fn labels_cannot_carry_terminal_control_sequences() {
         &["list", "--slots"],
         &["show", "--task", hostile],
     ] {
-        let output = support::groove_in(&repo.path)
-            .env_remove("GROOVE_OUTPUT")
+        let output = support::groove_human_in(&repo.path)
             .args(args)
             .output()
             .unwrap();
@@ -173,8 +171,12 @@ fn undeliverable_responses_exit_seven_and_explain_real_write_failures() {
     // Any other write failure is explained on stderr.
     if Path::new("/dev/full").exists() {
         for format in ["json", "human"] {
-            let full = support::groove_in(&repo.path)
-                .env("GROOVE_OUTPUT", format)
+            let full = support::groove_human_in(&repo.path)
+                .args(if format == "json" {
+                    vec!["--json"]
+                } else {
+                    vec![]
+                })
                 .arg("list")
                 .stdout(
                     fs::OpenOptions::new()
@@ -202,8 +204,7 @@ fn human_patches_reach_stdout_byte_for_byte() {
     let saved = assert_success(&cli(&repo.path, &["snapshot", "save", "crlf"]));
     let id = saved["result"]["snapshot"]["id"].as_str().unwrap();
     repo.git(&["checkout", "--", "tracked.txt"]);
-    let output = support::groove_in(&repo.path)
-        .env_remove("GROOVE_OUTPUT")
+    let output = support::groove_human_in(&repo.path)
         .args(["snapshot", "diff", id])
         .output()
         .unwrap();
@@ -245,8 +246,7 @@ fn redirected_human_and_json_patches_apply_with_forced_color_and_custom_prefixes
         after["result"]["snapshot"]["id"].as_str().unwrap(),
     ];
     let human_file = repo.temp.path().join("human.patch");
-    let human = support::groove_in(&repo.path)
-        .env_remove("GROOVE_OUTPUT")
+    let human = support::groove_human_in(&repo.path)
         .env("GROOVE_LOG_ENABLED", "false")
         .args(args)
         .stdout(fs::File::create(&human_file).unwrap())

@@ -335,16 +335,26 @@ pub fn groove_binary() -> std::ffi::OsString {
     })
 }
 
+/// The groove binary under test, emitting human-readable output.
+pub fn groove_human() -> Command {
+    Command::new(groove_binary())
+}
+
+/// Human-readable Groove with the controlled Git environment, run in `path`.
+pub fn groove_human_in(path: &Path) -> Command {
+    command(path, groove_binary())
+}
+
 /// The groove binary under test, emitting JSON.
 pub fn groove() -> Command {
     let mut command = Command::new(groove_binary());
-    command.env("GROOVE_OUTPUT", "json");
+    command.arg("--json");
     command
 }
 
 /// [`groove`] with the controlled Git environment of [`command`], run in `path`.
 pub fn groove_in(path: &Path) -> Command {
     let mut command = command(path, groove_binary());
-    command.env("GROOVE_OUTPUT", "json");
+    command.arg("--json");
     command
 }

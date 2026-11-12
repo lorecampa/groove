@@ -42,7 +42,7 @@ and [the portable skill](skills/groove/SKILL.md) for reservation and handoff rul
 - Use typed identifiers and errors; propagate expected failures with `?` and retain
   underlying error sources. Reserve `expect` for explained internal invariants.
   Public APIs need rustdoc, error/safety behavior and useful examples.
-- Stdout is human-readable by default. With `--json` or `GROOVE_OUTPUT=json` it
+- Stdout is human-readable by default. With `--json` it
   carries exactly one versioned JSON response, including help and errors. Human
   errors go to stderr; diagnostics go through tracing. Preserve exit categories
   and schema compatibility. Compute exit codes from typed results, never by

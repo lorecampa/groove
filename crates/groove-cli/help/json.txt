@@ -1,5 +1,5 @@
 
-JSON OUTPUT CONTRACT (--json or GROOVE_OUTPUT=json):
+JSON OUTPUT CONTRACT (--json):
   Without JSON mode, stdout is human-readable and errors go to stderr.
   Success: {"api_version":1,"request_id":null,"ok":true,"result":{...}}
   Failure: {"api_version":1,"request_id":null,"ok":false,"error":{...}}

@@ -71,7 +71,7 @@ groove exec --help
 groove destroy --help
 ```
 
-For scripts, add `--json` or set `GROOVE_OUTPUT=json`. Every response, including
+For scripts, add `--json` to each command. Every response, including
 errors and help, is one versioned JSON object. Check `ok` and the exit status
 before using `result.worktree_path`. Use a request key to retry acquisition and
 retain the lease ID for subsequent retries; see the [portable skill](skills/groove/SKILL.md).
