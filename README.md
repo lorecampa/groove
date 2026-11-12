@@ -25,7 +25,7 @@ Cargo builds the latest published release locally.
 Give your agent this prompt:
 
 > Install Groove for this agent by following
-> https://raw.githubusercontent.com/lorecampa/groove/main/docs/install.md
+> https://github.com/lorecampa/groove/blob/main/docs/install.md
 
 Then ask: “Use Groove for this task.” See the [portable skill](skills/groove/SKILL.md)
 for assignments and handoff.
