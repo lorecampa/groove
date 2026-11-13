@@ -28,8 +28,11 @@ pub struct PoolOptions {
     pub capacity: usize,
     /// Configured handling of ignored residual files.
     pub cleanup_policy: CleanupPolicy,
-    /// Optional dedicated checkout root; defaults to the pool state directory.
+    /// Exact dedicated checkout root, overriding [`Self::worktree_base`].
     pub worktree_root: Option<PathBuf>,
+    /// Parent for automatically named roots: `<base>/<project>-<repo-id>/<pool>`.
+    /// Defaults to `$HOME/.worktrees`. Must be absolute; only new pools use it.
+    pub worktree_base: Option<PathBuf>,
     /// Positive timeout for each Git operation, not the entire acquisition.
     pub git_timeout: Duration,
 }
@@ -40,6 +43,7 @@ impl Default for PoolOptions {
             capacity: 4,
             cleanup_policy: CleanupPolicy::Pristine,
             worktree_root: None,
+            worktree_base: None,
             git_timeout: DEFAULT_GIT_TIMEOUT,
         }
     }

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Added
+
+- Pi can install the portable skill as a Git/local package. Agent setup separates
+  installation, session use and project defaults, with Hermes instructions and
+  repository-catalog distribution guidance.
+- Native Claude Code and Codex plugins package the portable skill. Installation
+  guidance covers project defaults through existing harness instructions, private
+  workflow files, updates, removal and verification in fresh sessions/worktrees.
+
 ### Changed
 
 - The development benchmark lab adds heterogeneous multi-GiB monorepo profiles
@@ -9,6 +18,11 @@
   runs resolve relative scratch paths before invoking fixture subprocesses.
   A separate CRLF profile measures checkout-conversion costs and verifies
   restoration of physical line endings that normalize to the same Git blob.
+- New pools default to `~/.worktrees/<project>-<repo-id>/<pool>` on Linux and
+  macOS. Set the global `worktrees.root` preference to change the parent or use
+  `init --worktree-root` for an exact pool path. Existing pools keep their roots.
+- Avoid redundant reservation metadata clones, defer unused error summaries,
+  and reduce allocations in benchmark hashes and terminal log fields.
 - Mark pure query methods and error builders as `must_use`, and avoid per-byte
   allocations when encoding cache keys, control names and release checksums.
 - Agent onboarding configures persistent harness instructions once, so users

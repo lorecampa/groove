@@ -59,9 +59,15 @@ reservations and permanent locks survive. Retry matching interrupted init with
 and outside Git administration. Relative paths resolve from the caller's directory.
 
 
-Default state/worktrees live in `<GIT_COMMON_DIR>/groove/`. This enlarges `.git`
-backups; editors may exclude it. Choose an external root when needed and do not
-repurpose it while the pool exists. Stop all owners before moving/restoring a pool.
+State stays in `<GIT_COMMON_DIR>/groove/`; new checkout roots default to
+`~/.worktrees/<project>-<repo-id>/<pool>` on Linux and macOS. Change the parent with
+`groove config global set worktrees.root=/absolute/worktrees`, or choose an exact
+pool root with `init --worktree-root`. See `init --help` for naming and precedence.
+Existing pools retain their recorded roots, including legacy roots in `.git`.
+To relocate one, stop all writers, preserve results and release every reservation,
+then destroy and reinitialize with the desired root. Never move checkout directories
+or edit the manifest to relocate a pool. Do not repurpose a root while its pool exists.
+Stop all owners before restoring a pool.
 Restoring permanent locks onto new inodes invalidates manifest identities;
 Groove refuses automatic replacement.
 

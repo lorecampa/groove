@@ -9,6 +9,7 @@ fn run(home: &std::path::Path, args: &[&str]) -> Output {
 fn command(home: &std::path::Path) -> Command {
     let mut cmd = support::groove();
     cmd.current_dir(home)
+        .env("HOME", home)
         .env("XDG_CONFIG_HOME", home)
         .env("XDG_STATE_HOME", home.join("state"))
         .env_remove("GROOVE_LOG_ENABLED")

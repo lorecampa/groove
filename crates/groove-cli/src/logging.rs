@@ -2,6 +2,7 @@
 use crate::preferences::Logging;
 use crate::terminal::Terminal;
 use std::{
+    fmt::Write as _,
     fs::{self, File, OpenOptions},
     io::{self, Write},
     os::{
@@ -295,13 +296,20 @@ impl<S: Subscriber> Layer<S> for LogLayer {
                 .unwrap_or_default()
                 .escape_debug()
                 .to_string();
-            let fields = fields
-                .0
-                .iter()
-                .map(|(k, v)| format!(" {k}={v}"))
-                .collect::<String>();
+            let mut rendered_fields = String::new();
+            for (key, value) in &fields.0 {
+                write!(&mut rendered_fields, " {key}={value}")
+                    .expect("formatting JSON values into a String cannot fail");
+            }
             self.0.terminal.write(
-                format!("{} {} {}{}\n", timestamp, metadata.level(), message, fields).as_bytes(),
+                format!(
+                    "{} {} {}{}\n",
+                    timestamp,
+                    metadata.level(),
+                    message,
+                    rendered_fields
+                )
+                .as_bytes(),
             );
         }
         if !self.0.settings.level.allows(*metadata.level()) {
@@ -404,6 +412,7 @@ mod tests {
                 repo.path(),
                 groove_core::PoolOptions {
                     capacity: 1,
+                    worktree_root: Some(repo.path().join(".git/groove/worktrees")),
                     ..Default::default()
                 },
             )

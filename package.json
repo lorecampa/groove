@@ -1,0 +1,10 @@
+{
+  "name": "groove-agent-skills",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Portable Groove workspace skill for Pi",
+  "keywords": ["pi-package"],
+  "pi": {
+    "skills": ["./skills/groove"]
+  }
+}

@@ -1047,6 +1047,17 @@
         "config": {
           "type": "object",
           "properties": {
+            "worktrees": {
+              "type": "object",
+              "properties": {
+                "root": {
+                  "type": ["string", "null"],
+                  "pattern": "^/"
+                }
+              },
+              "required": ["root"],
+              "additionalProperties": false
+            },
             "logging": {
               "type": "object",
               "properties": {

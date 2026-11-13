@@ -13,6 +13,7 @@ fn pool(repo: &Repo, capacity: usize) -> Pool {
         &repo.path,
         PoolOptions {
             capacity,
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
             ..Default::default()
         },
     )

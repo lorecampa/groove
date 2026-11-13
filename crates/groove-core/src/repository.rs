@@ -107,9 +107,50 @@ impl Repository {
             .join("slots")
             .join(format!("{slot}.protected.json"))
     }
-    /// Default checkout root beneath the Groove state directory.
-    pub fn default_worktree_root(&self) -> PathBuf {
+    /// Original checkout root, still accepted for existing pools and explicit overrides.
+    pub fn legacy_worktree_root(&self) -> PathBuf {
         self.root.join("worktrees")
+    }
+    /// Name external checkouts by canonical common Git directory, independent of
+    /// the calling worktree, remote URL or mutable branch names.
+    pub fn default_worktree_root(&self, base: Option<PathBuf>) -> Result<PathBuf> {
+        use sha2::{Digest, Sha256};
+        let base = base
+            .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".worktrees")))
+            .filter(|path| path.is_absolute())
+            .ok_or_else(|| {
+                Error::new(
+                    crate::ErrorCode::InvalidArgument,
+                    "Set an absolute HOME, configure worktrees.root, or pass --worktree-root",
+                )
+            })?;
+        let project = if self.common.file_name().is_some_and(|name| name == ".git") {
+            self.common.parent().and_then(Path::file_name)
+        } else {
+            self.common.file_stem()
+        };
+        // Keep components short and portable even for unusual repository names.
+        let project: String = project
+            .and_then(|name| name.to_str())
+            .unwrap_or("repo")
+            .chars()
+            .take(48)
+            .map(|ch| {
+                if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                    ch.to_ascii_lowercase()
+                } else {
+                    '-'
+                }
+            })
+            .collect();
+        let digest = Sha256::digest(utf8(&self.common)?.as_bytes());
+        let id = crate::project::hex(&digest[..16]);
+        let root = base
+            .join(format!("{project}-{id}"))
+            .join(self.name.as_str());
+        no_symlinks(&root)?;
+        utf8(&root)?;
+        Ok(root)
     }
     pub fn config_path(&self) -> PathBuf {
         self.root.join("config.json")

@@ -11,6 +11,7 @@ fn pool(repo: &Repo, capacity: usize) -> Pool {
         &repo.path,
         PoolOptions {
             capacity,
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
             ..Default::default()
         },
     )
@@ -30,14 +31,17 @@ fn init_rejects_invalid_options_before_touching_the_repository() {
     for options in [
         PoolOptions {
             capacity: 0,
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
             ..Default::default()
         },
         PoolOptions {
             capacity: MAX_CAPACITY + 1,
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
             ..Default::default()
         },
         PoolOptions {
             git_timeout: Duration::ZERO,
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
             ..Default::default()
         },
     ] {
@@ -49,6 +53,7 @@ fn init_rejects_invalid_options_before_touching_the_repository() {
         &repo.path,
         PoolOptions {
             resume: true,
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
             ..Default::default()
         },
     )

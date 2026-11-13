@@ -116,7 +116,7 @@ pub enum Command {
         /// Cleanup applied when a slot is reused; may delete workspace contents.
         #[arg(long, value_enum, default_value = "pristine")]
         cleanup: Cleanup,
-        /// Dedicated, initially empty checkout root (default: under the Git directory).
+        /// Exact, initially empty checkout root (overrides worktrees.root and ~/.worktrees).
         #[arg(long)]
         worktree_root: Option<PathBuf>,
         /// Resume an interrupted init with its original settings.

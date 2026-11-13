@@ -81,6 +81,12 @@ non-deleted pools exist; the check runs under repository admin exclusion, so a
 concurrent init cannot slip between ambiguity checking and deletion.
 
 Git's native worktree administration stays in `<GIT_COMMON_DIR>/worktrees/`.
+New checkout roots live outside Git administration by default. Their project
+component combines a sanitized repository name and a hash of the canonical common
+Git directory: linked callers agree, independent clones do not share slots, and
+no remote URL is required. Global preferences choose the parent; an explicit pool
+root overrides it. Only the resolved absolute root is persisted, so later preference
+or HOME changes do not relocate existing pools. Legacy roots remain accepted.
 Snapshots use separate `groove-snapshots` administration and
 `refs/groove/snapshots/`; see [snapshots](snapshots.md).
 

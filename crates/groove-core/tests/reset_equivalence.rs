@@ -125,6 +125,7 @@ fn reused_checkout_matches_full_rewrite_for_configuration_and_path_contamination
             let initialized = Pool::init(
                 &r.path,
                 PoolOptions {
+                    worktree_root: Some(support::worktree_root(&r.path, "default")),
                     capacity: 1,
                     cleanup_policy: policy,
                     ..Default::default()
@@ -201,6 +202,7 @@ fn reuse_breaks_external_hardlinks() {
         Pool::init(
             &r.path,
             PoolOptions {
+                worktree_root: Some(support::worktree_root(&r.path, "default")),
                 capacity: 1,
                 cleanup_policy: cleanup,
                 ..Default::default()
@@ -230,6 +232,7 @@ fn orphaned_slot_head_preserves_warm_cache_during_normalization() {
     Pool::init(
         &r.path,
         PoolOptions {
+            worktree_root: Some(support::worktree_root(&r.path, "default")),
             capacity: 1,
             cleanup_policy: CleanupPolicy::Warm,
             ..Default::default()
@@ -269,6 +272,7 @@ fn reuse_restores_read_only_and_special_permission_bits() {
         Pool::init(
             &r.path,
             PoolOptions {
+                worktree_root: Some(support::worktree_root(&r.path, "default")),
                 capacity: 1,
                 cleanup_policy: cleanup,
                 ..Default::default()
@@ -312,6 +316,7 @@ fn reuse_removes_extended_attributes_from_tracked_files() {
     Pool::init(
         &r.path,
         PoolOptions {
+            worktree_root: Some(support::worktree_root(&r.path, "default")),
             capacity: 1,
             ..Default::default()
         },
@@ -374,6 +379,7 @@ fn reuse_restores_case_only_tracked_renames_on_case_insensitive_storage() {
     Pool::init(
         &r.path,
         PoolOptions {
+            worktree_root: Some(support::worktree_root(&r.path, "default")),
             capacity: 1,
             ..Default::default()
         },
@@ -400,6 +406,7 @@ fn warm_reuse_rewrites_backdated_tracked_files_without_touching_cached_output() 
     Pool::init(
         &r.path,
         PoolOptions {
+            worktree_root: Some(support::worktree_root(&r.path, "default")),
             capacity: 1,
             cleanup_policy: CleanupPolicy::Warm,
             ..Default::default()

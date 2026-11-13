@@ -277,7 +277,7 @@ impl Pool {
         state::checkpoint("reservation-protected");
         self.record_request(&lease.info, false)?;
         state::checkpoint("reservation-journaled");
-        Ok(lease.info.clone())
+        Ok(lease.info)
     }
 
     /// Resolve a reservation or current-generation release receipt by lease ID.
