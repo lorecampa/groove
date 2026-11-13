@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Added
+
+- Pi can install the portable skill as a Git/local package. Agent setup separates
+  installation, session use and project defaults, with Hermes instructions and
+  repository-catalog distribution guidance.
+- Native Claude Code and Codex plugins package the portable skill. Installation
+  guidance covers project defaults through existing harness instructions, private
+  workflow files, updates, removal and verification in fresh sessions/worktrees.
+
 ### Changed
 
 - Avoid redundant reservation metadata clones, defer unused error summaries,

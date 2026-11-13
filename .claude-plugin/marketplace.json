@@ -1,0 +1,8 @@
+{
+  "name": "groove",
+  "metadata": { "description": "Groove workspace skill for coding agents" },
+  "owner": { "name": "Groove maintainers" },
+  "plugins": [
+    { "name": "groove", "source": "./plugins/groove", "description": "Groove workspace skill" }
+  ]
+}

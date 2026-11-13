@@ -1,0 +1,12 @@
+{
+  "name": "groove",
+  "interface": { "displayName": "Groove" },
+  "plugins": [
+    {
+      "name": "groove",
+      "source": { "source": "local", "path": "./plugins/groove" },
+      "policy": { "installation": "AVAILABLE" },
+      "category": "Productivity"
+    }
+  ]
+}

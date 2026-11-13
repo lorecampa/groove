@@ -37,13 +37,22 @@ Give your agent this prompt once:
 
 > Install Groove by following
 > https://github.com/lorecampa/groove/blob/main/docs/install.md.
-> Then configure this harness to use the Groove skill for development work
-> by default. Add the instruction to a persistent agent instruction file
-> that this harness loads automatically. Use my personal configuration
-> unless I ask for a shared project policy.
+> Then configure this harness to use Groove for development work in this project
+> by default, following the guide's setup for this agent. Use my personal
+> configuration unless I ask for a shared project policy.
 
 After setup, give your agent tasks normally. You don't need to mention Groove in
 every request.
+
+Setup has two parts: install the skill once for your agent, then choose whether
+to use Groove for one session or by default in a project. No custom workflow file
+is required. See [agent setup](docs/install.md#choose-your-agent) for Claude Code,
+Codex, Pi, Hermes and other agents.
+
+Claude Code and Codex can install the skill as a native plugin. Configure project
+defaults through your harness's existing instructions or a private custom agent;
+see [personal workflows and worktrees](docs/install.md#personal-workflow-files-and-worktrees).
+The agent follows the skill to reserve and release workspaces.
 
 ## Use a workspace
 
