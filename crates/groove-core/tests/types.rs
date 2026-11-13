@@ -243,3 +243,49 @@ fn errors_preserve_inspectable_sources_and_thread_safety() {
     send_sync::<LeaseId>();
     send_sync::<CommitOid>();
 }
+
+#[test]
+fn shell_status_is_bounded_for_public_execution_result_values() {
+    use groove_core::{ExecResult, ExecutionInfo, Termination};
+    let lease_id = LeaseId::generate();
+    let mut result = ExecResult {
+        lease_id,
+        run: ExecutionInfo {
+            schema_version: 1,
+            lease_id,
+            run_id: "00000000-0000-4000-8000-000000000001".into(),
+            program: "fixture".into(),
+            started_at_unix_ms: 0,
+            leader_pid: None,
+            control_name: String::new(),
+            stdout_path: Default::default(),
+            stderr_path: Default::default(),
+        },
+        termination: Termination::Exited,
+        exit_code: None,
+        signal: None,
+        cancel_signal: None,
+    };
+    // Public/deserialized result fields need not come from a real OS status.
+    for (termination, code, signal, cancel, expected) in [
+        (Termination::Exited, Some(0), None, None, 0),
+        (Termination::Exited, Some(23), None, None, 23),
+        (Termination::Exited, Some(i32::MIN), None, None, 0),
+        (Termination::Exited, Some(i32::MAX), None, None, 255),
+        (Termination::Exited, None, Some(libc::SIGTERM), None, 143),
+        (Termination::Exited, None, Some(i32::MAX), None, 255),
+        (Termination::Exited, None, Some(i32::MIN), None, 0),
+        (Termination::Exited, None, None, None, 1),
+        (Termination::Cancelled, None, None, Some(i32::MAX), 255),
+        (Termination::Cancelled, None, None, Some(i32::MIN), 0),
+        (Termination::Cancelled, None, None, None, 143),
+        (Termination::TimedOut, None, None, None, 124),
+        (Termination::OutputLimited, None, None, None, 1),
+    ] {
+        result.termination = termination;
+        result.exit_code = code;
+        result.signal = signal;
+        result.cancel_signal = cancel;
+        assert_eq!(result.shell_status(), expected, "{result:?}");
+    }
+}

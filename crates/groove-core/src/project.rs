@@ -45,7 +45,7 @@ impl Default for Project {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct WorkspaceConfig {
-    /// Optional base plus the one-based slot number, exposed as GROOVE_PORT.
+    /// Optional base plus the one-based slot number, exposed as `GROOVE_PORT`.
     /// This derives a predictable number, not an operating-system port reservation.
     pub port_base: Option<u16>,
     /// Values may contain `{slot}`, `{slot_index}`, `{worktree}`, `{lease}` and `{task}`.
@@ -150,11 +150,14 @@ pub(crate) fn invalid(message: impl Into<String>) -> Error {
     Error::new(ErrorCode::InvalidArgument, message)
 }
 pub(crate) fn hex(bytes: impl AsRef<[u8]>) -> String {
-    bytes
-        .as_ref()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let bytes = bytes.as_ref();
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for &byte in bytes {
+        encoded.push(char::from(DIGITS[usize::from(byte >> 4)]));
+        encoded.push(char::from(DIGITS[usize::from(byte & 0xf)]));
+    }
+    encoded
 }
 pub(crate) fn valid_name(name: &str) -> bool {
     !name.is_empty()
@@ -384,5 +387,17 @@ impl Project {
             values.insert("GROOVE_PORT".into(), port.to_string());
         }
         Ok(values)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn hex_encoding_preserves_zero_padding_case_and_high_bytes() {
+        assert_eq!(super::hex([]), "");
+        assert_eq!(
+            super::hex([0, 1, 15, 16, 127, 128, 254, 255]),
+            "00010f107f80feff"
+        );
     }
 }

@@ -317,7 +317,7 @@ impl Snapshots {
             Err(e) => Err(e),
         }
     }
-    fn reference(&self, id: &str) -> Result<String> {
+    fn reference(id: &str) -> Result<String> {
         Ok(format!("{PREFIX}{}", checked_id(id)?))
     }
     fn load(&self, id: &str, lock: &SnapshotLock) -> Result<Snapshot> {
@@ -325,7 +325,7 @@ impl Snapshots {
     }
 
     fn load_at(&self, id: &str, lock: &SnapshotLock) -> Result<(Snapshot, String)> {
-        let reference = self.reference(id)?;
+        let reference = Self::reference(id)?;
         let oid = self.string(&["rev-parse", "--verify", "--end-of-options", &reference])?;
         let _: crate::CommitOid = oid.parse()?;
         let commit_oid = &oid;
@@ -389,7 +389,7 @@ impl Snapshots {
                 .ok_or_else(|| invalid("Invalid snapshot reference metadata"))?;
             let _: crate::CommitOid = oid.parse()?;
             let mut snapshot: Snapshot = serde_json::from_str(message)?;
-            if snapshot.version != 1 || reference != self.reference(&snapshot.id)? {
+            if snapshot.version != 1 || reference != Self::reference(&snapshot.id)? {
                 return Err(invalid("Unsupported or inconsistent snapshot manifest"));
             }
             let pin = format!("{PINS}{}", snapshot.id);
@@ -654,7 +654,7 @@ impl Snapshots {
                 "-c",
                 "core.fsync=loose-object,reference",
                 "update-ref",
-                &self.reference(&snapshot.id)?,
+                &Self::reference(&snapshot.id)?,
                 &commit,
                 &zero,
             ],
@@ -888,7 +888,7 @@ impl Snapshots {
                         "fetch",
                         "--no-tags",
                         repository::utf8(&self.common)?,
-                        &self.reference(id)?,
+                        &Self::reference(id)?,
                     ],
                     &lock.descriptors(),
                 )?;

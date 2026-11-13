@@ -419,10 +419,12 @@ impl Pool {
     }
     /// Return the capacity observed when this handle was opened.
     /// Use [`Self::settings`] for current settings; allocation refreshes each scan.
+    #[must_use]
     pub fn capacity(&self) -> usize {
         self.config.capacity
     }
     /// Return the selected namespace. Names never establish slot ownership.
+    #[must_use]
     pub fn name(&self) -> &crate::PoolName {
         &self.repo.name
     }

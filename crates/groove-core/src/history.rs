@@ -82,7 +82,7 @@ pub enum RunOrigin {
 pub enum RunOutcome {
     /// No terminal outcome was durably published; never infer completion from age.
     Unresolved,
-    /// Supervision and teardown completed; inspect termination/exit_code/signal.
+    /// Supervision and teardown completed; inspect `termination`, `exit_code` and `signal`.
     Completed,
     /// The operating system rejected spawning the program.
     SpawnFailed,

@@ -19,7 +19,13 @@ pub(crate) fn digest(path: &Path) -> Result<String> {
         }
         hash.update(&buffer[..count]);
     }
-    Ok(hash.finalize().iter().map(|b| format!("{b:02x}")).collect())
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(64);
+    for byte in hash.finalize() {
+        encoded.push(char::from(DIGITS[usize::from(byte >> 4)]));
+        encoded.push(char::from(DIGITS[usize::from(byte & 0xf)]));
+    }
+    Ok(encoded)
 }
 
 pub(crate) fn unpack(
