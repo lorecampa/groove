@@ -5,7 +5,7 @@
     {
       "id": "workspace-build", "version": 2,
       "purpose": "Time to verified offline build output over 10k source-shaped paths and 32 real C compilation units: pristine, pristine with an external ccache, and warm residue in balanced case order. Repeat, source/flag changes, return to A and cache loss; measure acquire/build/validation/release and total task time.",
-      "environment": "cli-linux-amd64-v4",
+      "environment": "cli-linux-amd64-v5",
       "sampling": {"blocks": 6, "warmup_blocks": 1, "balanced_cases": true},
       "estimated_minutes": [4, 20],
       "cases": [
@@ -17,7 +17,7 @@
     {
       "id": "workspace-conversions", "version": 1,
       "purpose": "Measure checkout-conversion costs with CRLF attributes, including small repositories; restore physical line endings despite unchanged normalized Git blobs.",
-      "environment": "cli-linux-amd64-v4",
+      "environment": "cli-linux-amd64-v5",
       "sampling": {"blocks": 10, "warmup_blocks": 1},
       "estimated_minutes": [2, 10],
       "cases": [
@@ -29,7 +29,7 @@
     {
       "id": "monorepo-reuse", "version": 1,
       "purpose": "Reuse and commit switching over 100k heterogeneous files (2.26 GiB source payload), eight packed history commits and 64 MiB ignored build output. Full-tree correctness under warm and pristine cleanup.",
-      "environment": "cli-linux-amd64-v4",
+      "environment": "cli-linux-amd64-v5",
       "sampling": {"blocks": 6, "warmup_blocks": 1},
       "estimated_minutes": [30, 120],
       "cases": [
@@ -40,7 +40,7 @@
     {
       "id": "monorepo-snapshots", "version": 1,
       "purpose": "Snapshot staged/unstaged edits, deletion and untracked content across 100k heterogeneous files and packed history; measure save latency/object growth and verify full recovery.",
-      "environment": "cli-linux-amd64-v4",
+      "environment": "cli-linux-amd64-v5",
       "sampling": {"blocks": 6, "warmup_blocks": 1},
       "estimated_minutes": [20, 90],
       "cases": [
@@ -50,7 +50,7 @@
     {
       "id": "workspace-multi-pool", "version": 2,
       "purpose": "First registration and warm acquire/release throughput across named pools sharing Git administration, with independent repeated task labels/keys and catalog verification.",
-      "environment": "cli-linux-amd64-v4",
+      "environment": "cli-linux-amd64-v5",
       "sampling": {"blocks": 10, "warmup_blocks": 1},
       "estimated_minutes": [1, 5],
       "cases": [
@@ -61,7 +61,7 @@
     {
       "id": "workspace-deletion", "version": 3,
       "purpose": "Preview, ambiguity rejection, pool deletion/retry and reinitialization for lazy, populated, dirty and external cached checkouts with automatic spare preparation and idle eviction disabled; verify retained results/locks and an untouched protected sibling.",
-      "environment": "cli-linux-amd64-v4",
+      "environment": "cli-linux-amd64-v5",
       "sampling": {"blocks": 10, "warmup_blocks": 1},
       "estimated_minutes": [2, 10],
       "cases": [
@@ -74,7 +74,7 @@
     {
       "id": "snapshot-incremental", "version": 1,
       "purpose": "Cost of saving small edits and repeated checkpoint history in a typical source repository.",
-      "environment": "cli-linux-amd64-v4",
+      "environment": "cli-linux-amd64-v5",
       "sampling": {"blocks": 10, "warmup_blocks": 1},
       "estimated_minutes": [1, 5],
       "cases": [
@@ -85,7 +85,7 @@
     {
       "id": "snapshot-restore", "version": 1,
       "purpose": "Recovery latency for clean and staged/unstaged checkpoints into new and existing checkouts.",
-      "environment": "cli-linux-amd64-v4",
+      "environment": "cli-linux-amd64-v5",
       "sampling": {"blocks": 10, "warmup_blocks": 1},
       "estimated_minutes": [2, 10],
       "cases": [
@@ -96,7 +96,7 @@
     {
       "id": "snapshot-scale", "version": 1,
       "purpose": "Path/index scaling of snapshot saves with twelve distributed edits, including unchanged saves and verified recovery.",
-      "environment": "cli-linux-amd64-v4",
+      "environment": "cli-linux-amd64-v5",
       "sampling": {"blocks": 6, "warmup_blocks": 1},
       "estimated_minutes": [15, 60],
       "cases": [
@@ -107,7 +107,7 @@
     {
       "id": "snapshot-binary", "version": 1,
       "purpose": "Content hashing, object growth and recovery when 64 KiB ranges of poorly compressible binaries change.",
-      "environment": "cli-linux-amd64-v4",
+      "environment": "cli-linux-amd64-v5",
       "sampling": {"blocks": 10, "warmup_blocks": 1},
       "estimated_minutes": [2, 10],
       "cases": [
@@ -118,7 +118,7 @@
     {
       "id": "workspace-reuse", "version": 1,
       "purpose": "First acquisition, clean reuse and sanitation of tracked, untracked and ignored residue under both cleanup policies.",
-      "environment": "cli-linux-amd64-v4",
+      "environment": "cli-linux-amd64-v5",
       "sampling": {"blocks": 10, "warmup_blocks": 1},
       "estimated_minutes": [1, 5],
       "cases": [
@@ -129,7 +129,7 @@
     {
       "id": "workspace-concurrency", "version": 2,
       "purpose": "Warm acquire/release throughput, per-worker latency and full-pool contention at fixed worker counts.",
-      "environment": "cli-linux-amd64-v4",
+      "environment": "cli-linux-amd64-v5",
       "sampling": {"blocks": 10, "warmup_blocks": 1},
       "estimated_minutes": [1, 5],
       "cases": [

@@ -32,6 +32,10 @@ fn wait_ready(pool: &Pool, count: usize) {
 }
 #[test]
 fn cli_defaults_prepare_and_replenish_without_a_public_worker_command() {
+    if !support::in_subprocess("cli_defaults_prepare_and_replenish_without_a_public_worker_command")
+    {
+        return;
+    }
     let repo = Repo::new();
     let initialized = cli(&repo, &["init", "--capacity", "3"]);
     assert_eq!(initialized["ready_target"], 1);
@@ -63,6 +67,11 @@ fn cli_defaults_prepare_and_replenish_without_a_public_worker_command() {
 }
 #[test]
 fn global_defaults_are_copied_and_invalid_targets_preserve_pool_settings() {
+    if !support::in_subprocess(
+        "global_defaults_are_copied_and_invalid_targets_preserve_pool_settings",
+    ) {
+        return;
+    }
     let repo = Repo::new();
     cli(
         &repo,
@@ -146,6 +155,11 @@ fn initialized(repo: &Repo) -> Pool {
 #[cfg(feature = "test-hooks")]
 #[test]
 fn killed_preparer_recovers_and_concurrent_worker_cannot_duplicate_preparation() {
+    if !support::in_subprocess(
+        "killed_preparer_recovers_and_concurrent_worker_cannot_duplicate_preparation",
+    ) {
+        return;
+    }
     let repo = Repo::new();
     let pool = initialized(&repo);
     let (mut child, listener) = worker(&repo, &pool, "ready-before-preparation");
@@ -180,6 +194,10 @@ fn killed_preparer_recovers_and_concurrent_worker_cannot_duplicate_preparation()
 #[cfg(feature = "test-hooks")]
 #[test]
 fn killed_eviction_resumes_without_replacing_locks_or_losing_capacity() {
+    if !support::in_subprocess("killed_eviction_resumes_without_replacing_locks_or_losing_capacity")
+    {
+        return;
+    }
     use std::os::unix::fs::MetadataExt;
     let repo = Repo::new();
     let pool = initialized(&repo);
@@ -218,6 +236,9 @@ fn killed_eviction_resumes_without_replacing_locks_or_losing_capacity() {
 #[cfg(feature = "test-hooks")]
 #[test]
 fn request_during_worker_exit_is_processed_before_owner_exits() {
+    if !support::in_subprocess("request_during_worker_exit_is_processed_before_owner_exits") {
+        return;
+    }
     use std::io::Write;
     let repo = Repo::new();
     let pool = initialized(&repo);
@@ -244,6 +265,9 @@ fn request_during_worker_exit_is_processed_before_owner_exits() {
 #[cfg(feature = "test-hooks")]
 #[test]
 fn released_retry_during_preparation_never_unlocks_the_worker() {
+    if !support::in_subprocess("released_retry_during_preparation_never_unlocks_the_worker") {
+        return;
+    }
     let repo = Repo::new();
     let pool = initialized(&repo);
     let lease = pool.reserve(Default::default()).unwrap();
@@ -269,6 +293,11 @@ fn released_retry_during_preparation_never_unlocks_the_worker() {
 #[cfg(feature = "test-hooks")]
 #[test]
 fn destruction_refuses_a_live_preparer_then_preserves_its_permanent_lock() {
+    if !support::in_subprocess(
+        "destruction_refuses_a_live_preparer_then_preserves_its_permanent_lock",
+    ) {
+        return;
+    }
     use std::os::unix::fs::MetadataExt;
     let repo = Repo::new();
     let pool = initialized(&repo);
@@ -305,6 +334,11 @@ fn destruction_refuses_a_live_preparer_then_preserves_its_permanent_lock() {
 #[cfg(feature = "test-hooks")]
 #[test]
 fn recovery_replenishes_after_target_increases_during_interrupted_eviction() {
+    if !support::in_subprocess(
+        "recovery_replenishes_after_target_increases_during_interrupted_eviction",
+    ) {
+        return;
+    }
     let repo = Repo::new();
     let pool = initialized(&repo);
     let generation = pool.request_ready().unwrap().unwrap();

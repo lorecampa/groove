@@ -252,6 +252,7 @@ fn launch(mode: Mode, args: &ExecuteArgs) -> Result<()> {
         lock["platform"].as_str().expect("platform"),
         "--network=none",
         "--read-only",
+        "--init",
         "--user",
         &format!("{uid}:{gid}"),
         "--cpus",
