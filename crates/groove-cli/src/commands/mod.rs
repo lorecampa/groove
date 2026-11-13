@@ -52,7 +52,12 @@ fn select_id(pool: &Pool, selector: &LeaseSelector) -> Result<groove_core::Lease
 /// Run one parsed command.
 pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
     match command {
-        Command::Pools { all, disk_usage } => pool::pools(context, *all, *disk_usage),
+        Command::Pools {
+            all,
+            disk_usage,
+            page,
+            sort,
+        } => pool::pools(context, *all, *disk_usage, page, *sort),
         Command::Destroy {
             dry_run,
             discard_changes,
@@ -94,12 +99,19 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
             }),
             *force,
         ),
-        Command::List { slots, details } => pool::list(context, *slots, *details),
+        Command::List {
+            slots,
+            details,
+            page,
+            sort,
+        } => pool::list(context, *slots, *details, page, *sort),
         Command::Show {
+            page,
+            sort,
             selector,
             details,
             disk_usage,
-        } => pool::show(context, selector, *details, *disk_usage),
+        } => pool::show(context, selector, *details, *disk_usage, page, *sort),
         Command::Completions { shell } => completions::run(*shell),
         Command::Snapshot(command) => snapshot::run(context, command),
         Command::Config(command) => config::run(context, command),

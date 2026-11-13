@@ -5,10 +5,19 @@ EXAMPLES:
   groove show --lease-id UUID --details
   groove show --slot wt-0001
 
-Without a selector, shows pool settings and every slot. With --task or
+Without a selector, shows pool settings and a page of slots. With --task or
 --lease-id, shows that reservation (or its release receipt) and its slot.
 --details reads bounded local Git status (staged, modified, untracked); with a
 selector, only that workspace is checked. Nothing contacts a remote.
+
+Without a selector, returns at most 50 slots in slot-ID order. Use --limit N,
+--offset N or --unlimited for a different window. --sort task orders task labels
+lexicographically (unlabelled first), then slot ID; --sort slot restores the
+default order. Sorting precedes pagination. JSON includes pagination.total,
+offset, limit (null with --unlimited) and next_offset (null at the end).
+inspection.capacity remains the full capacity. Concurrent changes can shift
+offset pages; metadata and --details Git status still scan all slots. Sorting
+and pagination options are rejected with a selector, which shows one entity.
 
 --disk-usage adds workspace, cache, log and history sizes to the pool view;
 it cannot be used with a reservation or slot selector. The scan includes ignored

@@ -13,6 +13,15 @@ letter. Pool names are portable across case-sensitive and case-insensitive disks
 All linked worktrees share this catalog. Use --all to include deleted pools.
 Interrupted pools (initializing or deleting) remain visible for recovery.
 
+Returns at most 50 matching pools by default, ordered by name. Use --limit N,
+--offset N or --unlimited. --all includes deleted pools and does not remove the
+page limit; combine --all --unlimited for the complete catalog.
+--sort state orders lifecycle state names lexicographically, then pool name;
+--sort name restores the default order. Filtering and sorting precede pagination.
+JSON includes pagination.total (after filtering), offset, limit (null with
+--unlimited) and next_offset (null at the end). Metadata is still enumerated;
+concurrent changes can shift offset pages. Disk usage scans only the returned page.
+
 --disk-usage scans workspace contents (including ignored files), caches, logs and
 history. Large pools can take time to scan. Sizes are logical file bytes; shared
 Git objects and snapshots are excluded. Interrupted pools show '-' (storage:null).

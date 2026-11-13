@@ -94,6 +94,11 @@ pub enum Command {
     /// List repository pools, including interrupted pools; hide deleted pools by default.
     #[command(after_help = help!("pools"))]
     Pools {
+        /// Sort pools by name or lifecycle state, then name.
+        #[arg(long, value_enum, default_value = "name")]
+        sort: PoolSort,
+        #[command(flatten)]
+        page: PageArgs,
         /// Include deleted pools with retained history and recovery information.
         #[arg(long)]
         all: bool,
@@ -169,6 +174,11 @@ pub enum Command {
     /// List active reservations, or every slot.
     #[command(after_help = help!("list"))]
     List {
+        /// Sort by slot ID or task label (unlabelled slots first), then slot ID.
+        #[arg(long, value_enum, default_value = "slot")]
+        sort: SlotSort,
+        #[command(flatten)]
+        page: PageArgs,
         /// List every slot with its status and suggested next action.
         #[arg(long)]
         slots: bool,
@@ -177,8 +187,14 @@ pub enum Command {
         details: bool,
     },
     /// Show pool settings and slots, or one reservation.
-    #[command(after_help = help!("show"))]
+    #[command(after_help = help!("show"), group(clap::ArgGroup::new("collection_options")
+        .args(["limit", "offset", "unlimited", "sort"]).multiple(true).conflicts_with("OptionalSelector")))]
     Show {
+        /// Sort the slot collection by slot ID or task label, then slot ID.
+        #[arg(long, value_enum, default_value = "slot")]
+        sort: SlotSort,
+        #[command(flatten)]
+        page: PageArgs,
         #[command(flatten)]
         selector: OptionalSelector,
         /// Include bounded local Git status.
@@ -203,27 +219,71 @@ pub enum Command {
     Config(ConfigCommand),
 }
 
-/// Optional output window; omitted limits preserve the original complete listing.
+/// Ordering for timestamped collections.
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum TimeSort {
+    /// Descending timestamp, then descending ID.
+    Newest,
+    /// Ascending timestamp, then ascending ID.
+    Oldest,
+    /// Ascending ID (lexicographic).
+    Id,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum PoolSort {
+    /// Ascending pool name.
+    Name,
+    /// Ascending lifecycle state name, then pool name.
+    State,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum SlotSort {
+    /// Ascending permanent slot ID.
+    Slot,
+    /// Ascending task label (unlabelled first), then slot ID.
+    Task,
+}
+
+/// Output window shared by collection commands.
 #[derive(ClapArgs, Debug, Clone, Default)]
 pub struct PageArgs {
-    /// Return at most this many entries, newest first; default: all entries.
-    #[arg(long, value_parser = clap::value_parser!(u64).range(1..))]
+    /// Return at most this many entries (default: 50); ordering is command-specific.
+    #[arg(long, conflicts_with = "unlimited", value_parser = clap::value_parser!(u64).range(1..))]
     pub limit: Option<u64>,
-    /// Skip this many newest entries; default: 0. Listings are not a transactional cursor.
+    /// Return every matching entry explicitly (conflicts with --limit).
+    #[arg(long)]
+    pub unlimited: bool,
+    /// Skip this many entries after filtering; pages can shift with concurrent changes.
     #[arg(long, default_value_t = 0)]
     pub offset: u64,
 }
 impl PageArgs {
-    pub fn apply<T>(&self, entries: Vec<T>) -> Vec<T> {
-        entries
+    pub fn apply<T>(&self, entries: Vec<T>) -> (Vec<T>, crate::output::Pagination) {
+        let total = entries.len();
+        let limit = if self.unlimited {
+            None
+        } else {
+            Some(self.limit.unwrap_or(50))
+        };
+        let entries: Vec<T> = entries
             .into_iter()
             .skip(usize::try_from(self.offset).unwrap_or(usize::MAX))
             .take(
-                self.limit
+                limit
                     .and_then(|n| usize::try_from(n).ok())
                     .unwrap_or(usize::MAX),
             )
-            .collect()
+            .collect();
+        let end = self.offset.saturating_add(entries.len() as u64);
+        let pagination = crate::output::Pagination {
+            total,
+            offset: self.offset,
+            limit,
+            next_offset: (end < total as u64).then_some(end),
+        };
+        (entries, pagination)
     }
 }
 
@@ -242,7 +302,11 @@ pub enum SnapshotCommand {
         max_file_bytes: u64,
     },
     /// List snapshots across all linked worktrees, newest first.
+    #[command(after_help = help!("snapshot-list"))]
     List {
+        /// Sort snapshots by creation time or snapshot ID; ties use snapshot ID.
+        #[arg(long, value_enum, default_value = "newest")]
+        sort: TimeSort,
         #[command(flatten)]
         page: PageArgs,
     },
@@ -358,6 +422,40 @@ fn parse_setting(value: &str) -> Result<(String, String), String> {
 mod tests {
     use super::*;
     use clap::CommandFactory;
+
+    #[test]
+    fn large_collections_default_to_a_bounded_page_and_can_be_exhausted() {
+        let (entries, page) = PageArgs::default().apply((0..10_000).collect::<Vec<_>>());
+        assert_eq!(entries, (0..50).collect::<Vec<_>>());
+        assert_eq!(page.total, 10_000);
+        assert_eq!(page.limit, Some(50));
+        assert_eq!(page.next_offset, Some(50));
+        let (entries, page) = PageArgs {
+            offset: 9_999,
+            ..PageArgs::default()
+        }
+        .apply((0..10_000).collect::<Vec<_>>());
+        assert_eq!(entries, vec![9_999]);
+        assert_eq!(page.next_offset, None);
+        let (entries, page) = PageArgs {
+            unlimited: true,
+            ..PageArgs::default()
+        }
+        .apply((0..10_000).collect::<Vec<_>>());
+        assert_eq!(entries.len(), 10_000);
+        assert_eq!(page.limit, None);
+        assert_eq!(page.next_offset, None);
+        for offset in [10_000, u64::MAX] {
+            let (entries, page) = PageArgs {
+                offset,
+                ..PageArgs::default()
+            }
+            .apply((0..10_000).collect::<Vec<_>>());
+            assert!(entries.is_empty());
+            assert_eq!(page.total, 10_000);
+            assert_eq!(page.next_offset, None);
+        }
+    }
 
     #[test]
     fn every_command_and_argument_has_help() {

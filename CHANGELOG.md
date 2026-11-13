@@ -36,6 +36,14 @@
 
 - Simplify README agent setup to a copyable prompt that preserves existing pool
   settings and asks for workspace capacity when creating a pool.
+- Collection output defaults to 50 entries for snapshots, pools, reservations
+  and slots. Use --limit/--offset to page or --unlimited for complete output.
+  JSON includes pagination metadata. Pool --all continues to include deleted
+  pools independently of pagination. Metadata enumeration and detailed slot
+  inspections still scan the complete collection.
+- Collection commands accept --sort before pagination: newest/oldest/id for
+  snapshots, name/state for pools, and slot/task for reservation and slot views.
+  Equal keys use IDs or pool names as tie-breakers.
 - Global output rules and exit codes live in root help; command help retains
   its result fields. Trim repeated flag explanations from help and guides.
 - Explain contributor Git hooks, name the checks in the security gate, and

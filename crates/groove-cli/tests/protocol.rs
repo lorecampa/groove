@@ -1052,6 +1052,32 @@ fn listing_windows_preserve_order_and_reject_zero_limits() {
             window["result"][field],
             serde_json::json!([all["result"][field][1]])
         );
+        assert_eq!(
+            window["result"]["pagination"],
+            serde_json::json!({
+                "total":3, "offset":1, "limit":1, "next_offset":2
+            })
+        );
+        let oldest = check(&cli(
+            &repo,
+            &["snapshot", "list", "--sort", "oldest", "--limit", "1"],
+        ));
+        assert_eq!(oldest["result"][field][0], all["result"][field][2]);
+        let mut by_id = all["result"][field].as_array().unwrap().clone();
+        by_id.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
+        let sorted = check(&cli(
+            &repo,
+            &["snapshot", "list", "--sort", "id", "--unlimited"],
+        ));
+        assert_eq!(sorted["result"][field], serde_json::json!(by_id));
+        for invalid in [
+            vec!["snapshot", "list", "--limit", "1", "--unlimited"],
+            vec!["snapshot", "list", "--sort", "unknown"],
+        ] {
+            let rejected = cli(&repo, &invalid);
+            assert_eq!(rejected.status.code(), Some(2));
+            assert_eq!(check(&rejected)["error"]["code"], "INVALID_ARGUMENT");
+        }
         let mut invalid = args;
         invalid.extend(["--limit", "0"]);
         assert_eq!(cli(&repo, &invalid).status.code(), Some(2));
@@ -1078,5 +1104,87 @@ fn removed_execution_commands_reject_without_creating_pool_state() {
         assert_eq!(result["ok"], false);
         assert_eq!(result["error"]["code"], "INVALID_ARGUMENT");
         assert!(!repo.state().exists(), "{args:?} created pool state");
+    }
+}
+
+#[test]
+fn snapshot_defaults_bound_real_output_and_unlimited_restores_complete_listing() {
+    let repo = Repo::new();
+    for n in 0..51 {
+        // Diagnostic logs inside the fixture would be writers during capture.
+        assert_success(
+            &support::groove_in(&repo.path)
+                .env("GROOVE_LOG_ENABLED", "false")
+                .args(["snapshot", "save", &format!("snapshot-{n}")])
+                .output()
+                .unwrap(),
+        );
+    }
+    let output = cli(&repo, &["snapshot", "list"]);
+    assert_success(&output);
+    let default = check(&output);
+    assert_eq!(default["result"]["snapshots"].as_array().unwrap().len(), 50);
+    assert_eq!(default["result"]["pagination"]["next_offset"], 50);
+    let tail = check(&cli(&repo, &["snapshot", "list", "--offset", "50"]));
+    assert_eq!(tail["result"]["snapshots"].as_array().unwrap().len(), 1);
+    assert!(tail["result"]["pagination"]["next_offset"].is_null());
+    let all = check(&cli(&repo, &["snapshot", "list", "--unlimited"]));
+    assert_eq!(all["result"]["snapshots"].as_array().unwrap().len(), 51);
+    assert!(all["result"]["pagination"]["limit"].is_null());
+    let human = support::groove_human_in(&repo.path)
+        .args(["snapshot", "list", "--limit", "1"])
+        .output()
+        .unwrap();
+    assert!(human.status.success());
+    let text = String::from_utf8(human.stdout).unwrap();
+    assert!(text.contains("--offset 1"));
+    assert!(text.contains("--unlimited"));
+    assert_eq!(
+        text.lines()
+            .filter(|line| line.contains("snapshot-"))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn pool_and_slot_views_sort_before_paging_and_preserve_capacity() {
+    let repo = Repo::new();
+    assert_success(&cli(&repo, &["init", "--capacity", "51"]));
+    for label in ["z-last", "a-first"] {
+        assert_success(&cli(&repo, &["acquire", "--task", label]));
+    }
+    for args in [vec!["list", "--slots"], vec!["show"]] {
+        let default = check(&cli(&repo, &args));
+        assert_eq!(
+            default["result"]["inspection"]["slots"]
+                .as_array()
+                .unwrap()
+                .len(),
+            50
+        );
+        assert_eq!(default["result"]["inspection"]["capacity"], 51);
+        let mut sorted = args.clone();
+        sorted.extend(["--sort", "task", "--offset", "49", "--limit", "1"]);
+        let page = check(&cli(&repo, &sorted));
+        assert_eq!(
+            page["result"]["inspection"]["slots"][0]["lease"]["task"],
+            "a-first"
+        );
+    }
+    let leases = check(&cli(&repo, &["list", "--sort", "task", "--limit", "1"]));
+    assert_eq!(leases["result"]["leases"][0]["task"], "a-first");
+    let invalid = cli(&repo, &["show", "--task", "a-first", "--limit", "1"]);
+    assert_eq!(invalid.status.code(), Some(2));
+    assert_eq!(check(&invalid)["error"]["code"], "INVALID_ARGUMENT");
+    assert_success(&cli(&repo, &["--pool", "zzz", "init", "--capacity", "1"]));
+    assert_success(&cli(&repo, &["--pool", "zzz", "destroy"]));
+    for (sort, first) in [("name", "default"), ("state", "zzz")] {
+        let pools = check(&cli(
+            &repo,
+            &["pools", "--all", "--sort", sort, "--limit", "1"],
+        ));
+        assert_eq!(pools["result"]["pools"][0]["name"], first);
+        assert_eq!(pools["result"]["pagination"]["total"], 2);
     }
 }

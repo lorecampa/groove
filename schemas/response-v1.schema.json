@@ -7,7 +7,8 @@
     "pools_result": {
       "type": "object",
       "required": [
-        "pools"
+        "pools",
+        "pagination"
       ],
       "properties": {
         "pools": {
@@ -85,6 +86,9 @@
               }
             }
           }
+        },
+        "pagination": {
+          "$ref": "#/$defs/pagination"
         }
       }
     },
@@ -505,10 +509,14 @@
             "slots"
           ],
           "type": "object"
+        },
+        "pagination": {
+          "$ref": "#/$defs/pagination"
         }
       },
       "required": [
-        "inspection"
+        "inspection",
+        "pagination"
       ],
       "type": "object"
     },
@@ -583,10 +591,14 @@
             "$ref": "#/$defs/lease"
           },
           "type": "array"
+        },
+        "pagination": {
+          "$ref": "#/$defs/pagination"
         }
       },
       "required": [
-        "leases"
+        "leases",
+        "pagination"
       ],
       "type": "object"
     },
@@ -876,7 +888,8 @@
     "snapshots_result": {
       "type": "object",
       "required": [
-        "snapshots"
+        "snapshots",
+        "pagination"
       ],
       "properties": {
         "snapshots": {
@@ -884,6 +897,9 @@
           "items": {
             "$ref": "#/$defs/snapshot"
           }
+        },
+        "pagination": {
+          "$ref": "#/$defs/pagination"
         }
       }
     },
@@ -974,6 +990,40 @@
         },
         "runs": {
           "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "pagination": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total",
+        "offset",
+        "limit",
+        "next_offset"
+      ],
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "limit": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "next_offset": {
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0
         }
       }

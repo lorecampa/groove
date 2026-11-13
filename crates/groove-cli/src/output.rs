@@ -28,7 +28,34 @@ pub struct Output {
     /// Data printed verbatim (a patch or a script), not composed Groove text.
     pub raw: bool,
 }
+
+/// Position within a command's filtered, ordered collection.
+#[derive(Debug, Serialize)]
+pub struct Pagination {
+    pub total: usize,
+    pub offset: u64,
+    pub limit: Option<u64>,
+    pub next_offset: Option<u64>,
+}
+
 impl Output {
+    /// Attach machine-readable continuation information and a human summary.
+    pub fn paginated(mut self, pagination: Pagination) -> Result<Self, Error> {
+        if !self.text.ends_with('\n') {
+            self.text.push('\n');
+        }
+        self.text.push_str(&format!(
+            "Total: {} entries; offset: {}.\n",
+            pagination.total, pagination.offset
+        ));
+        if let Some(next) = pagination.next_offset {
+            self.text.push_str(&format!(
+                "More entries: repeat with --offset {next} (or --unlimited for everything).\n"
+            ));
+        }
+        self.result["pagination"] = serde_json::to_value(pagination)?;
+        Ok(self)
+    }
     /// A result whose text rendering is produced by `render`.
     pub fn new(
         result: impl Serialize,

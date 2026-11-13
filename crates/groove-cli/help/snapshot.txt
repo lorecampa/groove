@@ -31,5 +31,11 @@ untracked files), or with a second checkpoint. It emits an uncolored binary-capa
 Git patch with fixed prefixes, independently of Git display preferences. It does
 not change HEAD, the real index or working files. Equal trees produce empty output.
 
-snapshot list --limit 20 --offset 20 bounds the returned page; defaults list all.
+snapshot list returns at most 50 snapshots, newest first, by default.
+Use --limit 20 --offset 20 for another page, or --unlimited for the complete list.
+JSON includes pagination.total, offset, limit (null with --unlimited) and next_offset
+(null at the end). Snapshot IDs break ties for equal creation times.
+--sort newest (default) orders creation time and snapshot ID descending;
+--sort oldest reverses that order; --sort id orders IDs ascending. Sorting
+precedes pagination. These options are available on snapshot list only.
 Metadata is still enumerated/sorted. Concurrent changes can shift offset pages.

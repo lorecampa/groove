@@ -1,0 +1,9 @@
+EXAMPLES:
+  groove snapshot list --sort oldest --limit 20
+  groove snapshot list --sort id --offset 20 --limit 20
+  groove snapshot list --unlimited
+
+Returns at most 50 entries by default. Sorting precedes pagination; timestamp ties
+use snapshot IDs. JSON includes pagination.total, offset, limit (null with
+--unlimited) and next_offset (null at the end). Metadata is still enumerated and
+sorted. Concurrent additions/deletions can shift offset pages.

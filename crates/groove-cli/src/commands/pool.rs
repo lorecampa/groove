@@ -2,16 +2,29 @@
 
 use super::{lease::lease_output, Context};
 use crate::{
-    args::{Cleanup, OptionalSelector},
+    args::{Cleanup, OptionalSelector, PageArgs, PoolSort, SlotSort},
     output::{fields, table, Output},
 };
 use groove_core::{LeaseInfo, Pool, PoolInspection, PoolOptions, Result, SlotId, SlotInspection};
 use serde_json::json;
 use std::path::PathBuf;
 
-pub fn pools(context: &Context<'_>, all: bool, disk_usage: bool) -> Result<Output> {
+pub fn pools(
+    context: &Context<'_>,
+    all: bool,
+    disk_usage: bool,
+    page: &PageArgs,
+    sort: PoolSort,
+) -> Result<Output> {
     let mut pools = Pool::list_pools(context.repo, context.git_timeout)?;
     pools.retain(|pool| all || pool.phase != groove_core::PoolPhase::Deleted);
+    pools.sort_by(|a, b| match sort {
+        PoolSort::Name => a.name.cmp(&b.name),
+        PoolSort::State => phase_name(a.phase)
+            .cmp(phase_name(b.phase))
+            .then_with(|| a.name.cmp(&b.name)),
+    });
+    let (pools, pagination) = page.apply(pools);
     let mut values = Vec::new();
     let mut rows = Vec::new();
     for p in &pools {
@@ -34,13 +47,7 @@ pub fn pools(context: &Context<'_>, all: bool, disk_usage: bool) -> Result<Outpu
         values.push(value);
         let mut row = vec![
             p.name.to_string(),
-            match p.phase {
-                groove_core::PoolPhase::Initializing => "initializing",
-                groove_core::PoolPhase::Ready => "ready",
-                groove_core::PoolPhase::Deleting => "deleting",
-                groove_core::PoolPhase::Deleted => "deleted",
-            }
-            .into(),
+            phase_name(p.phase).into(),
             p.capacity.map_or_else(|| "-".into(), |n| n.to_string()),
             p.worktree_root
                 .as_ref()
@@ -70,11 +77,20 @@ pub fn pools(context: &Context<'_>, all: bool, disk_usage: bool) -> Result<Outpu
         columns.extend(["WORKSPACES", "CACHES", "LOGS/HISTORY"]);
     }
     let text = if rows.is_empty() {
-        "No pools found.\n".into()
+        "No pools on this page.\n".into()
     } else {
         table(&columns, &rows)
     };
-    Output::text(json!({"pools": values}), text)
+    Output::text(json!({"pools": values}), text)?.paginated(pagination)
+}
+
+fn phase_name(phase: groove_core::PoolPhase) -> &'static str {
+    match phase {
+        groove_core::PoolPhase::Initializing => "initializing",
+        groove_core::PoolPhase::Ready => "ready",
+        groove_core::PoolPhase::Deleting => "deleting",
+        groove_core::PoolPhase::Deleted => "deleted",
+    }
 }
 
 fn human_bytes(bytes: u64) -> String {
@@ -223,20 +239,46 @@ fn slot_table(inspection: &PoolInspection) -> String {
     table(&["SLOT", "STATUS", "TASK", "CHANGES", "REASON"], &rows)
 }
 
-pub fn list(context: &Context<'_>, slots: bool, details: bool) -> Result<Output> {
+fn sort_slots(slots: &mut [SlotInspection], sort: SlotSort) {
+    slots.sort_by(|a, b| match sort {
+        SlotSort::Slot => a.slot_id.cmp(&b.slot_id),
+        SlotSort::Task => a
+            .lease
+            .as_ref()
+            .and_then(|lease| lease.task.as_deref())
+            .cmp(&b.lease.as_ref().and_then(|lease| lease.task.as_deref()))
+            .then_with(|| a.slot_id.cmp(&b.slot_id)),
+    });
+}
+
+pub fn list(
+    context: &Context<'_>,
+    slots: bool,
+    details: bool,
+    page: &PageArgs,
+    sort: SlotSort,
+) -> Result<Output> {
     let pool = context.pool()?;
     if slots || details {
-        let inspection = if details {
+        let mut inspection = if details {
             pool.inspect_detailed(context.git_timeout)?
         } else {
             pool.inspect()?
         };
+        sort_slots(&mut inspection.slots, sort);
+        let (slots, pagination) = page.apply(inspection.slots);
+        inspection.slots = slots;
         let text = slot_table(&inspection);
-        return Output::text(json!({ "inspection": inspection }), text);
+        return Output::text(json!({ "inspection": inspection }), text)?.paginated(pagination);
     }
-    let leases = pool.protected_leases()?;
+    let mut leases = pool.protected_leases()?;
+    leases.sort_by(|a, b| match sort {
+        SlotSort::Slot => a.slot_id.cmp(&b.slot_id),
+        SlotSort::Task => a.task.cmp(&b.task).then_with(|| a.slot_id.cmp(&b.slot_id)),
+    });
+    let (leases, pagination) = page.apply(leases);
     let text = if leases.is_empty() {
-        "No active reservations.".to_owned()
+        "No active reservations on this page.".to_owned()
     } else {
         let rows: Vec<Vec<String>> = leases
             .iter()
@@ -251,7 +293,7 @@ pub fn list(context: &Context<'_>, slots: bool, details: bool) -> Result<Output>
             .collect();
         table(&["SLOT", "TASK", "LEASE", "PATH"], &rows)
     };
-    Output::text(json!({ "leases": leases }), text)
+    Output::text(json!({ "leases": leases }), text)?.paginated(pagination)
 }
 
 fn inspect(pool: &Pool, details: bool, timeout: std::time::Duration) -> Result<PoolInspection> {
@@ -280,6 +322,8 @@ pub fn show(
     selector: &OptionalSelector,
     details: bool,
     disk_usage: bool,
+    page: &PageArgs,
+    sort: SlotSort,
 ) -> Result<Output> {
     let pool = context.pool()?;
     let lease = match (&selector.lease_id, &selector.task) {
@@ -304,7 +348,10 @@ pub fn show(
         return Output::fields(json!({ "slot": slot }));
     }
     let settings = pool.settings()?;
-    let inspection = inspect(&pool, details, context.git_timeout)?;
+    let mut inspection = inspect(&pool, details, context.git_timeout)?;
+    sort_slots(&mut inspection.slots, sort);
+    let (slots, pagination) = page.apply(inspection.slots);
+    inspection.slots = slots;
     let mut text = fields(&serde_json::to_value(&settings)?, 0) + "\n" + &slot_table(&inspection);
     let mut value = json!({ "pool": settings, "inspection": inspection });
     if disk_usage {
@@ -312,5 +359,5 @@ pub fn show(
         text.push_str(&storage_text(&usage));
         value["storage"] = serde_json::to_value(usage)?;
     }
-    Output::text(value, text)
+    Output::text(value, text)?.paginated(pagination)
 }
