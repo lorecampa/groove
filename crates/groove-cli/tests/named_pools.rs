@@ -297,7 +297,17 @@ fn an_explicit_default_preserves_existing_layout_and_human_output_names_named_po
         repo.state().to_str().unwrap()
     );
     let output = support::groove_human_in(&repo.path)
-        .args(["--pool", "frontend", "init", "--capacity", "1"])
+        .args([
+            "--pool",
+            "frontend",
+            "init",
+            "--capacity",
+            "1",
+            "--ready-target",
+            "0",
+            "--idle-timeout",
+            "never",
+        ])
         .output()
         .unwrap();
     assert!(output.status.success());

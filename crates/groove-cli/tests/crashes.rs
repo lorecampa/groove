@@ -731,100 +731,121 @@ fn snapshot_recovery_serializes_new_namespace_claims_until_materialization_finis
         .is_ok());
 }
 
-#[test]
-fn pool_growth_crash_boundaries_preserve_reservations_and_lock_inodes() {
-    if !support::in_subprocess("pool_growth_crash_boundaries_preserve_reservations_and_lock_inodes")
-    {
-        return;
-    }
-    for (name, reinitialized) in [
-        "metadata-synced",
-        "metadata-renamed",
-        "pool-slot-added",
-        "before-pool-update",
-        "pool-updated",
-    ]
-    .into_iter()
-    .flat_map(|name| [(name, false), (name, true)])
-    {
-        let r = Repo::new();
+macro_rules! pool_growth_crash_test {
+    ($test:ident, $checkpoint:literal, $reinitialized:literal) => {
+        #[test]
+        fn $test() {
+            if support::in_subprocess(stringify!($test)) {
+                pool_growth_crash_preserves_reservations_and_lock_inodes(
+                    $checkpoint,
+                    $reinitialized,
+                );
+            }
+        }
+    };
+}
+
+pool_growth_crash_test!(growth_metadata_synced, "metadata-synced", false);
+pool_growth_crash_test!(growth_metadata_renamed, "metadata-renamed", false);
+pool_growth_crash_test!(growth_slot_added, "pool-slot-added", false);
+pool_growth_crash_test!(growth_before_pool_update, "before-pool-update", false);
+pool_growth_crash_test!(growth_pool_updated, "pool-updated", false);
+pool_growth_crash_test!(
+    reinitialized_growth_metadata_synced,
+    "metadata-synced",
+    true
+);
+pool_growth_crash_test!(
+    reinitialized_growth_metadata_renamed,
+    "metadata-renamed",
+    true
+);
+pool_growth_crash_test!(reinitialized_growth_slot_added, "pool-slot-added", true);
+pool_growth_crash_test!(
+    reinitialized_growth_before_pool_update,
+    "before-pool-update",
+    true
+);
+pool_growth_crash_test!(reinitialized_growth_pool_updated, "pool-updated", true);
+
+fn pool_growth_crash_preserves_reservations_and_lock_inodes(name: &str, reinitialized: bool) {
+    let r = Repo::new();
+    Pool::init(
+        &r.path,
+        PoolOptions {
+            capacity: if reinitialized { 2 } else { 1 },
+            worktree_root: Some(support::worktree_root(&r.path, "default")),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    if reinitialized {
+        let old = Pool::open(&r.path).unwrap();
+        let leases = [
+            old.acquire(Default::default()).unwrap(),
+            old.acquire(Default::default()).unwrap(),
+        ];
+        drop(leases);
+        Pool::destroy(&r.path, Default::default()).unwrap();
         Pool::init(
             &r.path,
             PoolOptions {
-                capacity: if reinitialized { 2 } else { 1 },
-                worktree_root: Some(support::worktree_root(&r.path, "default")),
+                capacity: 1,
+                worktree_root: Some(r.temp.path().join("replacement-root")),
                 ..Default::default()
             },
         )
         .unwrap();
-        if reinitialized {
-            let old = Pool::open(&r.path).unwrap();
-            let leases = [
-                old.acquire(Default::default()).unwrap(),
-                old.acquire(Default::default()).unwrap(),
-            ];
-            drop(leases);
-            Pool::destroy(&r.path, Default::default()).unwrap();
-            Pool::init(
-                &r.path,
-                PoolOptions {
-                    capacity: 1,
-                    worktree_root: Some(r.temp.path().join("replacement-root")),
-                    ..Default::default()
-                },
-            )
-            .unwrap();
-        }
-        let pool = Pool::open(&r.path).unwrap();
-        let lease = pool.reserve(Default::default()).unwrap();
-        std::fs::write(
-            lease.worktree_path.join("tracked.txt"),
-            "protected result\n",
-        )
-        .unwrap();
-        let lock = r.state().join("locks/wt-0001.lock");
-        let inode = std::fs::metadata(&lock).unwrap().ino();
-        let (mut command, listener) = checkpoint_command(
-            &r,
-            name,
-            &["config", "set", "--capacity", "3", "--cleanup", "warm"],
-        );
-        kill_at_checkpoint(&mut command, listener, name);
-        let new_locks: Vec<_> = ["wt-0002.lock", "wt-0002.execution.lock"]
-            .into_iter()
-            .map(|name| {
-                let path = r.state().join("locks").join(name);
-                let inode = std::fs::metadata(&path).unwrap().ino();
-                (path, inode)
-            })
-            .collect();
-        assert_eq!(
-            pool.settings().unwrap().capacity,
-            if name == "pool-updated" { 3 } else { 1 }
-        );
-        pool.configure(groove_core::PoolUpdate {
-            capacity: Some(3),
-            cleanup_policy: Some(groove_core::CleanupPolicy::Warm),
-            ..Default::default()
-        })
-        .unwrap();
-        assert_eq!(pool.protected_leases().unwrap()[0].lease_id, lease.lease_id);
-        assert_eq!(
-            std::fs::read(lease.worktree_path.join("tracked.txt")).unwrap(),
-            b"protected result\n"
-        );
-        assert_eq!(std::fs::metadata(&lock).unwrap().ino(), inode);
-        for (path, inode) in new_locks {
-            assert_eq!(std::fs::metadata(path).unwrap().ino(), inode);
-        }
-        let one = pool.acquire(Default::default()).unwrap();
-        let two = pool.acquire(Default::default()).unwrap();
-        assert_ne!(one.info().slot_id, two.info().slot_id);
-        assert_eq!(
-            pool.acquire(Default::default()).err().unwrap().code,
-            groove_core::ErrorCode::PoolExhausted
-        );
     }
+    let pool = Pool::open(&r.path).unwrap();
+    let lease = pool.reserve(Default::default()).unwrap();
+    std::fs::write(
+        lease.worktree_path.join("tracked.txt"),
+        "protected result\n",
+    )
+    .unwrap();
+    let lock = r.state().join("locks/wt-0001.lock");
+    let inode = std::fs::metadata(&lock).unwrap().ino();
+    let (mut command, listener) = checkpoint_command(
+        &r,
+        name,
+        &["config", "set", "--capacity", "3", "--cleanup", "warm"],
+    );
+    kill_at_checkpoint(&mut command, listener, name);
+    let new_locks: Vec<_> = ["wt-0002.lock", "wt-0002.execution.lock"]
+        .into_iter()
+        .map(|name| {
+            let path = r.state().join("locks").join(name);
+            let inode = std::fs::metadata(&path).unwrap().ino();
+            (path, inode)
+        })
+        .collect();
+    assert_eq!(
+        pool.settings().unwrap().capacity,
+        if name == "pool-updated" { 3 } else { 1 }
+    );
+    pool.configure(groove_core::PoolUpdate {
+        capacity: Some(3),
+        cleanup_policy: Some(groove_core::CleanupPolicy::Warm),
+        ..Default::default()
+    })
+    .unwrap();
+    assert_eq!(pool.protected_leases().unwrap()[0].lease_id, lease.lease_id);
+    assert_eq!(
+        std::fs::read(lease.worktree_path.join("tracked.txt")).unwrap(),
+        b"protected result\n"
+    );
+    assert_eq!(std::fs::metadata(&lock).unwrap().ino(), inode);
+    for (path, inode) in new_locks {
+        assert_eq!(std::fs::metadata(path).unwrap().ino(), inode);
+    }
+    let one = pool.acquire(Default::default()).unwrap();
+    let two = pool.acquire(Default::default()).unwrap();
+    assert_ne!(one.info().slot_id, two.info().slot_id);
+    assert_eq!(
+        pool.acquire(Default::default()).err().unwrap().code,
+        groove_core::ErrorCode::PoolExhausted
+    );
 }
 
 #[test]

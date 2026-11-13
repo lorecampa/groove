@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.3.0] - 2026-11-13
+
 ### Removed
 
 - Remove managed task execution: `exec`, `stop`, `recover`, setup profiles,
@@ -83,6 +85,20 @@
   recovery behavior, in Rust API documentation.
 
 ### Fixed
+
+- Release package smoke tests keep isolated user storage outside the fixture
+  checkout and disable background spare preparation before fixture teardown.
+- Release preparation updates the standalone fuzz dependency and lockfile,
+  restoring both graphs if preparation fails.
+- Independent pool-growth crash scenarios each run in their own bounded test
+  process, retaining concurrency and recovery assertions under loaded scheduling.
+- Catalog rendering tests keep human-output fixtures lazy too, so background
+  spare preparation cannot race their explicit deletion checks.
+- Logging lifecycle tests validate JSON progress messages separately from
+  timestamped diagnostics when commands cross the liveness threshold.
+- The deletion benchmark explicitly disables automatic spare preparation for
+  its controlled materialization and teardown phases; its profile version is
+  incremented because prior measurements used ambient defaults.
 
 - Warm reuse removes previously tracked files when switching to a commit that
   deletes and ignores those paths, while preserving unrelated ignored caches.

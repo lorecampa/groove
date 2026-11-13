@@ -194,6 +194,90 @@ fn first_release_can_use_the_current_version_and_preserves_manifest_comments() {
     f.tool(&["validate"], true);
 }
 
+fn add_fuzz_fixture(fixture: &Fixture) {
+    fs::create_dir_all(fixture.path("fuzz/src")).unwrap();
+    fs::write(fixture.path("fuzz/src/lib.rs"), "").unwrap();
+    fs::write(
+        fixture.path("fuzz/Cargo.toml"),
+        "# Keep fuzz configuration\n[workspace]\n[package]\nname = \"groove-fuzz\"\nversion = \"0.0.0\"\npublish = false\n[dependencies]\ngroove-core = { path = \"../crates/groove-core\", version = \"0.1.0\" }\n",
+    )
+    .unwrap();
+    let output = fixture
+        .command("cargo")
+        .args([
+            "generate-lockfile",
+            "--offline",
+            "--manifest-path",
+            "fuzz/Cargo.toml",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    fixture.commit();
+}
+
+#[test]
+fn preparation_keeps_the_standalone_fuzz_graph_buildable_with_its_lockfile() {
+    let fixture = Fixture::new();
+    add_fuzz_fixture(&fixture);
+    fixture.tool(&["prepare", "0.2.0"], true);
+    let output = fixture
+        .command("cargo")
+        .args([
+            "check",
+            "--locked",
+            "--offline",
+            "--manifest-path",
+            "fuzz/Cargo.toml",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(fs::read_to_string(fixture.path("fuzz/Cargo.toml"))
+        .unwrap()
+        .starts_with("# Keep fuzz configuration\n"));
+    let lock: toml::Value =
+        toml::from_str(&fs::read_to_string(fixture.path("fuzz/Cargo.lock")).unwrap()).unwrap();
+    assert!(lock["package"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|package| package["name"].as_str() == Some("groove-core")
+            && package["version"].as_str() == Some("0.2.0")));
+}
+
+#[test]
+fn fuzz_update_failure_rolls_back_both_dependency_graphs_and_notes() {
+    let fixture = Fixture::new();
+    add_fuzz_fixture(&fixture);
+    fs::remove_file(fixture.path("fuzz/src/lib.rs")).unwrap();
+    fixture.commit();
+    let paths = [
+        "Cargo.toml",
+        "Cargo.lock",
+        "CHANGELOG.md",
+        "fuzz/Cargo.toml",
+        "fuzz/Cargo.lock",
+    ];
+    let original: Vec<_> = paths
+        .iter()
+        .map(|path| fs::read(fixture.path(path)).unwrap())
+        .collect();
+    fixture.tool(&["prepare", "0.2.0"], false);
+    for (path, before) in paths.iter().zip(original) {
+        assert_eq!(fs::read(fixture.path(path)).unwrap(), before);
+    }
+    assert_eq!(fixture.git(&["status", "--porcelain"]), "");
+}
+
 #[test]
 fn cargo_failure_rolls_back_manifest_lockfile_and_changelog() {
     let f = Fixture::new();
@@ -330,6 +414,11 @@ fn repeated_package_checks_compile_the_current_archive_at_the_same_version() {
     let cwd = std::env::current_dir().unwrap();
     let result = match std::env::args().nth(2).unwrap().as_str() {
         "--version" => "{\"text\":\"groove 0.1.0\"}".to_string(),
+        "init" => {
+            let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap());
+            assert!(!home.starts_with(&cwd), "Default pool storage must be outside the smoke checkout");
+            "{}".to_string()
+        },
         "acquire" => format!("{{\"worktree_path\":\"{}\",\"lease_id\":\"fixture\"}}", cwd.display()),
         "exec" => {
             let stdout = cwd.join("stdout");

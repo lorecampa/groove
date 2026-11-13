@@ -59,8 +59,8 @@
       ]
     },
     {
-      "id": "workspace-deletion", "version": 2,
-      "purpose": "Preview, ambiguity rejection, pool deletion/retry and reinitialization for lazy, populated, dirty and external cached checkouts; verify retained results/locks and an untouched protected sibling.",
+      "id": "workspace-deletion", "version": 3,
+      "purpose": "Preview, ambiguity rejection, pool deletion/retry and reinitialization for lazy, populated, dirty and external cached checkouts with automatic spare preparation and idle eviction disabled; verify retained results/locks and an untouched protected sibling.",
       "environment": "cli-linux-amd64-v4",
       "sampling": {"blocks": 10, "warmup_blocks": 1},
       "estimated_minutes": [2, 10],

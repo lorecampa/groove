@@ -134,11 +134,15 @@ impl Release {
             "Cannot prepare an older version",
         )?;
         self.clean_tree()?;
-        let paths = [
+        let mut paths = vec![
             self.root.join("Cargo.toml"),
             self.root.join("Cargo.lock"),
             self.root.join("CHANGELOG.md"),
         ];
+        let fuzz_manifest = self.root.join("fuzz/Cargo.toml");
+        if fuzz_manifest.exists() {
+            paths.extend([fuzz_manifest.clone(), self.root.join("fuzz/Cargo.lock")]);
+        }
         let original: Vec<_> = paths.iter().map(fs::read).collect::<std::io::Result<_>>()?;
         let changelog =
             String::from_utf8(original[2].clone()).map_err(|e| Error::Invalid(e.to_string()))?;
@@ -169,11 +173,30 @@ impl Release {
             document["workspace"]["dependencies"]["groove-core"]["version"] =
                 toml_edit::value(next);
             fs::write(&paths[0], document.to_string())?;
+            if fuzz_manifest.exists() {
+                let mut fuzz =
+                    fs::read_to_string(&fuzz_manifest)?.parse::<toml_edit::DocumentMut>()?;
+                fuzz["dependencies"]["groove-core"]["version"] = toml_edit::value(next);
+                fs::write(&fuzz_manifest, fuzz.to_string())?;
+            }
             self.runner.run(
                 &self.root,
                 "cargo",
                 args!["update", "--workspace", "--offline"],
             )?;
+            if fuzz_manifest.exists() {
+                self.runner.run(
+                    &self.root,
+                    "cargo",
+                    args![
+                        "update",
+                        "--workspace",
+                        "--offline",
+                        "--manifest-path",
+                        fuzz_manifest.as_os_str()
+                    ],
+                )?;
+            }
             self.validate(None, None)?;
             let today = chrono::Utc::now().date_naive();
             fs::write(
