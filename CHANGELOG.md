@@ -92,6 +92,8 @@
   restoring both graphs if preparation fails.
 - Independent pool-growth crash scenarios each run in their own bounded test
   process, retaining concurrency and recovery assertions under loaded scheduling.
+- Catalog rendering tests keep human-output fixtures lazy too, so background
+  spare preparation cannot race their explicit deletion checks.
 
 - Warm reuse removes previously tracked files when switching to a commit that
   deletes and ignores those paths, while preserving unrelated ignored caches.
