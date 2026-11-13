@@ -153,6 +153,12 @@ fn commit_switch_reapplies_attributes_to_unchanged_blobs() {
 fn reuse_reapplies_checkout_conversions_from_working_and_committed_attributes() {
     for (original, dirty, expected, tampered) in [
         (
+            "*.txt crlf=input\n",
+            "*.txt crlf=input\n",
+            b"baseline\n".as_slice(),
+            b"baseline\r\n".as_slice(),
+        ),
+        (
             "*.txt -text\n",
             "*.txt text eol=crlf\n",
             b"baseline\n".as_slice(),

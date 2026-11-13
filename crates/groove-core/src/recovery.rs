@@ -242,6 +242,7 @@ fn refresh_preserves_checkout_bytes(
         {
             if [
                 b"text".as_slice(),
+                b"crlf",
                 b"eol",
                 b"filter",
                 b"working-tree-encoding",
