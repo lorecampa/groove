@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- Native Claude Code and Codex plugins package the portable skill and optional
+  project workflow hooks. Per-clone opt-in applies across linked worktrees;
+  startup and subagent hooks load instructions without replacing global agent
+  files or acquiring/releasing reservations. Installation guidance covers
+  updates, removal and fresh-session verification.
+
 ### Changed
 
 - Avoid redundant reservation metadata clones, defer unused error summaries,

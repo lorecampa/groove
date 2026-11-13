@@ -106,7 +106,42 @@ If verification needs a new interactive terminal, say so rather than claiming
 it is already active in the user's current terminal. Report the generated file
 and any startup-file changes. Do not execute commands selected by completion.
 
-## Install the skill
+## Install the agent plugins
+
+For Claude Code or Codex, install the native plugins using that harness's CLI.
+The `groove` plugin packages the [portable skill](../skills/groove/SKILL.md).
+The optional `groove-project` plugin loads project workflow instructions at
+session and subagent startup. Its hooks require Bash, Git and jq 1.6+ on PATH.
+Skill updates and hook updates are separate so changing the skill does not
+change Codex's hook package fingerprint.
+
+### Claude Code
+
+```sh
+claude plugin marketplace add lorecampa/groove
+claude plugin install groove@groove
+claude plugin install groove-project@groove
+```
+
+The skill is available as `/groove:groove`. For updates, refresh the marketplace
+with `claude plugin marketplace update groove`, then run
+`claude plugin update groove@groove` and
+`claude plugin update groove-project@groove`. Restart the session afterward.
+
+### Codex
+
+```sh
+codex plugin marketplace add lorecampa/groove
+codex plugin add groove@groove
+codex plugin add groove-project@groove
+```
+
+Restart the session and review/trust the `groove-project` hooks in Codex's
+`/hooks` menu. Installing a plugin does not automatically trust its hooks.
+For updates, run `codex plugin marketplace upgrade groove` and reinstall the
+two plugins with `codex plugin add`. Review changed hooks again when prompted.
+
+### Other agents and existing skill installations
 
 Install [skills/groove/](https://github.com/lorecampa/groove/tree/main/skills/groove)
 from this repository for your current agent. Use the skill installer and discovery
@@ -134,11 +169,46 @@ a new session, tell the user to restart rather than claiming it is already loade
 Report the CLI version and installed skill location. Do not initialize a project
 pool or start a task as part of installation.
 
-## Project policy
+## Use Groove by default in a project
 
-The skill teaches the workflow; project instructions decide when to require it.
-For repositories that use Groove, add a short policy to the agent's project
-instruction file, for example:
+With `groove-project` installed, opt in once from the project's Git checkout:
+
+```sh
+git config --local groove.agent.enabled true
+```
+
+This preference lives in the clone's Git config and applies in its linked
+worktrees. It is not committed and imposes no requirement on other contributors.
+The hooks tell agents to load the skill for code, test and documentation changes;
+assigned workers reuse their coordinator's reservation. No reservation is acquired
+by the hook, and ending a session never releases one. Coordinators preserve
+results and release explicitly through the skill.
+
+To include your own project instructions, point to an existing UTF-8 Markdown
+file outside reusable worktrees (maximum 32 KiB):
+
+```sh
+git config --local groove.agent.instructionsFile /absolute/path/to/workflow.md
+```
+
+The hook reads that file directly; no `AGENTS.md` or `CLAUDE.md` replacement is
+needed. Configured files must be readable regular files with absolute paths.
+The hook rejects missing or oversized files rather than silently omitting them.
+Repository lookup uses the harness's hook `cwd`, not its process directory or
+inherited `GIT_*` variables. Open a fresh session and ask it to describe the
+project workflow already in its instructions without reading files or using
+tools. Verify the plugin source and your custom rules are present. Test from a
+reserved worktree too if that is where you launch agents. Skills being listed
+alone does not establish that the context hook ran.
+
+Disable the project preference with:
+
+```sh
+git config --local groove.agent.enabled false
+```
+
+For other harnesses, use their supported persistent agent instruction mechanism.
+If a team explicitly wants shared project policy, it can add a short instruction:
 
 > Use the Groove skill for coding task workspaces in this repository. Workers
 > already assigned a reservation reuse it and hand results back; the coordinator
@@ -146,6 +216,43 @@ instruction file, for example:
 
 Commit project instructions before acquiring if workers need them in their
 checkouts. Uncommitted files do not propagate to a new checkout.
+
+## Remove the plugins
+
+For Claude Code:
+
+```sh
+claude plugin uninstall groove-project@groove
+claude plugin uninstall groove@groove
+claude plugin marketplace remove groove
+```
+
+For Codex:
+
+```sh
+codex plugin remove groove-project@groove
+codex plugin remove groove@groove
+codex plugin marketplace remove groove
+```
+
+Removing plugins does not release reservations, delete snapshots or remove
+your instruction file. A manually installed skill is separate; remove only
+the copy you installed when it is no longer needed.
+
+## Develop the plugins locally
+
+The authored skill remains in `skills/groove/`. After editing it, run
+`bash scripts/sync-plugins.sh --write`; `--check` verifies the real-file mirror
+under `plugins/groove/`. Native plugin installers can omit symlinks, so the
+distributed skill includes its references as regular files.
+
+Both marketplace commands accept an absolute path to a local checkout instead
+of `lorecampa/groove`. Use a stable checkout or export the marketplace manifests
+and `plugins/` to a private directory first. Do not register a reusable pool
+worktree as a permanent marketplace source: its contents can change after release.
+With Omnigent, run Codex installation against your normal user `CODEX_HOME`,
+not an existing session's private home, then verify a fresh Omnigent session.
+The integration uses native plugins and requires no Omnigent changes.
 
 ## Source installations
 

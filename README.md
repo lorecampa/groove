@@ -45,6 +45,10 @@ Give your agent this prompt once:
 After setup, give your agent tasks normally. You don't need to mention Groove in
 every request.
 
+Claude Code and Codex can use [native plugins](docs/install.md#install-the-agent-plugins).
+The optional project plugin loads your workflow from a private, per-clone setting,
+including in linked worktrees. Other agents can use the portable skill.
+
 ## Use a workspace
 
 From a Git repository with at least one commit:

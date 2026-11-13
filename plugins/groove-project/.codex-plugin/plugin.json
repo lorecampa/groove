@@ -1,0 +1,6 @@
+{
+  "name": "groove-project",
+  "version": "0.1.0",
+  "description": "Load Groove workflow instructions for repositories that explicitly opt in.",
+  "hooks": "./hooks/hooks.json"
+}

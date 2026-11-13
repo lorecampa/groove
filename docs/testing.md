@@ -166,6 +166,9 @@ sockets, FIFOs or readiness markers to arrange ownership/crash boundaries.
 Newer-Git layout cases may skip on older Git; record skips before claiming coverage.
 GitHub release-helper tests use a local `gh` peer, Bash and `jq`; they never
 contact GitHub or publish.
+Native plugin regressions also require Bash and jq, and exercise project
+instruction loading in disposable repositories and linked worktrees without
+calling a model. Run `bash scripts/sync-plugins.sh --check` after skill edits.
 
 ## Agent evaluations
 
