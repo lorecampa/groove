@@ -13,6 +13,25 @@ Unset, empty or relative XDG paths use the HOME fallback. `show` reports effecti
 values and environment overrides. Unknown keys and invalid values fail before
 operational commands run. Help remains available with broken preferences.
 
+EXPERIMENTAL FEATURES:
+experimental.features is a TOML array of individual feature names, default [].
+Set it with `config global set 'experimental.features=["NAME"]'`, or unset it
+to remove user opt-ins. The project file accepts the same [experimental] table.
+User and project opt-ins are additive; listing a name in both sources is valid.
+There is no switch to enable all future experiments. No names are registered yet.
+Names contain 1-64 lowercase ASCII letters, digits or hyphens, starting with a letter.
+Unknown or removed names fail with UNSUPPORTED_CONFIGURATION; upgrade to a
+supporting binary or remove the entry. Malformed lists and duplicate names are
+INVALID_ARGUMENT. Graduated names remain accepted, with the feature enabled by
+default; removing an old opt-in is optional. Normal unknown keys remain errors.
+Empty opt-ins are omitted from effective JSON and generated defaults. Reading
+configuration never migrates or rewrites files. Existing user files stay
+unversioned. Backward compatibility means newer binaries accept supported older
+files; older binaries may reject newer options. Storage formats and safe use of
+different binary versions on one pool have separate compatibility requirements.
+User preference structure is described by schemas/user-v1.schema.json in the
+source distribution; the loader additionally checks cross-field constraints.
+
 worktrees.root replaces the default $HOME/.worktrees parent used by new pools:
 <root>/<project>-<repo-id>/<pool>. It must be absolute. init --worktree-root
 overrides it with an exact pool path. Changing/unsetting this preference never

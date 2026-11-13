@@ -1,0 +1,6 @@
+{
+  "experimental_default": [],
+  "experimental_opt_in": ["fixture-feature"],
+  "stabilized_default": ["fixture-feature"],
+  "stabilized_legacy_opt_in": ["fixture-feature"]
+}

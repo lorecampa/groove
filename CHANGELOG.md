@@ -4,6 +4,10 @@
 
 ### Added
 
+- Named experimental-feature configuration for user preferences and project files,
+  with explicit opt-in, retained graduated names, and errors for unknown/removed
+  capabilities. The initial registry is empty. User preferences now have a
+  published TOML data-model schema.
 - Pi can install the portable skill as a Git/local package. Agent setup separates
   installation, session use and project defaults, with Hermes instructions and
   repository-catalog distribution guidance.
@@ -16,6 +20,8 @@
 - Explain contributor Git hooks, name the checks in the security gate, and
   clarify the license choice. Keep vulnerability reporting separate from
   maintainer setup instructions.
+- Updating a global preference preserves the existing value's inline comment
+  and spacing. Historical configuration goldens protect defaults and file edits.
 - The development benchmark lab adds heterogeneous multi-GiB monorepo profiles
   with packed history, commit switching and full-tree recovery checks. Native
   runs resolve relative scratch paths before invoking fixture subprocesses.

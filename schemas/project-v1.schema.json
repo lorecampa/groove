@@ -6,6 +6,13 @@
   "additionalProperties": false,
   "properties": {
     "schema_version": {"const": 1, "default": 1},
+    "experimental": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "features": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"}, "default": []}
+      },
+      "description": "Individually requested features. Core rejects unknown or removed names; stabilized names remain accepted. No features are currently registered."
+    },
     "workspace": {
       "type": "object", "additionalProperties": false,
       "properties": {

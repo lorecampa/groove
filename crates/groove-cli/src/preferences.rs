@@ -17,6 +17,8 @@ use std::{
 pub struct Config {
     pub logging: Logging,
     pub worktrees: Worktrees,
+    #[serde(skip_serializing_if = "groove_core::experimental::ExperimentalConfig::is_empty")]
+    pub experimental: groove_core::experimental::ExperimentalConfig,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
@@ -126,10 +128,11 @@ fn read(path: &PathBuf) -> Result<String> {
     }
 }
 fn parse(text: &str) -> Result<Config> {
-    let config: Config =
-        toml::from_str(text).map_err(|e| invalid(format!("Invalid user configuration: {e}")))?;
+    let config: Config = toml::from_str(text)
+        .map_err(|e| invalid(format!("Invalid user configuration: {e}")).with_source(e))?;
     config.logging.validate()?;
     config.worktrees.validate()?;
+    config.experimental.validate()?;
     Ok(config)
 }
 impl Logging {
@@ -263,20 +266,24 @@ pub fn change(change: Change) -> Result<serde_json::Value> {
                     .filter(|(section, field)| {
                         (*section == "logging" && KEYS.contains(field))
                             || (*section == "worktrees" && *field == "root")
+                            || (*section == "experimental" && *field == "features")
                     })
                     .ok_or_else(|| invalid(format!("Unknown setting: {key}")))?;
                 if let Some(value) = value {
                     // Accept TOML literals (true, 50, "text"); anything else is a bare string.
-                    let value = value
+                    let mut value = value
                         .parse::<toml_edit::Value>()
                         .unwrap_or_else(|_| toml_edit::Value::from(value.as_str()));
                     if doc.get(section).is_none() {
                         doc[section] = toml_edit::Item::Table(toml_edit::Table::new());
                     }
-                    doc[section]
+                    let table = doc[section]
                         .as_table_like_mut()
-                        .ok_or_else(|| invalid(format!("{section} must be a table")))?
-                        .insert(field, toml_edit::Item::Value(value));
+                        .ok_or_else(|| invalid(format!("{section} must be a table")))?;
+                    if let Some(previous) = table.get(field).and_then(toml_edit::Item::as_value) {
+                        *value.decor_mut() = previous.decor().clone();
+                    }
+                    table.insert(field, toml_edit::Item::Value(value));
                 } else if let Some(table) = doc.get_mut(section).and_then(|v| v.as_table_like_mut())
                 {
                     table.remove(field);

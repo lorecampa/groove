@@ -18,6 +18,8 @@ Missing configuration means no setup, recipes, agents or custom environment.
 The generated starter includes setup, caches, recipes and agent adapters.
 The [project types](../crates/groove-core/src/project.rs) define validation and
 configuration defaults.
+See [configuration compatibility](configuration.md) for format evolution and
+experimental-feature retirement.
 
 Commands are direct argv, with closed stdin and captured logs. An explicit shell
 such as `["bash", "-c", "..."]` opts into shell syntax. Configuration is trusted

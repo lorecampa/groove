@@ -17,3 +17,5 @@ Updates publish atomically and unchanged values report updated: false.
 
 `project` validates the checkout's .groove.toml without running anything;
 --example prints a starter to review before committing.
+Project experimental.features accepts individual opt-ins with the same lifecycle
+as user preferences (see below). It defaults to []; no names are registered yet.

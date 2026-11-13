@@ -1,0 +1,2 @@
+# This same saved input must remain valid after the fixture feature graduates.
+features = ["fixture-feature"]
