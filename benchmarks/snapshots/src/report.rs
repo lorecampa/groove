@@ -193,6 +193,7 @@ pub(crate) fn validate_contract(contract: &Value) -> Result<()> {
     let lock = lock();
     for (key, expected) in [
         ("ReadonlyRootfs", json!(true)),
+        ("Init", lock["init_reaper"].clone()),
         ("NetworkMode", json!("none")),
         ("Memory", lock["memory_bytes"].clone()),
         ("MemorySwap", lock["memory_bytes"].clone()),
@@ -427,10 +428,12 @@ mod tests {
     }
     #[test]
     fn runtime_contract_requires_isolation_limits_affinity_and_owned_mounts() {
-        let contract = json!({"inspection":{"Image":"sha256:image","HostConfig":{"ReadonlyRootfs":true,"NetworkMode":"none","Memory":8589934592_u64,"MemorySwap":8589934592_u64,"NanoCpus":4000000000_u64,"PidsLimit":512,"CpusetCpus":"0,1,2,3"},"Mounts":[{"Destination":"/scratch","RW":true,"Type":"bind"},{"Destination":"/results","RW":true,"Type":"bind"}]},"host_identity":"host","storage":{"mount":"ext4"}});
+        let contract = json!({"inspection":{"Image":"sha256:image","HostConfig":{"ReadonlyRootfs":true,"Init":true,"NetworkMode":"none","Memory":8589934592_u64,"MemorySwap":8589934592_u64,"NanoCpus":4000000000_u64,"PidsLimit":512,"CpusetCpus":"0,1,2,3"},"Mounts":[{"Destination":"/scratch","RW":true,"Type":"bind"},{"Destination":"/results","RW":true,"Type":"bind"}]},"host_identity":"host","storage":{"mount":"ext4"}});
         validate_contract(&contract).unwrap();
         for (key, value) in [
             ("ReadonlyRootfs", json!(false)),
+            ("Init", json!(false)),
+            ("Init", Value::Null),
             ("NetworkMode", json!("bridge")),
             ("Memory", json!(0)),
             ("MemorySwap", json!(-1)),

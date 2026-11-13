@@ -87,6 +87,55 @@ fn canonical_profile_interruption_stops_container_before_scratch_cleanup() {
         );
         std::thread::sleep(Duration::from_millis(20));
     }
+    // Exercise real orphan adoption/reaping, not just the inspected Init flag.
+    // Redirect the peer's streams so it cannot retain the docker-exec pipes.
+    let id = owned.0.as_ref().unwrap();
+    let orphan = Command::new("docker")
+        .args([
+            "exec", id, "bash", "-c",
+            "mkfifo /scratch/reaper-stop; (read -r message < /scratch/reaper-stop) >/dev/null 2>&1 & printf '%s\\n' \"$!\"",
+        ])
+        .output()
+        .unwrap();
+    assert!(orphan.status.success(), "{orphan:?}");
+    let pid: u32 = std::str::from_utf8(&orphan.stdout)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let stopped = Command::new("docker")
+        .args([
+            "exec",
+            id,
+            "timeout",
+            "10",
+            "bash",
+            "-c",
+            "printf 'stop\\n' > /scratch/reaper-stop",
+        ])
+        .output()
+        .unwrap();
+    assert!(stopped.status.success(), "{stopped:?}");
+    let process = format!("/proc/{pid}");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let probe = Command::new("docker")
+            .args(["exec", id, "test", "-e", &process])
+            .output()
+            .unwrap();
+        match probe.status.code() {
+            Some(1) => break,
+            Some(0) => assert!(Instant::now() < deadline, "Orphan {pid} was not reaped"),
+            _ => panic!("Cannot inspect orphan process: {probe:?}"),
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let running = Command::new("docker")
+        .args(["inspect", "--format={{.State.Running}}", id])
+        .output()
+        .unwrap();
+    assert!(running.status.success(), "{running:?}");
+    assert_eq!(running.stdout, b"true\n");
     // SAFETY: launcher is our owned unreaped direct child.
     let result = unsafe { libc::kill(launcher.0.id() as i32, libc::SIGTERM) };
     assert_eq!(result, 0);

@@ -231,8 +231,10 @@ Missing dependencies or lock drift fail. Source, binary, runner, package, vendor
 fixture, catalog, profile and environment identities are retained in the artifact.
 
 The launcher inspects and validates the actual image, network-disabled/read-only
-container, bind mounts and the locked CPU/memory/swap/process policy before
-starting it. `--cpu-set` selects CPU IDs within that policy. Affinity is not an
+container, init reaper, bind mounts and the locked CPU/memory/swap/process policy
+before starting it. The reaper collects detached checkout workers after their
+foreground CLI exits, keeping zombies from consuming the process limit.
+`--cpu-set` selects CPU IDs within that policy. Affinity is not an
 exclusive reservation. Host identity, kernel,
 CPU model, storage mount and cgroup CPU/memory counters are recorded. Containers
 cannot isolate host storage contention, CPU frequency or kernel differences.
