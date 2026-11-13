@@ -39,10 +39,11 @@ impl Verbosity {
 #[derive(Debug)]
 enum Message {
     Bytes(Vec<u8>),
+    Progress(crate::progress::Progress),
     Finish(mpsc::Sender<()>),
 }
 
-/// A bounded, best-effort stderr sink for diagnostics.
+/// A best-effort stderr sink.
 #[derive(Debug, Clone)]
 pub struct Terminal {
     sender: SyncSender<Message>,
@@ -50,41 +51,6 @@ pub struct Terminal {
     pub verbosity: Verbosity,
 }
 impl Terminal {
-    /// Animate slow interactive queries on stderr. Dropping the guard clears the line.
-    pub fn spinner(&self, json: bool, label: &str) -> Spinner {
-        if json
-            || self.verbosity.quiet
-            || !io::stderr().is_terminal()
-            || std::env::var_os("TERM").is_some_and(|term| term == "dumb")
-        {
-            return Spinner(None);
-        }
-        self.start_spinner(label)
-    }
-
-    fn start_spinner(&self, label: &str) -> Spinner {
-        let (stop, receiver) = mpsc::channel();
-        let terminal = self.clone();
-        let label = label.to_owned();
-        let worker = std::thread::Builder::new()
-            .name("groove-progress".into())
-            .spawn(move || {
-                let mut frame = ["|", "/", "-", "\\"].into_iter().cycle();
-                let mut visible = false;
-                // Avoid flicker for quick queries. The channel wakes immediately on drop.
-                while receiver.recv_timeout(Duration::from_millis(100))
-                    == Err(mpsc::RecvTimeoutError::Timeout)
-                {
-                    visible = true;
-                    terminal.write(format!("\r{} {label}", frame.next().unwrap_or("|")).as_bytes());
-                }
-                if visible {
-                    terminal.write(b"\r\x1b[2K");
-                }
-            });
-        Spinner(worker.ok().map(|worker| (stop, worker)))
-    }
-
     pub fn new(verbosity: Verbosity) -> Self {
         // A separate descriptor avoids holding Rust's global stderr mutex while
         // a pipe blocks, including during process shutdown.
@@ -94,7 +60,7 @@ impl Terminal {
         }
     }
 
-    fn with_writer(verbosity: Verbosity, mut writer: impl Write + Send + 'static) -> Self {
+    fn with_writer(verbosity: Verbosity, writer: impl Write + Send + 'static) -> Self {
         let (sender, receiver) = mpsc::sync_channel(QUEUE_CHUNKS);
         let dropped = Arc::new(AtomicBool::new(false));
         let lost = dropped.clone();
@@ -102,30 +68,25 @@ impl Terminal {
         // stdout results and persistent diagnostics remain available.
         let _ = std::thread::Builder::new()
             .name("groove-stderr".into())
-            .spawn(move || {
-                while let Ok(message) = receiver.recv() {
-                    match message {
-                        Message::Bytes(bytes) => {
-                            if writer.write_all(&bytes).is_err() {
-                                break;
-                            }
-                        }
-                        Message::Finish(done) => {
-                            if lost.load(Ordering::Relaxed) && !verbosity.quiet {
-                                let _ = writer
-                                    .write_all(b"\nwarning: terminal diagnostics were dropped.\n");
-                            }
-                            let _ = writer.flush();
-                            let _ = done.send(());
-                            break;
-                        }
-                    }
-                }
-            });
+            .spawn(move || deliver(receiver, writer, lost, verbosity));
         Self {
             sender,
             dropped,
             verbosity,
+        }
+    }
+
+    /// Start delayed command progress. All output uses the same bounded sink as
+    /// diagnostics; redirected human output stays unadorned.
+    pub fn start_progress(&self, json: bool, request_id: Option<String>, command: &'static str) {
+        let animated = io::stderr().is_terminal()
+            && std::env::var_os("TERM").is_none_or(|term| term != "dumb");
+        if !self.verbosity.quiet && (json || animated) {
+            let _ = self
+                .sender
+                .try_send(Message::Progress(crate::progress::Progress::new(
+                    json, request_id, command,
+                )));
         }
     }
 
@@ -164,14 +125,57 @@ impl Terminal {
     }
 }
 
-/// Stops and joins the presentation worker on success, error or unwind.
-pub struct Spinner(Option<(mpsc::Sender<()>, std::thread::JoinHandle<()>)>);
-
-impl Drop for Spinner {
-    fn drop(&mut self) {
-        if let Some((stop, worker)) = self.0.take() {
-            let _ = stop.send(());
-            let _ = worker.join();
+fn deliver(
+    receiver: mpsc::Receiver<Message>,
+    mut writer: impl Write,
+    lost: Arc<AtomicBool>,
+    verbosity: Verbosity,
+) {
+    let mut progress: Option<crate::progress::Progress> = None;
+    let mut line_start = true;
+    loop {
+        let received = if progress.is_some() {
+            receiver.recv_timeout(Duration::from_millis(100))
+        } else {
+            receiver
+                .recv()
+                .map_err(|_| mpsc::RecvTimeoutError::Disconnected)
+        };
+        let message = match received {
+            Ok(message) => Some(message),
+            Err(mpsc::RecvTimeoutError::Timeout) => None,
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        };
+        match message {
+            Some(Message::Progress(state)) => progress = Some(state),
+            Some(Message::Bytes(bytes)) => {
+                if let Some(progress) = &mut progress {
+                    if progress.clear(&mut writer).is_err() {
+                        break;
+                    }
+                }
+                if writer.write_all(&bytes).is_err() {
+                    break;
+                }
+                line_start = bytes.last() == Some(&b'\n');
+            }
+            Some(Message::Finish(done)) => {
+                if let Some(progress) = &mut progress {
+                    let _ = progress.clear(&mut writer);
+                }
+                if lost.load(Ordering::Relaxed) && !verbosity.quiet {
+                    let _ = writer.write_all(b"\nwarning: terminal diagnostics were dropped.\n");
+                }
+                let _ = writer.flush();
+                let _ = done.send(());
+                break;
+            }
+            None => {}
+        }
+        if let Some(progress) = &mut progress {
+            if progress.tick(&mut writer, line_start).is_err() {
+                break;
+            }
         }
     }
 }
@@ -192,7 +196,7 @@ mod tests {
     }
 
     #[test]
-    fn progress_clears_a_visible_frame_when_an_operation_fails() {
+    fn progress_clears_a_visible_frame_before_error_output_and_finish() {
         let (sender, receiver) = mpsc::channel();
         let terminal = Terminal::with_writer(
             Verbosity {
@@ -201,16 +205,32 @@ mod tests {
             },
             Capture(sender),
         );
-        fn failed_query(terminal: &Terminal, receiver: &mpsc::Receiver<Vec<u8>>) -> Result<(), ()> {
-            let _progress = terminal.start_spinner("Measuring disk usage");
-            let frame = receiver.recv_timeout(Duration::from_secs(5)).unwrap();
-            assert!(String::from_utf8_lossy(&frame).contains("Measuring disk usage"));
-            Err(())
+        terminal
+            .sender
+            .send(Message::Progress(crate::progress::Progress::new(
+                false, None, "show",
+            )))
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut output = Vec::new();
+        while !String::from_utf8_lossy(&output).contains("Running groove show") {
+            output.extend(
+                receiver
+                    .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                    .unwrap(),
+            );
         }
-        let result = failed_query(&terminal, &receiver);
-        assert_eq!(result, Err(()));
+        terminal.write(b"error: query failed\n");
         terminal.finish();
-        let output: Vec<u8> = receiver.try_iter().flatten().collect();
-        assert!(output.ends_with(b"\r\x1b[2K"));
+        output.extend(receiver.try_iter().flatten());
+        let output = String::from_utf8(output).unwrap();
+        assert!(
+            output.contains("\r\x1b[2Kerror: query failed\n"),
+            "{output:?}"
+        );
+        assert!(
+            output.ends_with("error: query failed\n") || output.ends_with("\r\x1b[2K"),
+            "{output:?}"
+        );
     }
 }
