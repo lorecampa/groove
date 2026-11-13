@@ -165,6 +165,12 @@ fn pool_selection_is_explicit_scoped_and_schema_conformant() {
     assert!(catalog.status.success());
     let catalog = checked(&catalog);
     let pools = catalog["result"]["pools"].as_array().unwrap();
+    assert_eq!(pools.len(), 1);
+    assert_eq!(pools[0]["name"], "backend");
+    let catalog = cli(&repo, &["pools", "--all"]);
+    assert!(catalog.status.success());
+    let catalog = checked(&catalog);
+    let pools = catalog["result"]["pools"].as_array().unwrap();
     assert_eq!(pools.len(), 2);
     assert_eq!(pools[0]["name"], "backend");
     assert_eq!(pools[0]["phase"], "ready");
@@ -238,6 +244,29 @@ fn an_explicit_default_preserves_existing_layout_and_human_output_names_named_po
         .unwrap();
     assert!(output.status.success());
     let text = String::from_utf8_lossy(&output.stdout);
+    assert!(text.contains("frontend"));
+    assert!(!text.contains("default"), "{text}");
+    assert!(!text.contains("deleted"), "{text}");
+    let output = support::groove_human_in(&repo.path)
+        .args(["pools", "--all"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let text = String::from_utf8_lossy(&output.stdout);
     assert!(text.contains("default") && text.contains("deleted") && text.contains("frontend"));
+    assert_success(&cli(&repo, &["--pool", "frontend", "destroy"]));
+    let empty = cli(&repo, &["pools"]);
+    assert!(empty.status.success());
+    assert_eq!(checked(&empty)["result"]["pools"], serde_json::json!([]));
+    let empty = support::groove_human_in(&repo.path)
+        .arg("pools")
+        .output()
+        .unwrap();
+    assert!(empty.status.success());
+    assert_eq!(String::from_utf8_lossy(&empty.stdout), "No pools found.\n");
+    assert_success(&cli(
+        &repo,
+        &["--pool", "frontend", "init", "--capacity", "1"],
+    ));
     assert_success(&cli(&repo, &["--pool", "frontend", "acquire"]));
 }

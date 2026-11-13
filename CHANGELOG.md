@@ -21,6 +21,8 @@
   runs resolve relative scratch paths before invoking fixture subprocesses.
   A separate CRLF profile measures checkout-conversion costs and verifies
   restoration of physical line endings that normalize to the same Git blob.
+- `pools` hides deleted pools by default in text and JSON output. Use
+  `pools --all` to include retained deleted pools; interrupted pools stay visible.
 - New pools default to `~/.worktrees/<project>-<repo-id>/<pool>` on Linux and
   macOS. Set the global `worktrees.root` preference to change the parent or use
   `init --worktree-root` for an exact pool path. Existing pools keep their roots.

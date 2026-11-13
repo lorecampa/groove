@@ -91,9 +91,13 @@ impl From<Cleanup> for groove_core::CleanupPolicy {
 
 #[derive(Subcommand)]
 pub enum Command {
-    /// List all repository pools, including interrupted and retained deleted pools.
+    /// List repository pools, including interrupted pools; hide deleted pools by default.
     #[command(after_help = help!("pools"))]
-    Pools,
+    Pools {
+        /// Include deleted pools with retained history and recovery information.
+        #[arg(long)]
+        all: bool,
+    },
     /// Delete an idle pool's checkouts and caches, retaining snapshots and history.
     #[command(after_help = help!("destroy"))]
     Destroy {
@@ -464,7 +468,7 @@ impl Command {
     /// Stable command name for logs.
     pub fn name(&self) -> &'static str {
         match self {
-            Self::Pools => "pools",
+            Self::Pools { .. } => "pools",
             Self::Destroy { .. } => "destroy",
             Self::Init { .. } => "init",
             Self::Acquire { .. } => "acquire",

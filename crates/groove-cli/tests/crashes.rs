@@ -490,6 +490,16 @@ fn interrupted_named_initialization_keeps_its_root_claim_and_sibling_usable() {
         catalog.iter().find(|p| p.name == frontend).unwrap().phase,
         PoolPhase::Initializing
     );
+    let listed = support::groove_in(&repo.path)
+        .arg("pools")
+        .output()
+        .unwrap();
+    let listed = support::assert_success(&listed);
+    assert!(listed["result"]["pools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|pool| pool["name"] == "frontend" && pool["phase"] == "initializing"));
     let lock = repo.state().join("pools/frontend/locks/wt-0001.lock");
     let inode = std::fs::metadata(&lock).unwrap().ino();
     assert_eq!(
@@ -575,6 +585,16 @@ fn interrupted_named_deletion_never_disables_a_siblings_workers_or_results() {
         catalog.iter().find(|p| p.name == frontend).unwrap().phase,
         PoolPhase::Deleting
     );
+    let listed = support::groove_in(&repo.path)
+        .arg("pools")
+        .output()
+        .unwrap();
+    let listed = support::assert_success(&listed);
+    assert!(listed["result"]["pools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|pool| pool["name"] == "frontend" && pool["phase"] == "deleting"));
     assert_eq!(
         catalog.iter().find(|p| p.name == backend).unwrap().phase,
         PoolPhase::Ready
