@@ -6,6 +6,7 @@ mod contract;
 mod logging;
 mod output;
 mod preferences;
+mod progress;
 mod terminal;
 
 use args::{Args, Command};
@@ -117,6 +118,13 @@ fn run(args: &Args) -> u8 {
         verbose: args.verbose,
         quiet: args.quiet,
     });
+    // The preferences editor owns the terminal while it runs.
+    if !matches!(
+        args.command,
+        Command::Config(args::ConfigCommand::Global(args::GlobalCommand::Edit))
+    ) {
+        terminal.start_progress(args.json, args.request_id.clone(), args.command.name());
+    }
     run_command(args, &terminal)
 }
 
@@ -149,8 +157,6 @@ fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {
         repo: &args.repo,
         selected_pool: args.pool.as_ref(),
         git_timeout: Duration::from_millis(args.git_timeout_ms),
-        terminal,
-        json: args.json,
     };
     let elapsed_ms = || u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
     match commands::run(&context, &args.command) {

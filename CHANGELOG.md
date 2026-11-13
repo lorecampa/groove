@@ -15,6 +15,9 @@
 
 ### Added
 
+- Long-running commands show delayed spinners on interactive stderr, or versioned
+  JSON liveness events on stderr with `--json`. `--quiet` suppresses progress;
+  redirected human output and the single JSON stdout response stay unchanged.
 - Named experimental-feature configuration for user preferences,
   with explicit opt-in, retained graduated names, and errors for unknown/removed
   capabilities. The initial registry is empty. User preferences now have a

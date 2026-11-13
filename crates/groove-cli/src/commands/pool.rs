@@ -12,11 +12,6 @@ use std::path::PathBuf;
 pub fn pools(context: &Context<'_>, all: bool, disk_usage: bool) -> Result<Output> {
     let mut pools = Pool::list_pools(context.repo, context.git_timeout)?;
     pools.retain(|pool| all || pool.phase != groove_core::PoolPhase::Deleted);
-    let _progress = disk_usage.then(|| {
-        context
-            .terminal
-            .spinner(context.json, "Measuring pool disk usage…")
-    });
     let mut values = Vec::new();
     let mut rows = Vec::new();
     for p in &pools {
@@ -313,9 +308,6 @@ pub fn show(
     let mut text = fields(&serde_json::to_value(&settings)?, 0) + "\n" + &slot_table(&inspection);
     let mut value = json!({ "pool": settings, "inspection": inspection });
     if disk_usage {
-        let _progress = context
-            .terminal
-            .spinner(context.json, "Measuring pool disk usage…");
         let usage = pool.storage_usage()?;
         text.push_str(&storage_text(&usage));
         value["storage"] = serde_json::to_value(usage)?;
