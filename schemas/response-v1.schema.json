@@ -25,6 +25,13 @@
               "worktree_root"
             ],
             "properties": {
+              "storage": {
+                "description": "Present with pools --disk-usage. Logical bytes; null for interrupted pools whose storage cannot be inspected.",
+                "anyOf": [
+                  {"$ref": "#/$defs/storage_result/properties/storage"},
+                  {"type": "null"}
+                ]
+              },
               "name": {
                 "$ref": "#/$defs/pool_name"
               },
@@ -658,6 +665,10 @@
     },
     "inspection_result": {
       "properties": {
+        "storage": {
+          "description": "Present with show --disk-usage in the pool view; logical bytes, excluding shared Git objects and snapshots.",
+          "$ref": "#/$defs/storage_result/properties/storage"
+        },
         "inspection": {
           "properties": {
             "capacity": {

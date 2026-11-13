@@ -8,6 +8,9 @@
   with explicit opt-in, retained graduated names, and errors for unknown/removed
   capabilities. The initial registry is empty. User preferences now have a
   published TOML data-model schema.
+- `pools --disk-usage` compares logical workspace, cache and log/history sizes.
+  `show --disk-usage` adds a storage breakdown to the selected pool's view.
+  Slow scans show a spinner on interactive stderr outside JSON/quiet mode.
 - Pi can install the portable skill as a Git/local package. Agent setup separates
   installation, session use and project defaults, with Hermes instructions and
   repository-catalog distribution guidance.

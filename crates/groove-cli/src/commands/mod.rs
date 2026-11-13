@@ -20,6 +20,7 @@ pub struct Context<'a> {
     pub selected_pool: Option<&'a groove_core::PoolName>,
     pub git_timeout: Duration,
     pub terminal: &'a crate::terminal::Terminal,
+    pub json: bool,
 }
 impl Context<'_> {
     fn pool_name(&self) -> groove_core::PoolName {
@@ -54,7 +55,7 @@ fn select_id(pool: &Pool, selector: &LeaseSelector) -> Result<groove_core::Lease
 /// Run one parsed command.
 pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
     match command {
-        Command::Pools { all } => pool::pools(context, *all),
+        Command::Pools { all, disk_usage } => pool::pools(context, *all, *disk_usage),
         Command::Destroy {
             dry_run,
             discard_changes,
@@ -117,7 +118,11 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
             *force,
         ),
         Command::List { slots, details } => pool::list(context, *slots, *details),
-        Command::Show { selector, details } => pool::show(context, selector, *details),
+        Command::Show {
+            selector,
+            details,
+            disk_usage,
+        } => pool::show(context, selector, *details, *disk_usage),
         Command::Completions { shell } => completions::run(*shell),
         Command::Snapshot(command) => snapshot::run(context, command),
         Command::Config(command) => config::run(context, command),

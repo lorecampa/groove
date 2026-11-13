@@ -11,6 +11,91 @@ fn cli(repo: &Repo, args: &[&str]) -> std::process::Output {
         .output()
         .unwrap()
 }
+
+#[test]
+fn disk_usage_is_opt_in_scoped_and_includes_ignored_files_without_following_symlinks() {
+    let repo = Repo::new();
+    for pool in ["default", "frontend"] {
+        assert_success(&cli(&repo, &["--pool", pool, "init", "--capacity", "1"]));
+    }
+    let acquired = assert_success(&cli(&repo, &["acquire", "--task", "sizing"]));
+    let path = std::path::Path::new(acquired["result"]["worktree_path"].as_str().unwrap());
+    let before = cli(&repo, &["show", "--disk-usage"]);
+    assert!(before.status.success());
+    let before = checked(&before)["result"]["storage"]["workspace_bytes"]
+        .as_u64()
+        .unwrap();
+    std::fs::create_dir(path.join("ignored")).unwrap();
+    std::fs::write(path.join("ignored/build.bin"), vec![0; 4096]).unwrap();
+    let outside = repo.temp.path().join("outside.bin");
+    std::fs::write(&outside, vec![0; 8192]).unwrap();
+    std::os::unix::fs::symlink(&outside, path.join("ignored/link")).unwrap();
+
+    let plain = cli(&repo, &["pools"]);
+    assert!(plain.status.success());
+    assert!(checked(&plain)["result"]["pools"][0]
+        .get("storage")
+        .is_none());
+    let plain = cli(&repo, &["show"]);
+    assert!(plain.status.success());
+    assert!(checked(&plain)["result"].get("storage").is_none());
+
+    for args in [
+        vec!["pools", "--disk-usage"],
+        vec!["pools", "--disk-usage", "--quiet"],
+    ] {
+        let output = cli(&repo, &args);
+        assert!(output.status.success());
+        assert!(output.stderr.is_empty(), "{output:?}");
+        let value = checked(&output);
+        let pools = value["result"]["pools"].as_array().unwrap();
+        assert_eq!(pools[0]["name"], "default");
+        assert_eq!(pools[0]["storage"]["workspace_bytes"], before + 4096);
+        assert_eq!(pools[1]["name"], "frontend");
+        assert_eq!(pools[1]["storage"]["workspace_bytes"], 0);
+    }
+    let output = cli(&repo, &["show", "--disk-usage", "--details"]);
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty(), "{output:?}");
+    let value = checked(&output);
+    assert_eq!(value["result"]["storage"]["workspace_bytes"], before + 4096);
+    assert_eq!(value["result"]["inspection"]["capacity"], 1);
+    for args in [vec!["pools", "--disk-usage"], vec!["show", "--disk-usage"]] {
+        let output = support::groove_human_in(&repo.path)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let text = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            text.contains("WORKSPACES") && text.contains("KiB"),
+            "{text}"
+        );
+        assert!(output.stderr.is_empty(), "{output:?}");
+    }
+    for selector in [
+        vec!["--task", "sizing"],
+        vec!["--slot", "wt-0001"],
+        vec![
+            "--lease-id",
+            acquired["result"]["lease_id"].as_str().unwrap(),
+        ],
+    ] {
+        let mut args = vec!["show", "--disk-usage"];
+        args.extend(selector);
+        let output = cli(&repo, &args);
+        assert_eq!(output.status.code(), Some(2));
+        assert_eq!(checked(&output)["error"]["code"], "INVALID_ARGUMENT");
+    }
+    assert_success(&cli(&repo, &["--pool", "frontend", "destroy"]));
+    let output = cli(&repo, &["pools", "--all", "--disk-usage"]);
+    assert!(output.status.success());
+    assert_eq!(
+        checked(&output)["result"]["pools"][1]["storage"]["workspace_bytes"],
+        0
+    );
+    assert_success(&cli(&repo, &["release", "--task", "sizing"]));
+}
 fn checked(output: &std::process::Output) -> Value {
     let response: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(output.stdout.iter().filter(|b| **b == b'\n').count(), 1);
@@ -23,6 +108,32 @@ fn checked(output: &std::process::Output) -> Value {
         .collect();
     assert!(errors.is_empty(), "{errors:?}: {response}");
     response
+}
+
+#[test]
+fn ordinary_pool_views_do_not_scan_storage_and_scan_errors_preserve_external_files() {
+    let repo = Repo::new();
+    assert_success(&cli(&repo, &["init", "--capacity", "1"]));
+    let artifacts = repo.state().join("artifacts");
+    if artifacts.exists() {
+        std::fs::rename(&artifacts, repo.temp.path().join("saved-artifacts")).unwrap();
+    }
+    let external = repo.temp.path().join("external");
+    std::fs::create_dir(&external).unwrap();
+    std::fs::write(external.join("keep"), "external result").unwrap();
+    std::os::unix::fs::symlink(&external, artifacts).unwrap();
+    for command in ["pools", "show"] {
+        let plain = cli(&repo, &[command]);
+        assert!(plain.status.success(), "{plain:?}");
+        checked(&plain);
+        let scan = cli(&repo, &[command, "--disk-usage"]);
+        assert_eq!(scan.status.code(), Some(2));
+        assert_eq!(checked(&scan)["error"]["code"], "UNSUPPORTED_CONFIGURATION");
+        assert_eq!(
+            std::fs::read_to_string(external.join("keep")).unwrap(),
+            "external result"
+        );
+    }
 }
 
 #[test]

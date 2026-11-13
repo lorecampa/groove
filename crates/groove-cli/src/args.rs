@@ -97,6 +97,9 @@ pub enum Command {
         /// Include deleted pools with retained history and recovery information.
         #[arg(long)]
         all: bool,
+        /// Scan logical workspace, cache and log sizes (can be slow on large pools).
+        #[arg(long)]
+        disk_usage: bool,
     },
     /// Delete an idle pool's checkouts and caches, retaining snapshots and history.
     #[command(after_help = help!("destroy"))]
@@ -218,6 +221,9 @@ pub enum Command {
         /// Include bounded local Git status.
         #[arg(long)]
         details: bool,
+        /// Scan this pool's logical storage sizes (can be slow; pool view only).
+        #[arg(long, conflicts_with_all = ["lease_id", "task", "slot"])]
+        disk_usage: bool,
     },
     /// Print a shell completion script for commands, options and fixed values.
     #[command(after_help = help!("completions"))]

@@ -9,34 +9,108 @@ use groove_core::{LeaseInfo, Pool, PoolInspection, PoolOptions, Result, SlotId, 
 use serde_json::json;
 use std::path::PathBuf;
 
-pub fn pools(context: &Context<'_>, all: bool) -> Result<Output> {
+pub fn pools(context: &Context<'_>, all: bool, disk_usage: bool) -> Result<Output> {
     let mut pools = Pool::list_pools(context.repo, context.git_timeout)?;
     pools.retain(|pool| all || pool.phase != groove_core::PoolPhase::Deleted);
-    let rows: Vec<Vec<String>> = pools
-        .iter()
-        .map(|p| {
-            vec![
-                p.name.to_string(),
-                match p.phase {
-                    groove_core::PoolPhase::Initializing => "initializing",
-                    groove_core::PoolPhase::Ready => "ready",
-                    groove_core::PoolPhase::Deleting => "deleting",
-                    groove_core::PoolPhase::Deleted => "deleted",
-                }
-                .into(),
-                p.capacity.map_or_else(|| "-".into(), |n| n.to_string()),
-                p.worktree_root
-                    .as_ref()
-                    .map_or_else(|| "-".into(), |r| r.display().to_string()),
-            ]
-        })
-        .collect();
+    let _progress = disk_usage.then(|| {
+        context
+            .terminal
+            .spinner(context.json, "Measuring pool disk usage…")
+    });
+    let mut values = Vec::new();
+    let mut rows = Vec::new();
+    for p in &pools {
+        let usage = if disk_usage
+            && matches!(
+                p.phase,
+                groove_core::PoolPhase::Ready | groove_core::PoolPhase::Deleted
+            ) {
+            Some(
+                Pool::open_retained_named(context.repo, &p.name, context.git_timeout)?
+                    .storage_usage()?,
+            )
+        } else {
+            None
+        };
+        let mut value = serde_json::to_value(p)?;
+        if disk_usage {
+            value["storage"] = serde_json::to_value(&usage)?;
+        }
+        values.push(value);
+        let mut row = vec![
+            p.name.to_string(),
+            match p.phase {
+                groove_core::PoolPhase::Initializing => "initializing",
+                groove_core::PoolPhase::Ready => "ready",
+                groove_core::PoolPhase::Deleting => "deleting",
+                groove_core::PoolPhase::Deleted => "deleted",
+            }
+            .into(),
+            p.capacity.map_or_else(|| "-".into(), |n| n.to_string()),
+            p.worktree_root
+                .as_ref()
+                .map_or_else(|| "-".into(), |r| r.display().to_string()),
+        ];
+        if disk_usage {
+            for bytes in usage
+                .as_ref()
+                .map(|u| {
+                    [
+                        u.workspace_bytes,
+                        u.artifact_bytes,
+                        u.log_bytes
+                            .saturating_add(u.untracked_log_bytes)
+                            .saturating_add(u.history_bytes),
+                    ]
+                })
+                .map_or([None; 3], |sizes| sizes.map(Some))
+            {
+                row.push(bytes.map_or_else(|| "-".into(), human_bytes));
+            }
+        }
+        rows.push(row);
+    }
+    let mut columns = vec!["POOL", "STATE", "CAPACITY", "CHECKOUT ROOT"];
+    if disk_usage {
+        columns.extend(["WORKSPACES", "CACHES", "LOGS/HISTORY"]);
+    }
     let text = if rows.is_empty() {
         "No pools found.\n".into()
     } else {
-        table(&["POOL", "STATE", "CAPACITY", "CHECKOUT ROOT"], &rows)
+        table(&columns, &rows)
     };
-    Output::text(json!({"pools": pools}), text)
+    Output::text(json!({"pools": values}), text)
+}
+
+fn human_bytes(bytes: u64) -> String {
+    let units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"];
+    let mut size = bytes as f64;
+    let mut unit = 0;
+    while size >= 1024.0 && unit + 1 < units.len() {
+        size /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} B")
+    } else {
+        format!("{size:.1} {}", units[unit])
+    }
+}
+
+fn storage_text(usage: &groove_core::StorageUsage) -> String {
+    format!(
+        "\nStorage (logical sizes):\n{}",
+        table(
+            &["WORKSPACES", "CACHES", "LOGS", "HISTORY", "UNTRACKED LOGS"],
+            &[vec![
+                human_bytes(usage.workspace_bytes),
+                human_bytes(usage.artifact_bytes),
+                human_bytes(usage.log_bytes),
+                human_bytes(usage.history_bytes),
+                human_bytes(usage.untracked_log_bytes)
+            ]]
+        )
+    )
 }
 
 pub fn destroy(
@@ -206,7 +280,12 @@ fn inspect_slot(
     }
 }
 
-pub fn show(context: &Context<'_>, selector: &OptionalSelector, details: bool) -> Result<Output> {
+pub fn show(
+    context: &Context<'_>,
+    selector: &OptionalSelector,
+    details: bool,
+    disk_usage: bool,
+) -> Result<Output> {
     let pool = context.pool()?;
     let lease = match (&selector.lease_id, &selector.task) {
         (Some(id), _) => Some(pool.lease_info(*id)?),
@@ -233,6 +312,15 @@ pub fn show(context: &Context<'_>, selector: &OptionalSelector, details: bool) -
     }
     let settings = pool.settings()?;
     let inspection = inspect(&pool, details, context.git_timeout)?;
-    let text = fields(&serde_json::to_value(&settings)?, 0) + "\n" + &slot_table(&inspection);
-    Output::text(json!({ "pool": settings, "inspection": inspection }), text)
+    let mut text = fields(&serde_json::to_value(&settings)?, 0) + "\n" + &slot_table(&inspection);
+    let mut value = json!({ "pool": settings, "inspection": inspection });
+    if disk_usage {
+        let _progress = context
+            .terminal
+            .spinner(context.json, "Measuring pool disk usage…");
+        let usage = pool.storage_usage()?;
+        text.push_str(&storage_text(&usage));
+        value["storage"] = serde_json::to_value(usage)?;
+    }
+    Output::text(value, text)
 }

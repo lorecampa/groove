@@ -168,6 +168,7 @@ fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {
         selected_pool: args.pool.as_ref(),
         git_timeout: Duration::from_millis(args.git_timeout_ms),
         terminal,
+        json: args.json,
     };
     let elapsed_ms = || u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
     match commands::run(&context, &args.command) {

@@ -1,6 +1,7 @@
 EXAMPLES:
   groove pools
   groove pools --all
+  groove pools --disk-usage
   groove --pool frontend init --capacity 3 --cleanup warm
   groove --pool backend init --capacity 2 --cleanup pristine
   groove --pool frontend acquire --task fix-navigation
@@ -12,6 +13,15 @@ letter. Pool names are portable across case-sensitive and case-insensitive disks
 All linked worktrees share this catalog. Deleted pools are hidden by default in
 both text and JSON output; use --all to include them and find retained history.
 Interrupted pools (initializing or deleting) remain visible for recovery.
+
+--disk-usage scans workspace contents (including ignored build outputs), artifact
+caches, logs and history for each listed ready or deleted pool. Sizes are logical
+file bytes, not allocated or reclaimable blocks; shared Git objects and snapshots
+are excluded. Scans can be slow on large pools and may change as writers run.
+Interrupted pools show '-' for sizes (storage:null in JSON). Other scan failures
+fail the command rather than reporting a misleading zero. Without the flag no
+storage scan runs. Interactive stderr shows a spinner while scanning, except with
+--json or --quiet; redirected stderr has no animation.
 
 Capacity, cleanup, checkout roots, task labels, request keys, caches, history and
 saved-release receipts are scoped to each pool. Keys stay tombstoned across reinit of
