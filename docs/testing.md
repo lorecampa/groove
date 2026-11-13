@@ -100,6 +100,13 @@ and validates the checkpoint name. `harness.rs` exercises early exit, missing an
 incomplete readiness, large output, wait timeouts and cleanup during unwind.
 When adding a new harness failure mode, test it with a real failing peer.
 
+Give independent repository scenarios separate named tests when using
+`in_subprocess`. Its exit deadline covers the entire selected fixture, including
+repository setup and cleanup. A loop over unrelated crash checkpoints shares one
+deadline and can time out even when each individual scenario completes within it.
+Keep checkpoints that form one recovery sequence together; preserve the existing
+wait bounds and assertions when separating independent scenarios.
+
 Fork temporarily inherits **all** open descriptors, including another test thread's
 CLOEXEC leases, until exec. A Rust handle going away does not prove kernel ownership
 has ended. `ownership.rs` and `handoff.rs` use `in_subprocess` to run fixtures concurrently

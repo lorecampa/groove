@@ -74,130 +74,145 @@ fn initialization_crash_boundaries_resume_without_replacing_locks() {
 }
 
 #[test]
-fn deletion_crashes_resume_with_the_same_policy_and_preserve_results_and_inodes() {
-    if !support::in_subprocess(
-        "deletion_crashes_resume_with_the_same_policy_and_preserve_results_and_inodes",
-    ) {
-        return;
+fn deletion_crash_at_pool_deleting_preserves_results_and_inodes() {
+    if support::in_subprocess("deletion_crash_at_pool_deleting_preserves_results_and_inodes") {
+        assert_deletion_crash_preserves_results_and_inodes("pool-deleting");
     }
+}
+
+#[test]
+fn deletion_crash_at_slot_removal_preserves_results_and_inodes() {
+    if support::in_subprocess("deletion_crash_at_slot_removal_preserves_results_and_inodes") {
+        assert_deletion_crash_preserves_results_and_inodes("pool-slot-removed");
+    }
+}
+
+#[test]
+fn deletion_crash_at_artifact_removal_preserves_results_and_inodes() {
+    if support::in_subprocess("deletion_crash_at_artifact_removal_preserves_results_and_inodes") {
+        assert_deletion_crash_preserves_results_and_inodes("pool-artifact-removed");
+    }
+}
+
+#[test]
+fn deletion_crash_at_pool_deleted_preserves_results_and_inodes() {
+    if support::in_subprocess("deletion_crash_at_pool_deleted_preserves_results_and_inodes") {
+        assert_deletion_crash_preserves_results_and_inodes("pool-deleted");
+    }
+}
+
+fn assert_deletion_crash_preserves_results_and_inodes(name: &str) {
     use groove_core::{
         snapshot::{SaveOptions, Snapshots},
         DestroyOptions, ErrorCode,
     };
     use std::{fs, os::unix::fs::PermissionsExt, time::Duration};
-    for name in [
-        "pool-deleting",
-        "pool-slot-removed",
-        "pool-artifact-removed",
-        "pool-deleted",
-    ] {
-        let repo = Repo::new();
-        Pool::init(
-            &repo.path,
-            PoolOptions {
-                capacity: 2,
-                worktree_root: Some(support::worktree_root(&repo.path, "default")),
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        let pool = Pool::open(&repo.path).unwrap();
-        let a = pool.acquire(Default::default()).unwrap();
-        let b = pool.acquire(Default::default()).unwrap();
-        drop(a);
-        drop(b);
-        let cache = repo.state().join("artifacts");
-        fs::create_dir(&cache).unwrap();
-        fs::set_permissions(&cache, fs::Permissions::from_mode(0o700)).unwrap();
-        let data = cache.join("b".repeat(64));
-        fs::create_dir(&data).unwrap();
-        fs::set_permissions(&data, fs::Permissions::from_mode(0o700)).unwrap();
-        fs::write(data.join("bytes"), "cache").unwrap();
-        let snapshots = Snapshots::open(&repo.path, Duration::from_secs(10)).unwrap();
-        let snapshot = snapshots.save(SaveOptions::default()).unwrap();
-        let inodes: Vec<_> = fs::read_dir(repo.state().join("locks"))
-            .unwrap()
-            .map(|e| {
-                let path = e.unwrap().path();
-                let ino = fs::metadata(&path).unwrap().ino();
-                (path, ino)
-            })
-            .collect();
-        let (mut command, listener) =
-            checkpoint_command(&repo, name, &["destroy", "--discard-changes"]);
-        kill_at_checkpoint(&mut command, listener, name);
+    let repo = Repo::new();
+    Pool::init(
+        &repo.path,
+        PoolOptions {
+            capacity: 2,
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let pool = Pool::open(&repo.path).unwrap();
+    let a = pool.acquire(Default::default()).unwrap();
+    let b = pool.acquire(Default::default()).unwrap();
+    drop(a);
+    drop(b);
+    let cache = repo.state().join("artifacts");
+    fs::create_dir(&cache).unwrap();
+    fs::set_permissions(&cache, fs::Permissions::from_mode(0o700)).unwrap();
+    let data = cache.join("b".repeat(64));
+    fs::create_dir(&data).unwrap();
+    fs::set_permissions(&data, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::write(data.join("bytes"), "cache").unwrap();
+    let snapshots = Snapshots::open(&repo.path, Duration::from_secs(10)).unwrap();
+    let snapshot = snapshots.save(SaveOptions::default()).unwrap();
+    let inodes: Vec<_> = fs::read_dir(repo.state().join("locks"))
+        .unwrap()
+        .map(|e| {
+            let path = e.unwrap().path();
+            let ino = fs::metadata(&path).unwrap().ino();
+            (path, ino)
+        })
+        .collect();
+    let (mut command, listener) =
+        checkpoint_command(&repo, name, &["destroy", "--discard-changes"]);
+    kill_at_checkpoint(&mut command, listener, name);
+    assert_eq!(
+        Pool::open(&repo.path).unwrap_err().code,
+        if name == "pool-deleted" {
+            ErrorCode::NotInitialized
+        } else {
+            ErrorCode::ConfigConflict
+        }
+    );
+    if name != "pool-deleted" {
         assert_eq!(
-            Pool::open(&repo.path).unwrap_err().code,
-            if name == "pool-deleted" {
-                ErrorCode::NotInitialized
-            } else {
-                ErrorCode::ConfigConflict
-            }
+            Pool::init(
+                &repo.path,
+                PoolOptions {
+                    capacity: 2,
+                    worktree_root: Some(support::worktree_root(&repo.path, "default")),
+                    ..Default::default()
+                }
+            )
+            .unwrap_err()
+            .code,
+            ErrorCode::ConfigConflict
         );
-        if name != "pool-deleted" {
-            assert_eq!(
-                Pool::init(
-                    &repo.path,
-                    PoolOptions {
-                        capacity: 2,
-                        worktree_root: Some(support::worktree_root(&repo.path, "default")),
-                        ..Default::default()
-                    }
-                )
+        assert_eq!(
+            Pool::destroy(&repo.path, Default::default())
                 .unwrap_err()
                 .code,
-                ErrorCode::ConfigConflict
-            );
-            assert_eq!(
-                Pool::destroy(&repo.path, Default::default())
-                    .unwrap_err()
-                    .code,
-                ErrorCode::ConfigConflict
-            );
-        }
-        let before = fs::read(repo.state().join("lifecycle.json")).unwrap();
-        let preview = Pool::destroy(
-            &repo.path,
-            DestroyOptions {
-                dry_run: true,
-                discard_changes: true,
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        assert_eq!(
-            fs::read(repo.state().join("lifecycle.json")).unwrap(),
-            before
+            ErrorCode::ConfigConflict
         );
-        let result = Pool::destroy(
-            &repo.path,
-            DestroyOptions {
-                discard_changes: true,
-                pool_id: preview.pool_id,
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        assert!(result.deleted);
-        assert!(!repo.slot(1).exists() && !repo.slot(2).exists() && !data.exists());
-        for (path, ino) in inodes {
-            assert_eq!(fs::metadata(path).unwrap().ino(), ino);
-        }
-        assert_eq!(snapshots.show(&snapshot.id).unwrap().id, snapshot.id);
-        Pool::init(
-            &repo.path,
-            PoolOptions {
-                capacity: 1,
-                worktree_root: Some(support::worktree_root(&repo.path, "default")),
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        assert!(Pool::open(&repo.path)
-            .unwrap()
-            .acquire(Default::default())
-            .is_ok());
     }
+    let before = fs::read(repo.state().join("lifecycle.json")).unwrap();
+    let preview = Pool::destroy(
+        &repo.path,
+        DestroyOptions {
+            dry_run: true,
+            discard_changes: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read(repo.state().join("lifecycle.json")).unwrap(),
+        before
+    );
+    let result = Pool::destroy(
+        &repo.path,
+        DestroyOptions {
+            discard_changes: true,
+            pool_id: preview.pool_id,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(result.deleted);
+    assert!(!repo.slot(1).exists() && !repo.slot(2).exists() && !data.exists());
+    for (path, ino) in inodes {
+        assert_eq!(fs::metadata(path).unwrap().ino(), ino);
+    }
+    assert_eq!(snapshots.show(&snapshot.id).unwrap().id, snapshot.id);
+    Pool::init(
+        &repo.path,
+        PoolOptions {
+            capacity: 1,
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(Pool::open(&repo.path)
+        .unwrap()
+        .acquire(Default::default())
+        .is_ok());
 }
 
 #[test]
