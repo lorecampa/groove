@@ -33,20 +33,17 @@ Cargo builds the latest published release locally.
 
 ## Set up your coding agent
 
-Give your agent this prompt:
+Give your agent this prompt once:
 
-> Install Groove for this agent by following
-> https://github.com/lorecampa/groove/blob/main/docs/install.md
+> Install Groove by following
+> https://github.com/lorecampa/groove/blob/main/docs/install.md.
+> Then configure this harness to use the Groove skill for development work
+> by default. Add the instruction to a persistent agent instruction file
+> that this harness loads automatically. Use my personal configuration
+> unless I ask for a shared project policy.
 
-The guide installs the CLI and the [Groove skill](skills/groove/SKILL.md) for your
-agent. In agents that expose skills as slash commands, invoke it with `/groove`.
-Then give it a task, for example:
-
-> Use the Groove skill for [describe independent tasks]. Reuse the existing pool;
-> if none exists, initialize one with capacity 4. As coordinator, reserve a
-> workspace for each independent task and pass its reservation to the assigned
-> worker. Workers reuse their assigned reservation. Stop the workers and save
-> each result before releasing its reservation.
+After setup, give your agent tasks normally. You don't need to mention Groove in
+every request.
 
 ## Use a workspace
 

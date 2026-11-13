@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Changed
+
+- Agent onboarding configures persistent harness instructions once, so users
+  do not need to request Groove separately for each task. The setup prompt uses
+  personal configuration unless shared project policy is requested.
+
 ## [0.2.1] - 2026-11-13
 
 ### Changed
