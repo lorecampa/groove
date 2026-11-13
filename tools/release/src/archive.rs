@@ -9,6 +9,7 @@ use std::{
 };
 
 pub(crate) fn digest(path: &Path) -> Result<String> {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
     let mut file = File::open(path)?;
     let mut hash = Sha256::new();
     let mut buffer = [0; 65536];
@@ -19,7 +20,6 @@ pub(crate) fn digest(path: &Path) -> Result<String> {
         }
         hash.update(&buffer[..count]);
     }
-    const DIGITS: &[u8; 16] = b"0123456789abcdef";
     let mut encoded = String::with_capacity(64);
     for byte in hash.finalize() {
         encoded.push(char::from(DIGITS[usize::from(byte >> 4)]));
