@@ -34,6 +34,8 @@
 
 ### Changed
 
+- Simplify README agent setup to a copyable prompt that preserves existing pool
+  settings and asks for workspace capacity when creating a pool.
 - Global output rules and exit codes live in root help; command help retains
   its result fields. Trim repeated flag explanations from help and guides.
 - Explain contributor Git hooks, name the checks in the security gate, and
