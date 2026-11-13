@@ -331,10 +331,20 @@ pub(crate) fn summarize(report: &mut Value) -> Result<()> {
                 result.blocks.len() == count,
                 "Raw block count differs from profile sampling",
             )?;
+            let mut build_tools = None;
             for block in &result.blocks {
                 for observation in std::iter::once(&block.candidate).chain(block.baseline.iter()) {
                     let evidence: crate::evidence::Evidence =
                         serde_json::from_value(observation.detail.clone())?;
+                    if let Some(build) = &evidence.build {
+                        require(
+                            build_tools
+                                .as_ref()
+                                .is_none_or(|tools| tools == &build.tools),
+                            "Build tools changed between binaries/blocks",
+                        )?;
+                        build_tools = Some(build.tools.clone());
+                    }
                     let recomputed = crate::evidence::observation(case, evidence)?;
                     require(
                         recomputed.verified

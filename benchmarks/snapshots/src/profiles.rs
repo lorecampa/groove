@@ -56,6 +56,10 @@ pub(crate) enum Workload {
     WorkspaceReuse {
         cleanup: Cleanup,
     },
+    WorkspaceBuild {
+        strategy: BuildStrategy,
+        units: usize,
+    },
     MonorepoReuse {
         cleanup: Cleanup,
         ignored_files: usize,
@@ -91,6 +95,13 @@ pub(crate) enum Cleanup {
     Pristine,
     Warm,
 }
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum BuildStrategy {
+    Pristine,
+    ExternalCache,
+    Warm,
+}
 impl Cleanup {
     pub(crate) fn name(self) -> &'static str {
         match self {
@@ -124,6 +135,9 @@ impl Case {
             ),
         };
         let operations = match self.workload {
+            Workload::WorkspaceBuild { strategy, units } => format!(
+                "{units} C compilation units, make -j4, {strategy:?}; first/repeat/source/flags/return/cache-loss builds with executed output verification"
+            ),
             Workload::SnapshotSave { history_depth, .. } => format!(
                 "first, changed, unchanged and {} history saves; verify recovered contents",
                 history_depth - 1
@@ -235,6 +249,10 @@ pub(crate) fn validate(profile: &Profile) -> Result<()> {
             "Invalid profile case",
         )?;
         match &case.workload {
+            Workload::WorkspaceBuild { units, .. } => require(
+                (2..=128).contains(units) && case.contents == Contents::Unique,
+                "Build workload requires unique contents and 2..128 compilation units",
+            )?,
             Workload::SnapshotSave {
                 history_depth,
                 mutation,

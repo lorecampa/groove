@@ -26,6 +26,7 @@ fn profiles_are_discoverable_and_workload_overrides_are_rejected() {
     assert!(listing.status.success());
     let listing = String::from_utf8(listing.stdout).unwrap();
     for name in [
+        "workspace-build",
         "monorepo-reuse",
         "workspace-conversions",
         "monorepo-snapshots",
@@ -99,6 +100,76 @@ fn operational_failures_leave_one_artifact_and_no_running_fixture() {
     assert!(report["error"].as_str().unwrap().contains("exited"));
     assert_eq!(fs::read_dir(scratch).unwrap().count(), 0);
 }
+
+#[test]
+#[ignore = "requires release CLI, cc, GNU make and ccache; complete offline build profile"]
+fn build_profile_verifies_outputs_and_rejects_forged_raw_evidence() {
+    let temp = tempfile::tempdir().unwrap();
+    let report = temp.path().join("report.json");
+    let output = bench()
+        .args(["check", "workspace-build", "--host", "--binary"])
+        .arg(release_cli())
+        .arg("--temp-root")
+        .arg(temp.path().join("scratch"))
+        .arg("--output")
+        .arg(&report)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let original: Value = serde_json::from_slice(&fs::read(&report).unwrap()).unwrap();
+    assert_eq!(original["status"], "passed");
+    for strategy in ["pristine", "external-cache", "warm"] {
+        let observation =
+            &original["cases"][format!("workspace-build/{strategy}")]["blocks"][0]["candidate"];
+        assert_eq!(observation["verified"], true);
+        assert!(
+            observation["metrics"]["repeat_ready_seconds"]
+                .as_f64()
+                .unwrap()
+                > 0.0
+        );
+        assert!(
+            observation["metrics"]["cache_removed_total_seconds"]
+                .as_f64()
+                .unwrap()
+                > 0.0
+        );
+    }
+    assert!(bench()
+        .arg("inspect")
+        .arg(&report)
+        .output()
+        .unwrap()
+        .status
+        .success());
+    let mut forged = original.clone();
+    forged["cases"]["workspace-build/external-cache"]["blocks"][0]["candidate"]["detail"]
+        ["build"]["phases"][4]["output"] = "stale output\n".into();
+    fs::write(&report, serde_json::to_vec(&forged).unwrap()).unwrap();
+    assert!(!bench()
+        .arg("inspect")
+        .arg(&report)
+        .output()
+        .unwrap()
+        .status
+        .success());
+    let mut forged = original;
+    forged["cases"]["workspace-build/external-cache"]["blocks"][0]["candidate"]["detail"]
+        ["build"]["phases"][1]["hits"] = 0.into();
+    fs::write(&report, serde_json::to_vec(&forged).unwrap()).unwrap();
+    assert!(!bench()
+        .arg("inspect")
+        .arg(&report)
+        .output()
+        .unwrap()
+        .status
+        .success());
+}
+
 #[test]
 #[ignore = "opt-in release CLI: checks every routine scenario once, including binary and concurrent workers"]
 fn routine_profiles_verify_raw_evidence_and_preserve_host_configuration() {

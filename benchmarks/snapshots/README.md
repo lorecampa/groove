@@ -76,6 +76,47 @@ normalization, but the acquired checkout must recover the expected CRLF bytes.
 This profile verifies physical restoration as well as timing. It provides a
 control workload for future optimizations that must preserve checkout behavior.
 
+### Offline build workflows
+
+`workspace-build` compares pristine cleanup, pristine with an external compiler
+cache, and warm cleanup with ordinary ignored output. Every case has the same
+10k source-shaped paths plus 32 real C compilation units, a header and a Makefile.
+It runs `make -j4`, executes the program and checks its output against an
+independent Rust calculation. It needs `cc`, GNU make and ccache 4.7+ on the host;
+the pinned Debian image installs ccache 4.7.5 (Debian package
+`4.8+really4.7.5-1`). Builds need no downloads.
+
+Each repetition starts with an empty cache and measures six successive tasks:
+first use, repeated input, changed header, changed compiler flags, return to the
+original commit/flags, and loss of disposable cache/output. The source checkout
+and refs must survive, every acquired index and tracked working tree must match
+an independent oracle, cleanup must follow policy, outputs must have independent
+inodes, and every reservation must be released. A warm output's existence is not
+treated as a cache hit. The compiler cache must show real misses/hits in the
+appropriate phases; a fast stale executable fails the case.
+
+The cache is outside every pool root and private to a block/binary. The runner
+clears inherited settings and uses ccache's content-based compiler checks,
+preprocessor mode, no sloppiness, and no hardlinks or reflinks. Preprocessor mode
+avoids direct-mode timestamp heuristics for newly checked-out headers. Compiler,
+make and ccache versions are retained and must agree across paired sides/blocks.
+This measures compiled-object caching; it does not measure dependency downloads.
+
+Raw samples retain acquisition, build, execution/validation and release wall time,
+CPU and peak RSS. Phase-specific readiness is the sum of timed acquire/build/
+validation intervals; total task time also includes release. Independent oracles,
+tool queries, cache counters, storage scans and fixture/cache-loss preparation are
+outside timing. Output and external-cache storage report logical and allocated
+regular-file bytes. These checks warm filesystem caches; no OS-cold claim is made.
+The profile keeps the normal paired order, warmups, raw samples and intervals.
+It compares workflow strategies through separate cases, not a Groove runtime
+optimization or a guarantee for every build system.
+
+```sh
+cargo run -p groove-bench --locked -- check workspace-build --host
+cargo run -p groove-bench --locked -- benchmark workspace-build
+```
+
 ### Heterogeneous monorepos
 
 `monorepo-reuse` exercises acquisition, dirty cleanup and backward/forward commit

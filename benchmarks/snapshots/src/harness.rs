@@ -58,14 +58,13 @@ fn object_sizes(repo: &Path) -> Result<(u64, u64)> {
     }
     walk(&repo.join(".git/objects"))
 }
-fn cli_command(
+/// Time a bounded process with the same resource collection as CLI operations.
+pub(crate) fn timed_process(
     runner: &Runner,
-    binary: &Path,
+    program: &OsStr,
     repo: &Path,
     args: &[OsString],
-    diagnostics: bool,
-    expected_error: Option<(&str, i32)>,
-) -> Result<(Value, Value)> {
+) -> Result<(crate::util::Output, Value)> {
     #[cfg(target_os = "linux")]
     let rss = runner.temporary_file()?;
     #[cfg(target_os = "linux")]
@@ -81,58 +80,11 @@ fn cli_command(
     .collect();
     #[cfg(target_os = "macos")]
     let mut all: Vec<OsString> = vec!["-l".into()];
-    all.extend(
-        [
-            binary.as_os_str(),
-            OsStr::new("--repo"),
-            repo.as_os_str(),
-            OsStr::new("--git-timeout-ms"),
-            OsStr::new("300000"),
-            OsStr::new("--json"),
-        ]
-        .into_iter()
-        .map(OsString::from),
-    );
-    if diagnostics {
-        all.push("-vv".into());
-    }
+    all.push(program.to_owned());
     all.extend_from_slice(args);
     let start = Instant::now();
     let out = runner.capture("/usr/bin/time", all, repo)?;
     let seconds = start.elapsed().as_secs_f64();
-    require(
-        out.status.code() == Some(expected_error.map_or(0, |(_, status)| status)),
-        format!(
-            "CLI exited {}: {}{}",
-            out.status,
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
-        ),
-    )?;
-    let response: Value = serde_json::from_slice(&out.stdout)?;
-    require(
-        response["api_version"] == 1,
-        "Unsupported CLI response version",
-    )?;
-    let result = if let Some((code, status)) = expected_error {
-        require(
-            out.status.code() == Some(status)
-                && response["ok"] == false
-                && response["error"]["code"] == code,
-            "Unexpected CLI error/exit category",
-        )?;
-        response["error"].clone()
-    } else {
-        require(
-            out.status.success() && response["ok"] == true,
-            format!(
-                "CLI exited {}: {response}\n{}",
-                out.status,
-                String::from_utf8_lossy(&out.stderr)
-            ),
-        )?;
-        response["result"].clone()
-    };
     #[cfg(target_os = "linux")]
     let resources: Vec<f64> = fs::read_to_string(rss.path())?
         .split_whitespace()
@@ -168,14 +120,72 @@ fn cli_command(
                 .and_then(|s| s.parse().ok())
         })
         .collect();
+    let timing = json!({"seconds":seconds,"peak_rss_kib":peak_rss,"git_steps_ms":steps,
+        "cpu": cpu_resources(&out.stderr, #[cfg(target_os="linux")] &resources)});
+    Ok((out, timing))
+}
+fn cli_command(
+    runner: &Runner,
+    binary: &Path,
+    repo: &Path,
+    args: &[OsString],
+    diagnostics: bool,
+    expected_error: Option<(&str, i32)>,
+) -> Result<(Value, Value)> {
+    let mut all = vec![
+        "--repo".into(),
+        repo.as_os_str().to_owned(),
+        "--git-timeout-ms".into(),
+        "300000".into(),
+        "--json".into(),
+    ];
     if diagnostics {
-        require(!steps.is_empty(), "Missing Git timing diagnostics")?;
+        all.push("-vv".into());
     }
-    Ok((
-        result,
-        json!({"seconds":seconds,"peak_rss_kib":peak_rss,"git_steps_ms":steps,
-            "cpu": cpu_resources(&out.stderr, #[cfg(target_os="linux")] &resources)}),
-    ))
+    all.extend_from_slice(args);
+    let (out, timing) = timed_process(runner, binary.as_os_str(), repo, &all)?;
+    require(
+        out.status.code() == Some(expected_error.map_or(0, |(_, status)| status)),
+        format!(
+            "CLI exited {}: {}{}",
+            out.status,
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        ),
+    )?;
+    let response: Value = serde_json::from_slice(&out.stdout)?;
+    require(
+        response["api_version"] == 1,
+        "Unsupported CLI response version",
+    )?;
+    let result = if let Some((code, status)) = expected_error {
+        require(
+            out.status.code() == Some(status)
+                && response["ok"] == false
+                && response["error"]["code"] == code,
+            "Unexpected CLI error/exit category",
+        )?;
+        response["error"].clone()
+    } else {
+        require(
+            out.status.success() && response["ok"] == true,
+            format!(
+                "CLI exited {}: {response}\n{}",
+                out.status,
+                String::from_utf8_lossy(&out.stderr)
+            ),
+        )?;
+        response["result"].clone()
+    };
+    if diagnostics {
+        require(
+            timing["git_steps_ms"]
+                .as_array()
+                .is_some_and(|steps| !steps.is_empty()),
+            "Missing Git timing diagnostics",
+        )?;
+    }
+    Ok((result, timing))
 }
 pub(crate) fn command(
     runner: &Runner,
