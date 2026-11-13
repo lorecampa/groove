@@ -257,15 +257,23 @@ impl Runner {
                         .filter(|v| v.is_object())
                     {
                         if last_progress.as_ref() != Some(&progress) {
-                            eprintln!(
-                                "{}/{}: {} {}/{} ({})",
-                                progress["profile"].as_str().unwrap_or("?"),
-                                progress["case"].as_str().unwrap_or("?"),
-                                progress["phase"].as_str().unwrap_or("?"),
-                                progress["block"],
-                                progress["blocks"],
-                                progress["binary"].as_str().unwrap_or("?")
-                            );
+                            if progress["phase"] == "fixture" {
+                                eprintln!(
+                                    "{}/{}: preparing immutable history seed",
+                                    progress["profile"].as_str().unwrap_or("?"),
+                                    progress["case"].as_str().unwrap_or("?")
+                                );
+                            } else {
+                                eprintln!(
+                                    "{}/{}: {} {}/{} ({})",
+                                    progress["profile"].as_str().unwrap_or("?"),
+                                    progress["case"].as_str().unwrap_or("?"),
+                                    progress["phase"].as_str().unwrap_or("?"),
+                                    progress["block"],
+                                    progress["blocks"],
+                                    progress["binary"].as_str().unwrap_or("?")
+                                );
+                            }
                             last_progress = Some(progress);
                         }
                     }

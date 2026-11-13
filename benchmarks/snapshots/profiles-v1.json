@@ -3,6 +3,39 @@
   "fixture_version": 1,
   "profiles": [
     {
+      "id": "workspace-conversions", "version": 1,
+      "purpose": "Measure checkout-conversion costs with CRLF attributes, including small repositories; restore physical line endings despite unchanged normalized Git blobs.",
+      "environment": "cli-linux-amd64-v4",
+      "sampling": {"blocks": 10, "warmup_blocks": 1},
+      "estimated_minutes": [2, 10],
+      "cases": [
+        {"id": "small-warm", "files": 100, "contents": {"kind": "converted-text"}, "workload": {"kind": "workspace-reuse", "cleanup": "warm"}},
+        {"id": "10k-pristine", "files": 10000, "contents": {"kind": "converted-text"}, "workload": {"kind": "workspace-reuse", "cleanup": "pristine"}},
+        {"id": "10k-warm", "files": 10000, "contents": {"kind": "converted-text"}, "workload": {"kind": "workspace-reuse", "cleanup": "warm"}}
+      ]
+    },
+    {
+      "id": "monorepo-reuse", "version": 1,
+      "purpose": "Reuse and commit switching over 100k heterogeneous files (2.26 GiB source payload), eight packed history commits and 64 MiB ignored build output. Full-tree correctness under warm and pristine cleanup.",
+      "environment": "cli-linux-amd64-v4",
+      "sampling": {"blocks": 6, "warmup_blocks": 1},
+      "estimated_minutes": [30, 120],
+      "cases": [
+        {"id": "100k-pristine", "files": 100000, "contents": {"kind": "monorepo", "history_commits": 8}, "workload": {"kind": "monorepo-reuse", "cleanup": "pristine", "ignored_files": 1024, "ignored_file_bytes": 65536}},
+        {"id": "100k-warm", "files": 100000, "contents": {"kind": "monorepo", "history_commits": 8}, "workload": {"kind": "monorepo-reuse", "cleanup": "warm", "ignored_files": 1024, "ignored_file_bytes": 65536}}
+      ]
+    },
+    {
+      "id": "monorepo-snapshots", "version": 1,
+      "purpose": "Snapshot staged/unstaged edits, deletion and untracked content across 100k heterogeneous files and packed history; measure save latency/object growth and verify full recovery.",
+      "environment": "cli-linux-amd64-v4",
+      "sampling": {"blocks": 6, "warmup_blocks": 1},
+      "estimated_minutes": [20, 90],
+      "cases": [
+        {"id": "100k-mixed", "files": 100000, "contents": {"kind": "monorepo", "history_commits": 8}, "workload": {"kind": "snapshot-save", "history_depth": 3, "mutation": "mixed"}}
+      ]
+    },
+    {
       "id": "workspace-multi-pool", "version": 1,
       "purpose": "First registration and warm acquire/execute/release throughput across named pools sharing Git administration, with independent repeated task labels/keys and catalog verification.",
       "environment": "cli-linux-amd64-v4",

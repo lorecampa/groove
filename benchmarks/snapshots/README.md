@@ -62,12 +62,60 @@ operations/assertions; it does not silently reduce a fixture's size. Source path
 counts exclude explicitly defined supporting project/artifact files.
 
 Cases execute sequentially. Only concurrency cases intentionally launch parallel
-workers. Fixtures are newly generated for each side/block, their Git storage is
+workers. Fixtures are fresh for each side/block, their Git storage is
 normalized, and all sides must produce the same fixture identity. The primitive
 path generator retains its independent golden smoke tree in `workloads-v1.json`.
 No developer checkout is used as a benchmark fixture. Arbitrary repositories or
 bundles cannot override a profile from the command line; a new dataset requires
 an explicit, versioned profile definition.
+
+`workspace-conversions` separately measures checkout-conversion costs
+with CRLF attributes, including a small repository. Its physical-edit case changes
+CRLF to LF: the edited file still hashes to the committed blob after Git's
+normalization, but the acquired checkout must recover the expected CRLF bytes.
+This profile verifies physical restoration as well as timing. It provides a
+control workload for future optimizations that must preserve checkout behavior.
+
+### Heterogeneous monorepos
+
+`monorepo-reuse` exercises acquisition, dirty cleanup and backward/forward commit
+switches; `monorepo-snapshots` exercises mixed staged/unstaged edits, deletion,
+untracked content and recovery. Use `profiles PROFILE` for their sizes, sampling
+and conservative scratch/inode budgets before starting these expensive scenarios.
+
+The generator mixes unique source-shaped text and poorly compressible binary
+assets over nested package/module paths, with deeper generated paths for every
+seventh file. Per 100 paths, 80 contain 1 KiB, 15 contain 16 KiB, four contain
+256 KiB and one contains a 1 MiB binary. Thus 100k generated paths contain
+2,424,832,000 bytes (2.26 GiB), before supporting files, Git storage and filesystem
+allocation. Generation holds at most one file's payload in memory.
+
+Each history commit edits up to one percent of paths (excluding binary assets),
+adds a file and deletes a file. Objects are packed before measuring. The fixture
+identity binds the complete deterministic history, not just the tip tree. Reuse
+switches to the initial commit and back, checking full index and working trees
+through the independent Git oracle. Warm cleanup must preserve every ignored
+output file byte-for-byte; pristine cleanup must remove them. Fixture preparation
+and correctness checks are outside operation timings and can warm OS caches.
+
+To avoid repeatedly generating and packing multi-GiB history, each monorepo case
+builds one immutable seed. Every side/block gets a local clone with independent
+objects (`--no-hardlinks`, no alternates) and a fresh checkout/index. The seed's
+commit identity is checked against every clone. Other profiles retain their
+per-block generation. Seed construction, copying and checkout are outside measured
+operations; this is warm-cache characterization, not a cold-start claim.
+
+These are controlled synthetic workloads, not copies of company repositories.
+They complement the million-path fixture, whose tiny repeated files isolate
+path/index scaling. They do not model years of history, Git LFS, sparse checkout
+or cold OS caches. Runs need no fixture downloads. Paired sides execute
+sequentially, so peak scratch requirements are not doubled.
+
+```sh
+cargo run -p groove-bench --locked -- benchmark monorepo-reuse \
+  --baseline-source /absolute/baseline-checkout
+cargo run -p groove-bench --locked -- check monorepo-snapshots
+```
 
 ## Correctness evidence and timing
 
@@ -174,6 +222,7 @@ cargo test -p groove-core --test snapshot_scale --locked
 cargo build -p groove-cli --release --locked
 cargo test -p groove-bench --test cli --locked -- --ignored
 cargo test -p groove-bench --test container --locked -- --ignored
+cargo test -p groove-bench --locked small_monorepo_reuse -- --ignored
 ```
 
 Normal Cargo runs cover catalog/API/evidence/harness regressions and small core

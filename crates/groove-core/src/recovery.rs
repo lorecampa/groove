@@ -143,10 +143,42 @@ pub(crate) fn normalize(
     let admin = registration_from_file(path)?;
     let index = admin.join("index");
     repository::no_symlinks(&index)?;
-    match fs::remove_file(index) {
+    let had_index = index.exists();
+    match fs::remove_file(&index) {
         Ok(()) => (),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
         Err(e) => return Err(e.into()),
+    }
+    if had_index {
+        // Only a revision switch needs an old inventory. Ordinary same-commit
+        // resets keep the original index-free checkout without an extra write.
+        let changes_revision =
+            match git.run(path, &["rev-parse", "--verify", "--quiet", "HEAD"], fds) {
+                Ok(previous) => trim(&previous) != oid.as_str().as_bytes(),
+                Err(error) if error.git_exit_code().is_some() => false,
+                Err(error) => return Err(error),
+            };
+        // Retain the previous tracked-path inventory so checkout removes files
+        // the destination deletes and ignores. Leave stat entries empty: full
+        // rewriting also breaks hardlinks and restores file creation metadata.
+        // An orphan/unreadable HEAD has no trustworthy inventory; keep the old
+        // index-free checkout behavior rather than rebuilding and losing caches.
+        if changes_revision {
+            if let Err(error) = git.run(path, &["read-tree", "HEAD"], fds) {
+                // Only retry after Git exited. Cancellation, execution and I/O
+                // failures retain their usual recovery/teardown behavior.
+                if error.git_exit_code().is_none() {
+                    return Err(error);
+                }
+                tracing::debug!(%error, "Previous HEAD has no usable tracked-path inventory");
+                repository::no_symlinks(&index)?;
+                match fs::remove_file(&index) {
+                    Ok(()) => (),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
+                    Err(e) => return Err(e.into()),
+                }
+            }
+        }
     }
     git.run(
         path,

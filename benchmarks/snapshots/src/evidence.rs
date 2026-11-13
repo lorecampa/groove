@@ -91,6 +91,23 @@ pub(crate) fn observation(case: &Case, evidence: Evidence) -> Result<Observation
                 "source_preserved",
             ],
         ),
+        Workload::MonorepoReuse { .. } => (
+            vec![
+                ("first_acquire", 1),
+                ("warm_acquire", 1),
+                ("dirty_acquire", 1),
+                ("backward_acquire", 1),
+                ("forward_acquire", 1),
+                ("release", 1),
+            ],
+            &[
+                "full_checkout_trees",
+                "cleanup_policy",
+                "commit_switches",
+                "released",
+                "source_preserved",
+            ],
+        ),
         Workload::WorkspaceSetup { .. } => (
             vec![("setup_miss", 1), ("setup_hit", 1)],
             &[

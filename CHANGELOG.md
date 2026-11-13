@@ -13,6 +13,11 @@
 
 ### Changed
 
+- The development benchmark lab adds heterogeneous multi-GiB monorepo profiles
+  with packed history, commit switching and full-tree recovery checks. Native
+  runs resolve relative scratch paths before invoking fixture subprocesses.
+  A separate CRLF profile measures checkout-conversion costs and verifies
+  restoration of physical line endings that normalize to the same Git blob.
 - New pools default to `~/.worktrees/<project>-<repo-id>/<pool>` on Linux and
   macOS. Set the global `worktrees.root` preference to change the parent or use
   `init --worktree-root` for an exact pool path. Existing pools keep their roots.
@@ -28,6 +33,8 @@
 
 ### Fixed
 
+- Warm reuse removes previously tracked files when switching to a commit that
+  deletes and ignores those paths, while preserving unrelated ignored caches.
 - Shell-style execution status conversion saturates extreme signal values in
   public or deserialized results instead of overflowing.
 
