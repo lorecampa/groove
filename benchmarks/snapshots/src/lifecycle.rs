@@ -555,6 +555,9 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
     let mut init = vec!["init", "--capacity"];
     let capacity = slots.to_string();
     init.push(&capacity);
+    // Deletion fixtures own materialization explicitly; no spare worker may
+    // race their immediate preview/deletion or create an unrequested slot.
+    init.extend(["--ready-target", "0", "--idle-timeout", "never"]);
     let external_text = external_root
         .to_str()
         .ok_or_else(|| Error::Invalid("Non-UTF-8 fixture root".into()))?;
@@ -577,7 +580,15 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
         binary,
         repo,
         "survivor",
-        &["init", "--capacity", "1"],
+        &[
+            "init",
+            "--capacity",
+            "1",
+            "--ready-target",
+            "0",
+            "--idle-timeout",
+            "never",
+        ],
     )?;
     let (sibling, _) = named(
         runner,
@@ -790,6 +801,10 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
             "1",
             "--worktree-root",
             replacement_text,
+            "--ready-target",
+            "0",
+            "--idle-timeout",
+            "never",
         ],
     )?;
     require(
