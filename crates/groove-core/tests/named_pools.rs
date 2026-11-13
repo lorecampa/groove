@@ -20,6 +20,7 @@ fn create(repo: &Repo, value: &str) -> Pool {
         &name,
         PoolOptions {
             capacity: 1,
+            worktree_root: Some(support::worktree_root(&repo.path, name.as_str())),
             ..Default::default()
         },
     )

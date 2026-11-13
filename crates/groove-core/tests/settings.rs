@@ -21,6 +21,7 @@ fn growth_reuses_retired_slots_without_losing_results_or_releasing_successors() 
             &name,
             PoolOptions {
                 capacity: 2,
+                worktree_root: Some(support::worktree_root(&repo.path, name.as_str())),
                 ..Default::default()
             },
         )
@@ -76,8 +77,11 @@ fn growth_reuses_retired_slots_without_losing_results_or_releasing_successors() 
         )
         .unwrap();
         // Cover both default-root reuse and a named pool switching to an external root.
-        let replacement_root =
-            (name != PoolName::default()).then(|| repo.temp.path().join("replacement-workspaces"));
+        let replacement_root = Some(if name == PoolName::default() {
+            initialized.worktree_root.clone()
+        } else {
+            repo.temp.path().join("replacement-workspaces")
+        });
         Pool::init_named(
             &repo.path,
             &name,
@@ -189,6 +193,7 @@ fn growth_uses_bounded_descriptors_and_preserves_a_live_lease() {
         &repo.path,
         PoolOptions {
             capacity: 1,
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
             ..Default::default()
         },
     )
@@ -231,6 +236,7 @@ fn growth_preserves_active_writers_and_old_handles_observe_new_slots() {
         &repo.path,
         PoolOptions {
             capacity: 1,
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
             ..Default::default()
         },
     )
@@ -292,6 +298,7 @@ fn invalid_combined_updates_do_not_change_manifest_or_locks() {
         &repo.path,
         PoolOptions {
             capacity: 2,
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
             ..Default::default()
         },
     )
@@ -330,6 +337,7 @@ fn changed_cleanup_applies_only_on_the_next_acquisition() {
         PoolOptions {
             capacity: 1,
             cleanup_policy: CleanupPolicy::Warm,
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
             ..Default::default()
         },
     )
@@ -393,6 +401,7 @@ fn live_process_keeps_ownership_and_refreshes_after_growth() {
         &repo.path,
         PoolOptions {
             capacity: 1,
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
             ..Default::default()
         },
     )
@@ -441,6 +450,7 @@ fn smaller_replacement(repo: &Repo) -> Pool {
         &repo.path,
         PoolOptions {
             capacity: 2,
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
             ..Default::default()
         },
     )
@@ -450,6 +460,7 @@ fn smaller_replacement(repo: &Repo) -> Pool {
         &repo.path,
         PoolOptions {
             capacity: 1,
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
             ..Default::default()
         },
     )

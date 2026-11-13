@@ -13,6 +13,9 @@
 
 ### Changed
 
+- New pools default to `~/.worktrees/<project>-<repo-id>/<pool>` on Linux and
+  macOS. Set the global `worktrees.root` preference to change the parent or use
+  `init --worktree-root` for an exact pool path. Existing pools keep their roots.
 - Avoid redundant reservation metadata clones, defer unused error summaries,
   and reduce allocations in benchmark hashes and terminal log fields.
 - Mark pure query methods and error builders as `must_use`, and avoid per-byte

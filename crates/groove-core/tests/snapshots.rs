@@ -527,6 +527,7 @@ fn snapshot_survives_pool_release_and_slot_reuse() {
         &repo.path,
         PoolOptions {
             capacity: 1,
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
             ..Default::default()
         },
     )

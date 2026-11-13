@@ -21,6 +21,7 @@ fn finished_snapshots_restore_after_slot_reuse_without_changing_the_successor() 
             &repo.path,
             PoolOptions {
                 capacity: 1,
+                worktree_root: Some(support::worktree_root(&repo.path, "default")),
                 ..Default::default()
             },
         )

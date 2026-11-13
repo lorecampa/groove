@@ -90,6 +90,7 @@ pub fn init(
             capacity,
             cleanup_policy: cleanup.into(),
             worktree_root,
+            worktree_base: crate::preferences::load()?.worktrees.root,
             git_timeout: context.git_timeout,
         },
     )?;

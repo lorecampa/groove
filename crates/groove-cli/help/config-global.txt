@@ -2,6 +2,8 @@
 USER PREFERENCES:
   groove config global show
   groove config global set logging.level=trace logging.max_files=50
+  groove config global set worktrees.root=/absolute/worktrees
+  groove config global unset worktrees.root
   groove config global unset logging.directory
   groove config global edit
 
@@ -11,7 +13,12 @@ Unset, empty or relative XDG paths use the HOME fallback. `show` reports effecti
 values and environment overrides. Unknown keys and invalid values fail before
 operational commands run. Help remains available with broken preferences.
 
-The defaults below list the logging keys, except optional logging.directory:
+worktrees.root replaces the default $HOME/.worktrees parent used by new pools:
+<root>/<project>-<repo-id>/<pool>. It must be absolute. init --worktree-root
+overrides it with an exact pool path. Changing/unsetting this preference never
+relocates existing pools; use config show to inspect a pool's recorded path.
+
+The defaults below omit optional worktrees.root and logging.directory:
 set it to an absolute path; unset it for $XDG_STATE_HOME/groove/logs (or
 ~/.local/state/groove/logs). TOML paths do not expand ~. logging.level accepts
 error/warn/info/debug/trace and is independent of -v/--quiet. GROOVE_LOG_DIR and

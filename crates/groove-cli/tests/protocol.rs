@@ -4,6 +4,7 @@ use support::{assert_success, Repo};
 
 fn cli(r: &Repo, args: &[&str]) -> std::process::Output {
     support::groove()
+        .env("HOME", r.temp.path())
         .env("GROOVE_LOG_DIR", r.path.join("test-logs"))
         .env("XDG_CONFIG_HOME", r.path.join("config-home"))
         .env_remove("GROOVE_LOG_ENABLED")
@@ -261,7 +262,7 @@ fn concurrent_init_creates_exactly_one_pool() {
     let mut children = Vec::new();
     for _ in 0..6 {
         children.push(
-            support::groove()
+            support::groove_in(&r.path)
                 .arg("--repo")
                 .arg(&r.path)
                 .args(["init", "--capacity", "2"])
@@ -627,6 +628,8 @@ fn human_output_is_the_default_and_json_is_opt_in() {
     let r = Repo::new();
     let human = |args: &[&str]| {
         support::groove_human()
+            .env("HOME", r.temp.path())
+            .env("XDG_CONFIG_HOME", r.temp.path().join("config-home"))
             .env("GROOVE_LOG_ENABLED", "false")
             .arg("--repo")
             .arg(&r.path)

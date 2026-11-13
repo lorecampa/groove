@@ -18,6 +18,7 @@ fn cargo_build_and_git_commands_work_inside_git_directory() {
         &r.path,
         PoolOptions {
             capacity: 1,
+            worktree_root: Some(support::worktree_root(&r.path, "default")),
             ..Default::default()
         },
     )
@@ -54,6 +55,7 @@ fn npm_script_works_inside_git_directory_when_node_is_available() {
         &r.path,
         PoolOptions {
             capacity: 1,
+            worktree_root: Some(support::worktree_root(&r.path, "default")),
             ..Default::default()
         },
     )

@@ -17,6 +17,7 @@ fn pool(repo: &Repo, capacity: usize) -> Pool {
         &repo.path,
         PoolOptions {
             capacity,
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
             ..Default::default()
         },
     )
@@ -404,6 +405,7 @@ fn bare_sha256_pool_and_lazy_slots_can_be_deleted() {
         &bare,
         PoolOptions {
             capacity: 2,
+            worktree_root: Some(support::worktree_root(&bare, "default")),
             ..Default::default()
         },
     )
@@ -463,6 +465,7 @@ fn reinitialization_never_recreates_a_missing_permanent_lock() {
         &repo.path,
         PoolOptions {
             capacity: 1,
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
             ..Default::default()
         },
     )

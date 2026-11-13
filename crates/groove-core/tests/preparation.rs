@@ -42,6 +42,7 @@ fn repo(project: &str) -> (Repo, Pool) {
         &repo.path,
         PoolOptions {
             capacity: 2,
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
             ..Default::default()
         },
     )
@@ -371,6 +372,7 @@ fn reflink_cache_artifacts_are_independent_copies() {
         &path,
         PoolOptions {
             capacity: 2,
+            worktree_root: Some(support::worktree_root(&path, "default")),
             ..Default::default()
         },
     )

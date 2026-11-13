@@ -92,6 +92,7 @@ fn cancel_at(name: &str, checkpoint: &str, completed_steps: usize) {
         &repo.path,
         PoolOptions {
             capacity: 1,
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
             ..Default::default()
         },
     )

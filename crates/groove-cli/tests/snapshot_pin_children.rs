@@ -424,6 +424,7 @@ fn surviving_pin_child(managed: bool, deletion: bool) {
             &repo.path,
             PoolOptions {
                 capacity: 1,
+                worktree_root: Some(support::worktree_root(&repo.path, "default")),
                 ..Default::default()
             },
         )

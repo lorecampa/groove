@@ -34,6 +34,7 @@ fn killed_groove_leaves_mutating_git_child_holding_both_locks() {
         &r.path,
         PoolOptions {
             capacity: 1,
+            worktree_root: Some(support::worktree_root(&r.path, "default")),
             ..Default::default()
         },
     )
@@ -45,6 +46,7 @@ fn killed_groove_leaves_mutating_git_child_holding_both_locks() {
         &sibling_name,
         PoolOptions {
             capacity: 1,
+            worktree_root: Some(support::worktree_root(&r.path, sibling_name.as_str())),
             ..Default::default()
         },
     )
@@ -134,6 +136,7 @@ fn git_timeout_terminates_the_mutating_process_group_before_recovery() {
         &r.path,
         PoolOptions {
             capacity: 1,
+            worktree_root: Some(support::worktree_root(&r.path, "default")),
             ..Default::default()
         },
     )
@@ -180,6 +183,7 @@ fn checkout_child_retains_slot_without_serializing_another_registration() {
         &r.path,
         PoolOptions {
             capacity: 2,
+            worktree_root: Some(support::worktree_root(&r.path, "default")),
             ..Default::default()
         },
     )

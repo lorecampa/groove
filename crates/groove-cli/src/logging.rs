@@ -412,6 +412,7 @@ mod tests {
                 repo.path(),
                 groove_core::PoolOptions {
                     capacity: 1,
+                    worktree_root: Some(repo.path().join(".git/groove/worktrees")),
                     ..Default::default()
                 },
             )

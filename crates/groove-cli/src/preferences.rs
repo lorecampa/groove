@@ -16,6 +16,24 @@ use std::{
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     pub logging: Logging,
+    pub worktrees: Worktrees,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct Worktrees {
+    pub root: Option<PathBuf>,
+}
+
+impl Worktrees {
+    fn validate(&self) -> Result<()> {
+        if self.root.as_ref().is_some_and(|path| !path.is_absolute()) {
+            return Err(invalid(
+                "worktrees.root must be an absolute path (TOML paths do not expand ~)",
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// A requested change to the preferences file.
@@ -111,6 +129,7 @@ fn parse(text: &str) -> Result<Config> {
     let config: Config =
         toml::from_str(text).map_err(|e| invalid(format!("Invalid user configuration: {e}")))?;
     config.logging.validate()?;
+    config.worktrees.validate()?;
     Ok(config)
 }
 impl Logging {
@@ -148,6 +167,7 @@ pub fn load() -> Result<Config> {
         config.logging.directory = Some(value.into());
     }
     config.logging.validate()?;
+    config.worktrees.validate()?;
     Ok(config)
 }
 const KEYS: &[&str] = &[
@@ -240,7 +260,10 @@ pub fn change(change: Change) -> Result<serde_json::Value> {
                 }
                 let (section, field) = key
                     .split_once('.')
-                    .filter(|(section, field)| *section == "logging" && KEYS.contains(field))
+                    .filter(|(section, field)| {
+                        (*section == "logging" && KEYS.contains(field))
+                            || (*section == "worktrees" && *field == "root")
+                    })
                     .ok_or_else(|| invalid(format!("Unknown setting: {key}")))?;
                 if let Some(value) = value {
                     // Accept TOML literals (true, 50, "text"); anything else is a bare string.

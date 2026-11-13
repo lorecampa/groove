@@ -87,6 +87,7 @@ fn many_processes_never_overlap_one_slot_or_exceed_capacity() {
         &r.path,
         PoolOptions {
             capacity: 2,
+            worktree_root: Some(support::worktree_root(&r.path, "default")),
             ..Default::default()
         },
     )
@@ -157,6 +158,7 @@ fn sigkill_owner_reclaims_but_surviving_worker_keeps_ownership() {
             &r.path,
             PoolOptions {
                 capacity: 1,
+                worktree_root: Some(support::worktree_root(&r.path, "default")),
                 ..Default::default()
             },
         )

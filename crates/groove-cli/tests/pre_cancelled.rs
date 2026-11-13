@@ -20,6 +20,7 @@ fn already_cancelled_execution_records_completion_without_launching_and_keeps_re
         &repo.path,
         PoolOptions {
             capacity: 1,
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
             ..Default::default()
         },
     )
@@ -153,6 +154,7 @@ fn interrupted_cancelled_completion_retains_protection_and_recovery_preserves_hi
         &repo.path,
         PoolOptions {
             capacity: 1,
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
             ..Default::default()
         },
     )

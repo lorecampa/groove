@@ -38,7 +38,18 @@ fn initialization_crash_boundaries_resume_without_replacing_locks() {
         "before-ready-manifest",
     ] {
         let r = Repo::new();
-        let (mut command, listener) = checkpoint_command(&r, name, &["init", "--capacity", "1"]);
+        let root = r.state().join("worktrees");
+        let (mut command, listener) = checkpoint_command(
+            &r,
+            name,
+            &[
+                "init",
+                "--capacity",
+                "1",
+                "--worktree-root",
+                root.to_str().unwrap(),
+            ],
+        );
         kill_at_checkpoint(&mut command, listener, name);
         let lock = r.state().join("locks/wt-0001.lock");
         let old = std::fs::metadata(&lock).ok().map(|m| m.ino());
@@ -47,6 +58,7 @@ fn initialization_crash_boundaries_resume_without_replacing_locks() {
             PoolOptions {
                 resume: r.state().join("initializing.json").exists(),
                 capacity: 1,
+                worktree_root: Some(support::worktree_root(&r.path, "default")),
                 ..Default::default()
             },
         )
@@ -84,6 +96,7 @@ fn deletion_crashes_resume_with_the_same_policy_and_preserve_results_and_inodes(
             &repo.path,
             PoolOptions {
                 capacity: 2,
+                worktree_root: Some(support::worktree_root(&repo.path, "default")),
                 ..Default::default()
             },
         )
@@ -127,6 +140,7 @@ fn deletion_crashes_resume_with_the_same_policy_and_preserve_results_and_inodes(
                     &repo.path,
                     PoolOptions {
                         capacity: 2,
+                        worktree_root: Some(support::worktree_root(&repo.path, "default")),
                         ..Default::default()
                     }
                 )
@@ -174,6 +188,7 @@ fn deletion_crashes_resume_with_the_same_policy_and_preserve_results_and_inodes(
             &repo.path,
             PoolOptions {
                 capacity: 1,
+                worktree_root: Some(support::worktree_root(&repo.path, "default")),
                 ..Default::default()
             },
         )
@@ -204,6 +219,7 @@ fn deletion_excludes_new_operations_and_covers_finish_metadata_after_unlock() {
             &repo.path,
             PoolOptions {
                 capacity: 1,
+                worktree_root: Some(support::worktree_root(&repo.path, "default")),
                 ..Default::default()
             },
         )
@@ -288,6 +304,7 @@ fn interrupted_initialization_can_be_cancelled_and_reinitialized() {
             &repo.path,
             PoolOptions {
                 capacity: 1,
+                worktree_root: Some(support::worktree_root(&repo.path, "default")),
                 ..Default::default()
             },
         )
@@ -313,6 +330,7 @@ fn deletion_retries_after_unregistering_and_after_a_reported_io_failure() {
             &repo.path,
             PoolOptions {
                 capacity: 1,
+                worktree_root: Some(support::worktree_root(&repo.path, "default")),
                 ..Default::default()
             },
         )
@@ -361,6 +379,7 @@ fn reinit_intent_crashes_can_be_cancelled_without_overwriting_retired_identity()
         &repo.path,
         PoolOptions {
             capacity: 2,
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
             ..Default::default()
         },
     )
@@ -405,6 +424,7 @@ fn reinit_intent_crashes_can_be_cancelled_without_overwriting_retired_identity()
         &repo.path,
         PoolOptions {
             capacity: 2,
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
             ..Default::default()
         },
     )
@@ -431,6 +451,7 @@ fn interrupted_named_initialization_keeps_its_root_claim_and_sibling_usable() {
         &backend,
         PoolOptions {
             capacity: 1,
+            worktree_root: Some(support::worktree_root(&repo.path, backend.as_str())),
             ..Default::default()
         },
     )
@@ -521,6 +542,7 @@ fn interrupted_named_deletion_never_disables_a_siblings_workers_or_results() {
             pool,
             PoolOptions {
                 capacity: 1,
+                worktree_root: Some(support::worktree_root(&repo.path, pool.as_str())),
                 ..Default::default()
             },
         )
@@ -587,6 +609,7 @@ fn snapshot_recovery_serializes_new_namespace_claims_until_materialization_finis
         &frontend,
         PoolOptions {
             capacity: 1,
+            worktree_root: Some(support::worktree_root(&repo.path, frontend.as_str())),
             ..Default::default()
         },
     )
@@ -619,6 +642,7 @@ fn snapshot_recovery_serializes_new_namespace_claims_until_materialization_finis
         PoolOptions {
             capacity: 1,
             git_timeout: Duration::from_secs(2),
+            worktree_root: Some(support::worktree_root(&repo.path, backend.as_str())),
             ..Default::default()
         },
     );
@@ -639,6 +663,7 @@ fn snapshot_recovery_serializes_new_namespace_claims_until_materialization_finis
         &backend,
         PoolOptions {
             capacity: 1,
+            worktree_root: Some(support::worktree_root(&repo.path, backend.as_str())),
             ..Default::default()
         },
     )
@@ -670,6 +695,7 @@ fn pool_growth_crash_boundaries_preserve_reservations_and_lock_inodes() {
             &r.path,
             PoolOptions {
                 capacity: if reinitialized { 2 } else { 1 },
+                worktree_root: Some(support::worktree_root(&r.path, "default")),
                 ..Default::default()
             },
         )
@@ -779,6 +805,7 @@ when="cache_miss"
             &repo.path,
             PoolOptions {
                 capacity: 1,
+                worktree_root: Some(support::worktree_root(&repo.path, "default")),
                 ..Default::default()
             },
         )
@@ -866,6 +893,7 @@ fn acquisition_crash_boundaries_never_hand_out_an_unverified_worktree() {
             &r.path,
             PoolOptions {
                 capacity: 1,
+                worktree_root: Some(support::worktree_root(&r.path, "default")),
                 ..Default::default()
             },
         )
@@ -906,6 +934,7 @@ fn durable_shell_reservations_survive_sigkill_and_release_retries_are_generation
             &r.path,
             PoolOptions {
                 capacity: 1,
+                worktree_root: Some(support::worktree_root(&r.path, "default")),
                 ..Default::default()
             },
         )
@@ -1052,6 +1081,7 @@ fn history_recovery_keeps_unknown_and_known_outcomes_distinct() {
             &r.path,
             PoolOptions {
                 capacity: 1,
+                worktree_root: Some(support::worktree_root(&r.path, "default")),
                 ..Default::default()
             },
         )
@@ -1132,6 +1162,7 @@ fn interrupted_log_cleanup_retries_without_forgetting_the_outcome() {
         &r.path,
         PoolOptions {
             capacity: 1,
+            worktree_root: Some(support::worktree_root(&r.path, "default")),
             ..Default::default()
         },
     )
@@ -1193,6 +1224,7 @@ fn recovery_reconstructs_missing_history_without_guessing_origin_or_exit() {
         &r.path,
         PoolOptions {
             capacity: 1,
+            worktree_root: Some(support::worktree_root(&r.path, "default")),
             ..Default::default()
         },
     )
@@ -1275,6 +1307,7 @@ fn verification_rejects_writes_racing_in_place_cleanup() {
             &r.path,
             PoolOptions {
                 capacity: 1,
+                worktree_root: Some(support::worktree_root(&r.path, "default")),
                 ..Default::default()
             },
         )
@@ -1317,6 +1350,7 @@ fn maintenance_contention_is_retryable_and_preserves_finish_results() {
             &repo.path,
             PoolOptions {
                 capacity: 1,
+                worktree_root: Some(support::worktree_root(&repo.path, "default")),
                 ..Default::default()
             },
         )
@@ -1421,6 +1455,7 @@ fn finish_retries_saved_snapshot_after_maintenance_blocks_release() {
         &repo.path,
         PoolOptions {
             capacity: 1,
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
             ..Default::default()
         },
     )
