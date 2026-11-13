@@ -267,6 +267,8 @@ impl Pool {
         state::write(
             &self.repo.record_path(&lease.info.slot_id),
             &SlotRecord {
+                released_head: None,
+                idle_since_unix_ms: None,
                 schema_version: state::SCHEMA_VERSION,
                 phase: SlotPhase::Leased,
                 lease: Some(lease.info.clone()),

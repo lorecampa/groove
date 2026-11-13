@@ -3,13 +3,18 @@ use serde_json::Value;
 use support::{assert_success, Repo};
 
 fn cli(repo: &Repo, args: &[&str]) -> std::process::Output {
-    support::groove_in(&repo.path)
+    let mut command = support::groove_in(&repo.path);
+    command
         .env("GROOVE_POOL", "untrusted-parent")
         .arg("--repo")
         .arg(&repo.path)
-        .args(args)
-        .output()
-        .unwrap()
+        .args(args);
+    // These catalog/storage fixtures exercise lazy pools with stable disk usage.
+    // Automatic readiness and namespace independence have separate process tests.
+    if args.contains(&"init") {
+        command.args(["--ready-target", "0", "--idle-timeout", "never"]);
+    }
+    command.output().unwrap()
 }
 
 #[test]

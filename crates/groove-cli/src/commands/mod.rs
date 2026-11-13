@@ -64,11 +64,28 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
             pool_id,
         } => pool::destroy(context, *dry_run, *discard_changes, *pool_id),
         Command::Init {
+            ready_target,
+            idle_timeout,
+            ready_base,
             capacity,
             cleanup,
             worktree_root,
             resume,
-        } => pool::init(context, *capacity, *cleanup, worktree_root.clone(), *resume),
+        } => {
+            let defaults = crate::preferences::load()?.pool_defaults;
+            pool::init(
+                context,
+                *capacity,
+                *cleanup,
+                worktree_root.clone(),
+                *resume,
+                groove_core::ReadySettings {
+                    ready_target: ready_target.unwrap_or(defaults.ready_target),
+                    idle_timeout: idle_timeout.unwrap_or(defaults.idle_timeout),
+                    ready_base: ready_base.clone().unwrap_or_else(|| "HEAD".into()),
+                },
+            )
+        }
         Command::Acquire {
             base,
             task,

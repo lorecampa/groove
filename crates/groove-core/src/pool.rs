@@ -50,6 +50,9 @@ impl Pool {
         name: &crate::PoolName,
         options: PoolOptions,
     ) -> Result<InitResult> {
+        if let Some(ready) = &options.ready {
+            ready.validate(options.capacity)?;
+        }
         if !(1..=crate::MAX_CAPACITY).contains(&options.capacity) || options.git_timeout.is_zero() {
             return Err(Error::new(
                 crate::ErrorCode::InvalidArgument,
@@ -128,6 +131,7 @@ impl Pool {
         // resumptions must fail, even when the ready manifest was never published.
         let intent = repo.root.join("initializing.json");
         let expected = InitIntent {
+            ready: options.ready.clone(),
             schema_version: state::SCHEMA_VERSION,
             capacity: options.capacity,
             cleanup_policy: options.cleanup_policy,
@@ -229,6 +233,18 @@ impl Pool {
         state::sync_dir(&repo.root.join("locks"))?;
         state::sync_dir(&repo.root)?;
         let config = Config {
+            ready_lock: if options.ready.is_some() {
+                Some(create_lock(&repo.root.join("locks/ready.lock"))?)
+            } else {
+                None
+            },
+            ready: options
+                .ready
+                .map(|mut ready| {
+                    ready.resolve_head(&repo, options.git_timeout)?;
+                    Ok::<_, crate::Error>(ready)
+                })
+                .transpose()?,
             schema_version: state::SCHEMA_VERSION,
             capacity: options.capacity,
             cleanup_policy: options.cleanup_policy,
@@ -237,6 +253,7 @@ impl Pool {
             slots,
             execution_locks,
         };
+        state::sync_dir(&repo.root.join("locks"))?;
         state::checkpoint("before-ready-manifest");
         state::write(&repo.config_path(), &config)?;
         lifecycle.phase = crate::lifecycle::Phase::Ready;
@@ -387,6 +404,16 @@ impl Pool {
                 "Administrative lock identity changed",
             ));
         }
+        if let Some(expected) = config.ready_lock {
+            if locking::identity(&locking::open(&repo.root.join("locks/ready.lock"), false)?)?
+                != expected
+            {
+                return Err(Error::new(
+                    crate::ErrorCode::ConfigConflict,
+                    "Ready worker lock identity changed",
+                ));
+            }
+        }
         Ok(Self {
             repo,
             config,
@@ -397,6 +424,7 @@ impl Pool {
     }
     fn init_result(&self, created: bool) -> InitResult {
         InitResult {
+            ready: self.config.ready.clone(),
             pool_name: self.repo.name.clone(),
             created,
             common_git_dir: self.repo.common.clone(),
@@ -412,6 +440,11 @@ impl Pool {
     #[must_use]
     pub fn capacity(&self) -> usize {
         self.config.capacity
+    }
+    /// Canonical repository administration shared by every pool and checkout.
+    #[must_use]
+    pub fn common_git_dir(&self) -> &Path {
+        &self.repo.common
     }
     /// Return the selected namespace. Names never establish slot ownership.
     #[must_use]
@@ -485,11 +518,17 @@ impl Pool {
         let mut failed = BTreeMap::new();
         loop {
             let current = self.refreshed()?;
-            let slots: Vec<_> = current.config.slots.iter().collect();
+            let mut slots: Vec<_> = current.config.slots.iter().collect();
             let start_slot = (scan_seed % slots.len() as u128) as usize;
+            slots.rotate_left(start_slot);
+            // Hints influence preference only; descriptor ownership, protection
+            // and normal preparation still validate every selected checkout.
+            if current.config.ready.is_some() {
+                slots.sort_by_key(|(slot, _)| !current.ready_hint(slot));
+            }
             let mut busy = 0;
-            for n in 0..slots.len() {
-                let (slot, expected) = slots[(start_slot + n) % slots.len()];
+            let mut preparing = false;
+            for (slot, expected) in slots {
                 if failed.contains_key(slot) {
                     continue;
                 }
@@ -513,6 +552,16 @@ impl Pool {
                 let guard = match SlotGuard::try_lock(&self.repo.lock_path(slot), Some(*expected)) {
                     Ok(Some(g)) => g,
                     Ok(None) => {
+                        preparing |= current.config.ready.is_some()
+                            && state::read::<SlotRecord>(&self.repo.record_path(slot)).is_ok_and(
+                                |r| {
+                                    matches!(
+                                        r.phase,
+                                        crate::state::SlotPhase::Available
+                                            | crate::state::SlotPhase::Released
+                                    )
+                                },
+                            );
                         tracing::trace!(event = "slot.busy", slot = %slot, "Slot busy");
                         busy += 1;
                         continue;
@@ -564,6 +613,7 @@ impl Pool {
                         ));
                     }
                 }
+                current.validate_ready_state(slot)?;
                 match recovery::prepare(
                     &self.repo,
                     &current.config,
@@ -588,6 +638,8 @@ impl Pool {
                             acquired_at_unix_ms: Some(crate::reservation::now_ms()),
                         };
                         let record = SlotRecord {
+                            released_head: None,
+                            idle_since_unix_ms: None,
                             schema_version: state::SCHEMA_VERSION,
                             phase: crate::state::SlotPhase::Leased,
                             lease: Some(info.clone()),
@@ -599,6 +651,8 @@ impl Pool {
                     }
                     Err(e) => {
                         let record = SlotRecord {
+                            released_head: None,
+                            idle_since_unix_ms: None,
                             schema_version: state::SCHEMA_VERSION,
                             phase: crate::state::SlotPhase::Quarantined,
                             lease: None,
@@ -608,6 +662,13 @@ impl Pool {
                         failed.insert(slot.clone(), e.summary());
                     }
                 }
+            }
+            // A spare being materialized is preparation, not a reservation using
+            // capacity. Permit its bounded preparation to finish even with wait=0.
+            // Once its record becomes leased, ordinary capacity semantics resume.
+            if preparing && start.elapsed() < options.git_timeout {
+                std::thread::sleep(Duration::from_millis(5));
+                continue;
             }
             if busy == 0 || options.wait.is_zero() || start.elapsed() >= options.wait {
                 let code = if busy == 0 {
@@ -690,13 +751,34 @@ impl Pool {
             .slots
             .get(slot)
             .ok_or_else(|| Error::new(crate::ErrorCode::InvalidLease, "Unknown slot"))?;
-        let guard =
-            SlotGuard::try_lock(&self.repo.lock_path(slot), Some(*identity))?.ok_or_else(|| {
-                Error::new(
+        let guard = match SlotGuard::try_lock(&self.repo.lock_path(slot), Some(*identity))? {
+            Some(guard) => guard,
+            None => {
+                // A background preparer may own an already released generation.
+                // Acknowledge its completed release without unlocking or mutating
+                // anything. A successor's published generation never matches.
+                let record: SlotRecord = state::read(&self.repo.record_path(slot))?;
+                if record.schema_version == state::SCHEMA_VERSION
+                    && record.phase == crate::state::SlotPhase::Released
+                    && record
+                        .lease
+                        .as_ref()
+                        .is_some_and(|l| l.lease_id == lease_id && &l.slot_id == slot)
+                    && matches!(fs::symlink_metadata(self.repo.protection_path(slot)), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
+                {
+                    return Ok(crate::ReleaseResult {
+                        slot_id: slot.clone(),
+                        lease_id,
+                        released: true,
+                        cleanup: crate::CleanupTiming::Deferred,
+                    });
+                }
+                return Err(Error::new(
                     crate::ErrorCode::InvalidLease,
                     "Protected lease still has a live lock owner",
-                )
-            })?;
+                ));
+            }
+        };
         match fs::symlink_metadata(self.repo.protection_path(slot)) {
             Ok(_) => {
                 let record: state::ReuseProtection = state::read(&self.repo.protection_path(slot))?;
@@ -739,6 +821,8 @@ impl Pool {
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct InitIntent {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ready: Option<crate::ReadySettings>,
     pub schema_version: u32,
     pub capacity: usize,
     pub cleanup_policy: crate::CleanupPolicy,

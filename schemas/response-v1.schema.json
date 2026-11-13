@@ -377,6 +377,19 @@
         },
         "worktree_root": {
           "type": "string"
+        },
+        "ready_target": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "idle_timeout": {
+          "type": "string",
+          "pattern": "^(never|[1-9][0-9]*[smhd])$"
+        },
+        "ready_base": {
+          "type": "string",
+          "minLength": 1
         }
       },
       "required": [
@@ -512,6 +525,9 @@
         },
         "pagination": {
           "$ref": "#/$defs/pagination"
+        },
+        "ready": {
+          "$ref": "#/$defs/ready_report"
         }
       },
       "required": [
@@ -831,6 +847,19 @@
         },
         "state_dir": {
           "type": "string"
+        },
+        "ready_target": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "idle_timeout": {
+          "type": "string",
+          "pattern": "^(never|[1-9][0-9]*[smhd])$"
+        },
+        "ready_base": {
+          "type": "string",
+          "minLength": 1
         }
       },
       "required": [
@@ -1025,6 +1054,43 @@
             "null"
           ],
           "minimum": 0
+        }
+      }
+    },
+    "ready_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempted_at_unix_ms",
+        "running",
+        "ready",
+        "failures",
+        "error"
+      ],
+      "properties": {
+        "attempted_at_unix_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "running": {
+          "type": "boolean"
+        },
+        "ready": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "failures": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     }

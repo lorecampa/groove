@@ -221,6 +221,14 @@
     },
     "schema_version": {
       "const": 1
+    },
+    "idle_since_unix_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "released_head": {
+      "type": "string",
+      "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
     }
   },
   "required": [

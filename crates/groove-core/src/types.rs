@@ -22,6 +22,9 @@ pub enum CleanupPolicy {
 #[derive(Debug, Clone)]
 /// Options used to create a pool or explicitly resume interrupted initialization.
 pub struct PoolOptions {
+    /// Automatic spare-checkout policy; defaults to `None` for library callers,
+    /// which supply their own background execution. The CLI copies user defaults.
+    pub ready: Option<crate::ReadySettings>,
     /// Explicitly resume matching interrupted initialization; never reopen a ready pool.
     pub resume: bool,
     /// Maximum concurrent leases, `1..=`[`MAX_CAPACITY`].
@@ -39,6 +42,7 @@ pub struct PoolOptions {
 impl Default for PoolOptions {
     fn default() -> Self {
         Self {
+            ready: None,
             resume: false,
             capacity: 4,
             cleanup_policy: CleanupPolicy::Pristine,
@@ -105,7 +109,7 @@ pub enum Ownership {
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum CleanupTiming {
-    /// Cleanup runs during the next acquisition.
+    /// Cleanup runs later, during background preparation or the next acquisition.
     Deferred,
 }
 
@@ -145,6 +149,9 @@ pub struct LeaseInfo {
 #[derive(Debug, Serialize, Deserialize)]
 /// The initialized pool configuration and whether it was newly published.
 pub struct InitResult {
+    /// Persisted automatic checkout policy, absent for legacy lazy pools.
+    #[serde(flatten)]
+    pub ready: Option<crate::ReadySettings>,
     /// Namespace initialized; `default` uses the original layout.
     #[serde(default)]
     pub pool_name: crate::PoolName,
@@ -167,6 +174,9 @@ pub struct InitResult {
 /// Current repository-local pool settings, refreshed from durable metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PoolSettings {
+    /// Persisted automatic checkout policy, absent for legacy lazy pools.
+    #[serde(flatten)]
+    pub ready: Option<crate::ReadySettings>,
     /// Selected pool namespace.
     #[serde(default)]
     pub pool_name: crate::PoolName,
@@ -183,6 +193,12 @@ pub struct PoolSettings {
 /// An atomic pool settings update. The checkout root cannot be changed.
 #[derive(Debug, Clone)]
 pub struct PoolUpdate {
+    /// Desired spare count; validated against the resulting capacity.
+    pub ready_target: Option<usize>,
+    /// Idle eviction duration, or `never`.
+    pub idle_timeout: Option<crate::IdleTimeout>,
+    /// Local revision used to prepare unused checkouts. Never fetches.
+    pub ready_base: Option<String>,
     /// New capacity, `1..=`[`MAX_CAPACITY`]. Shrinking is rejected.
     pub capacity: Option<usize>,
     /// Cleanup policy for future acquisitions.
@@ -193,6 +209,9 @@ pub struct PoolUpdate {
 impl Default for PoolUpdate {
     fn default() -> Self {
         Self {
+            ready_target: None,
+            idle_timeout: None,
+            ready_base: None,
             capacity: None,
             cleanup_policy: None,
             timeout: DEFAULT_GIT_TIMEOUT,
@@ -209,7 +228,7 @@ pub struct PoolUpdateResult {
     pub pool: PoolSettings,
 }
 #[derive(Debug, Serialize, Deserialize)]
-/// Confirmation of explicit unlock; cleanup is deferred to acquisition.
+/// Confirmation of explicit unlock; cleanup is deferred to preparation/reuse.
 pub struct ReleaseResult {
     /// Permanent slot name, such as `wt-0001`.
     pub slot_id: SlotId,

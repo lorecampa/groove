@@ -4,10 +4,10 @@ EXAMPLES:
   groove release --lease-id UUID             # work already preserved elsewhere
   groove release --force --task fix-parser    # discard unsaved changes
 
-Returns the workspace to the pool. The next acquisition discards its contents
+Returns the workspace to the pool. Background preparation or the next acquisition discards its contents
 (ignored files too, under the default pristine cleanup). Stop ALL writers first:
 workers, tests, watchers and dev servers. Release detaches HEAD so branches
-created in the checkout are free to use elsewhere; files remain until reuse.
+created in the checkout are free to use elsewhere; files remain until preparation or reuse.
 
 --save saves and pins a snapshot of staged, working and non-ignored untracked
 files before release. A snapshot failure keeps the reservation protected. Recover
@@ -37,3 +37,8 @@ slot reuse or pool deletion. Once a receipt exists, do not edit more files befor
 retrying. Without --save, retries can become stale after reassignment. Task labels
 can be reused after release; retrying by --task could select a newer reservation.
 Stale lease IDs can never release a later task's workspace.
+
+For pools with an automatic ready policy, release also triggers background spare
+preparation and excess idle eviction. Released contents can therefore disappear
+before another acquisition. Pinned saved contents remain recoverable; unexpected
+later edits block background cleanup. Ignored artifacts must be exported first.

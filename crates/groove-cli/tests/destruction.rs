@@ -35,7 +35,18 @@ fn destroy_contract_includes_preview_rejection_and_generation_preconditions() {
     assert_eq!(missing.status.code(), Some(4));
     assert_eq!(check(&missing)["error"]["code"], "NOT_INITIALIZED");
     assert!(!repo.state().exists());
-    assert_success(&cli(&repo, &["init", "--capacity", "1"]));
+    assert_success(&cli(
+        &repo,
+        &[
+            "init",
+            "--capacity",
+            "1",
+            "--ready-target",
+            "0",
+            "--idle-timeout",
+            "never",
+        ],
+    ));
     let lease = assert_success(&cli(&repo, &["acquire", "--task", "retained"]));
     let path = lease["result"]["worktree_path"].as_str().unwrap();
     let busy = cli(&repo, &["destroy", "--discard-changes"]);
@@ -61,7 +72,18 @@ fn destroy_contract_includes_preview_rejection_and_generation_preconditions() {
         check(&again)["result"]["destruction"]["already_deleted"],
         true
     );
-    assert_success(&cli(&repo, &["init", "--capacity", "2"]));
+    assert_success(&cli(
+        &repo,
+        &[
+            "init",
+            "--capacity",
+            "2",
+            "--ready-target",
+            "0",
+            "--idle-timeout",
+            "never",
+        ],
+    ));
     let stale = cli(&repo, &["destroy", "--pool-id", id]);
     assert_eq!(stale.status.code(), Some(4));
     assert_eq!(check(&stale)["error"]["code"], "CONFIG_CONFLICT");
@@ -80,7 +102,18 @@ fn destroy_contract_includes_preview_rejection_and_generation_preconditions() {
 #[test]
 fn deletion_refuses_a_shell_in_a_released_workspace_even_with_discard() {
     let repo = Repo::new();
-    assert_success(&cli(&repo, &["init", "--capacity", "1"]));
+    assert_success(&cli(
+        &repo,
+        &[
+            "init",
+            "--capacity",
+            "1",
+            "--ready-target",
+            "0",
+            "--idle-timeout",
+            "never",
+        ],
+    ));
     let lease = assert_success(&cli(&repo, &["acquire"]));
     let id = lease["result"]["lease_id"].as_str().unwrap();
     let path = lease["result"]["worktree_path"].as_str().unwrap();

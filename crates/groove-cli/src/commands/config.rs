@@ -15,8 +15,17 @@ pub fn run(context: &Context<'_>, command: &ConfigCommand) -> Result<Output> {
             let settings = context.pool()?.settings()?;
             Output::fields(json!({ "pool": settings }))
         }
-        ConfigCommand::Set { capacity, cleanup } => {
+        ConfigCommand::Set {
+            capacity,
+            cleanup,
+            ready_target,
+            idle_timeout,
+            ready_base,
+        } => {
             let result = context.pool()?.configure(PoolUpdate {
+                ready_target: *ready_target,
+                idle_timeout: *idle_timeout,
+                ready_base: ready_base.clone(),
                 capacity: *capacity,
                 cleanup_policy: cleanup.map(Into::into),
                 timeout: context.git_timeout,

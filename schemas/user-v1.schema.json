@@ -9,29 +9,98 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": {"type": "boolean", "default": true},
-        "level": {"enum": ["error", "warn", "info", "debug", "trace"], "default": "debug"},
-        "directory": {"type": ["string", "null"], "pattern": "^/"},
-        "max_file_mib": {"type": "integer", "minimum": 1, "maximum": 1048576, "default": 5},
-        "max_total_mib": {"type": "integer", "minimum": 1, "maximum": 1048576, "default": 100},
-        "max_files": {"type": "integer", "minimum": 1, "maximum": 100000, "default": 100},
-        "max_age_days": {"type": "integer", "minimum": 1, "maximum": 36500, "default": 7}
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "level": {
+          "enum": [
+            "error",
+            "warn",
+            "info",
+            "debug",
+            "trace"
+          ],
+          "default": "debug"
+        },
+        "directory": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^/"
+        },
+        "max_file_mib": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1048576,
+          "default": 5
+        },
+        "max_total_mib": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1048576,
+          "default": 100
+        },
+        "max_files": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000,
+          "default": 100
+        },
+        "max_age_days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 36500,
+          "default": 7
+        }
       }
     },
     "worktrees": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "root": {"type": ["string", "null"], "pattern": "^/"}
+        "root": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^/"
+        }
       }
     },
     "experimental": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "features": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"}, "default": []}
+        "features": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,63}$"
+          },
+          "default": []
+        }
       },
       "description": "Individually requested features. Core rejects unknown or removed names; stabilized names remain accepted. No features are currently registered."
+    },
+    "pool_defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ready_target": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096,
+          "default": 1
+        },
+        "idle_timeout": {
+          "type": "string",
+          "pattern": "^(never|[1-9][0-9]*[smhd])$",
+          "default": "7d"
+        }
+      }
     }
   },
   "$comment": "No schema_version field is required or accepted in the user file. Missing fields use application defaults; JSON Schema default annotations do not insert values. The loader additionally requires max_file_mib <= max_total_mib and validates registered feature names. Null paths describe effective JSON; TOML users omit optional paths."

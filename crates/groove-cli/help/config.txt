@@ -12,3 +12,32 @@ Growth preserves existing reservations and locks; shrinking is unsupported.
 Cleanup changes apply to future acquisitions; in-flight preparation may finish
 with the old policy.
 Updates publish atomically and unchanged values report updated: false.
+
+READY CHECKOUTS:
+  groove config set --ready-target 2 --idle-timeout 7d --ready-base main
+  groove config set --ready-target 0 --idle-timeout never
+
+ready_target is the desired count of prepared, unreserved checkouts. It must not
+exceed capacity in the complete candidate update. Zero disables replenishment;
+idle_timeout=never disables eviction. Durations are positive whole s/m/h/d values.
+ready_base is a local revision; HEAD resolves to the calling checkout's branch or
+commit when set. Global pool_defaults only seed new pools.
+
+Successful init/acquire/release/config set operations start a short-lived worker.
+It prepares available slots and evicts excess idle checkouts while
+preserving the ready target where capacity allows. Foreground commands do not wait
+for replenishment. Acquisition can wait for a preparing slot within its Git timeout.
+One worker reconciles each pool at a time. There is no daemon: time alone does not
+trigger cleanup. Expired checkouts remain until a later pool operation. Inspection
+and global preference updates never trigger work. Failures appear in `show` and
+retry on later operations with a 30-second backoff; policy changes retry immediately.
+
+Idle age begins at explicit release or initial preparation. Unexpected changes,
+external users, unsafe registrations and dropped unreleased leases are preserved.
+Saved release contents are discarded only while files, index and HEAD still match
+the pinned snapshot. Ignored caches are disposable after release. Slot capacity,
+locks, branches, snapshots and receipts survive eviction. Reservations never expire.
+In-flight background work may finish using previously observed settings.
+
+Legacy pools remain lazy until explicitly configured. Pools without a lifecycle
+generation must be explicitly recreated before enabling automatic work.

@@ -41,3 +41,7 @@ initialized pool. After deletion, init can create a new pool with new settings;
 permanent lock identities and that pool's request-key tombstones survive.
 Destroy can also cancel matching interrupted initialization. Unsafe or malformed
 metadata requires repair; it is never ignored to force deletion.
+
+A running background checkout worker holds lifecycle admission, so deletion refuses
+with CONFIG_CONFLICT until it exits. Inspect `groove show` and retry; never remove
+its permanent ready.lock. Deleted pools retain that lock with their other history.

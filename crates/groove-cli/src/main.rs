@@ -7,6 +7,7 @@ mod logging;
 mod output;
 mod preferences;
 mod progress;
+mod ready;
 mod terminal;
 
 use args::{Args, Command};
@@ -68,6 +69,9 @@ fn requested_format(json_flag: bool) -> Format {
 
 fn main() -> ExitCode {
     let raw: Vec<_> = std::env::args_os().collect();
+    if let Some(code) = ready::internal(&raw) {
+        return ExitCode::from(code);
+    }
     match crate::contract::command()
         .try_get_matches_from(&raw)
         .and_then(|matches| Args::from_arg_matches(&matches))
@@ -161,6 +165,7 @@ fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {
     let elapsed_ms = || u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
     match commands::run(&context, &args.command) {
         Ok(result) => {
+            ready::trigger(args);
             tracing::info!(
                 event = "command.completed",
                 elapsed_ms = elapsed_ms(),
