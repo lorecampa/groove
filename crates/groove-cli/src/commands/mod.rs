@@ -18,8 +18,6 @@ pub struct Context<'a> {
     pub repo: &'a Path,
     pub selected_pool: Option<&'a groove_core::PoolName>,
     pub git_timeout: Duration,
-    pub terminal: &'a crate::terminal::Terminal,
-    pub json: bool,
 }
 impl Context<'_> {
     fn pool_name(&self) -> groove_core::PoolName {
