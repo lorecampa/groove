@@ -86,6 +86,11 @@
 
 ### Fixed
 
+- Controlled workspace benchmarks disable automatic preparation and idle
+  eviction, preserving concurrent workload workers and legacy lazy baselines.
+  Affected profile versions advance; cleanup errors now fail the run instead
+  of silently leaving fixtures behind.
+
 - Workspace-user process fixtures isolate descriptor ownership between
   concurrently scheduled scenarios and retain diagnostics on early child exit.
 - Ready-worker process fixtures likewise isolate unrelated descriptor owners,

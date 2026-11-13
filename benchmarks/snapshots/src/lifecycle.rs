@@ -24,6 +24,48 @@ fn call(runner: &Runner, binary: &Path, repo: &Path, args: &[&str]) -> Result<(V
         false,
     )
 }
+/// Controlled pool workloads own materialization; automatic workers would race
+/// their measurements and fixture teardown. Legacy CLIs were already lazy.
+pub(crate) fn init_pool(
+    runner: &Runner,
+    binary: &Path,
+    repo: &Path,
+    pool: Option<&str>,
+    args: &[&str],
+) -> Result<(Value, Value)> {
+    // Capability discovery is outside the measured initialization command and
+    // lets older baseline binaries keep their existing lazy initialization.
+    let output = runner.run(binary, ["--json", "init", "--help"], repo)?;
+    let help: Value = serde_json::from_slice(&output.stdout)?;
+    require(
+        help["api_version"] == 1 && help["ok"] == true,
+        "Invalid CLI init help response",
+    )?;
+    let text = help["result"]["text"]
+        .as_str()
+        .ok_or_else(|| Error::Invalid("Missing CLI init help text".into()))?;
+    let ready = text.split_whitespace().any(|word| word == "--ready-target");
+    let idle = text.split_whitespace().any(|word| word == "--idle-timeout");
+    require(
+        ready == idle,
+        "CLI exposes an unsupported partial ready-pool policy",
+    )?;
+    let mut args = args.to_vec();
+    if ready {
+        args.extend(["--ready-target", "0", "--idle-timeout", "never"]);
+    }
+    let result = match pool {
+        Some(pool) => named(runner, binary, repo, pool, &args)?,
+        None => call(runner, binary, repo, &args)?,
+    };
+    if ready {
+        require(
+            result.0["ready_target"] == 0 && result.0["idle_timeout"] == "never",
+            "Benchmark pool did not disable automatic checkout work",
+        )?;
+    }
+    Ok(result)
+}
 fn path(lease: &Value) -> Result<PathBuf> {
     lease["worktree_path"]
         .as_str()
@@ -167,10 +209,11 @@ pub(crate) fn measure(
     } else {
         Cleanup::Pristine
     };
-    call(
+    init_pool(
         runner,
         binary,
         repo,
+        None,
         &[
             "init",
             "--capacity",
@@ -375,11 +418,11 @@ fn multi_pool(
     let names: Vec<_> = (0..pools).map(|i| format!("bench-{i}")).collect();
     let mut roots = Vec::new();
     for pool in &names {
-        let (initialized, timing) = named(
+        let (initialized, timing) = init_pool(
             runner,
             binary,
             repo,
-            pool,
+            Some(pool),
             &["init", "--capacity", &workers.to_string()],
         )?;
         roots.push(PathBuf::from(
@@ -555,16 +598,13 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
     let mut init = vec!["init", "--capacity"];
     let capacity = slots.to_string();
     init.push(&capacity);
-    // Deletion fixtures own materialization explicitly; no spare worker may
-    // race their immediate preview/deletion or create an unrequested slot.
-    init.extend(["--ready-target", "0", "--idle-timeout", "never"]);
     let external_text = external_root
         .to_str()
         .ok_or_else(|| Error::Invalid("Non-UTF-8 fixture root".into()))?;
     if external {
         init.extend(["--worktree-root", external_text]);
     }
-    let (initialized, _) = call(runner, binary, repo, &init)?;
+    let (initialized, _) = init_pool(runner, binary, repo, None, &init)?;
     let root = PathBuf::from(
         initialized["worktree_root"]
             .as_str()
@@ -575,20 +615,12 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
             .as_str()
             .ok_or_else(|| Error::Invalid("Missing pool state".into()))?,
     );
-    named(
+    init_pool(
         runner,
         binary,
         repo,
-        "survivor",
-        &[
-            "init",
-            "--capacity",
-            "1",
-            "--ready-target",
-            "0",
-            "--idle-timeout",
-            "never",
-        ],
+        Some("survivor"),
+        &["init", "--capacity", "1"],
     )?;
     let (sibling, _) = named(
         runner,
@@ -790,21 +822,17 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
     let replacement_text = replacement
         .to_str()
         .ok_or_else(|| Error::Invalid("Non-UTF-8 fixture path".into()))?;
-    let (reinitialized, timing) = named(
+    let (reinitialized, timing) = init_pool(
         runner,
         binary,
         repo,
-        "default",
+        Some("default"),
         &[
             "init",
             "--capacity",
             "1",
             "--worktree-root",
             replacement_text,
-            "--ready-target",
-            "0",
-            "--idle-timeout",
-            "never",
         ],
     )?;
     require(
@@ -915,6 +943,92 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn initialization_disables_background_work_and_accepts_legacy_lazy_baselines() {
+        use std::os::unix::fs::PermissionsExt;
+        const CHILD: &str = "GROOVE_BENCH_INIT_PEER_ROOT";
+        const TEST: &str = "lifecycle::tests::initialization_disables_background_work_and_accepts_legacy_lazy_baselines";
+        let Some(root) = std::env::var_os(CHILD) else {
+            // Keep executable-file writes outside unrelated fixture forks.
+            let root = tempfile::tempdir().unwrap();
+            let mut runner = Runner::new().isolated(root.path()).unwrap();
+            runner.timeout = Duration::from_secs(20);
+            runner
+                .env
+                .insert(CHILD.into(), root.path().as_os_str().into());
+            runner
+                .run(
+                    std::env::current_exe().unwrap(),
+                    ["--exact", TEST],
+                    root.path(),
+                )
+                .unwrap();
+            assert_eq!(fs::read(root.path().join("entered")).unwrap(), b"entered");
+            return;
+        };
+        let root = Path::new(&root);
+        fs::write(root.join("entered"), b"entered").unwrap();
+        let runner = Runner::new().isolated(root).unwrap();
+        for mode in ["legacy", "current", "ignored-policy"] {
+            let help = serde_json::json!({"api_version":1,"ok":true,"request_id":null,"result":{"text":
+                if mode == "legacy" { "Usage: groove init --capacity N" }
+                else { "Usage: groove init --capacity N --ready-target N --idle-timeout D" }
+            }});
+            let response = serde_json::json!({"api_version":1,"ok":true,"request_id":null,"result":
+                if mode == "legacy" { serde_json::json!({}) }
+                else { serde_json::json!({"ready_target":if mode == "current" {0} else {1},"idle_timeout":"never"}) }
+            });
+            let policy = if mode == "legacy" {
+                "test \"$ready\" = absent; test \"$idle\" = absent"
+            } else {
+                "test \"$ready\" = 0; test \"$idle\" = never"
+            };
+            let script = r#"#!/bin/bash
+set -eu
+for argument in "$@"; do
+  if [[ $argument == --help ]]; then
+    cat <<'HELP_RESPONSE'
+@HELP@
+HELP_RESPONSE
+    exit 0
+  fi
+done
+ready=absent
+idle=absent
+while (( $# )); do
+  case $1 in
+    --ready-target) shift; ready=$1;;
+    --idle-timeout) shift; idle=$1;;
+  esac
+  shift
+done
+@POLICY@
+cat <<'INIT_RESPONSE'
+@RESPONSE@
+INIT_RESPONSE
+"#
+            .replace("@HELP@", &help.to_string())
+            .replace("@POLICY@", policy)
+            .replace("@RESPONSE@", &response.to_string());
+            let binary = root.join(mode);
+            fs::write(&binary, script).unwrap();
+            fs::set_permissions(&binary, fs::Permissions::from_mode(0o755)).unwrap();
+            let result = init_pool(
+                &runner,
+                &binary,
+                root,
+                Some("bench"),
+                &["init", "--capacity", "2"],
+            );
+            if mode == "ignored-policy" {
+                assert!(
+                    matches!(result, Err(Error::Invalid(message)) if message.contains("did not disable"))
+                );
+            } else {
+                assert!(result.is_ok(), "{mode}: {result:?}");
+            }
+        }
+    }
     #[test]
     fn concurrent_peers_all_run_and_failures_or_panics_propagate() {
         let peers: BTreeSet<_> = parallel(4, Ok).unwrap().into_iter().collect();

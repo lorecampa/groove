@@ -202,10 +202,11 @@ pub(crate) fn measure(
     let tree = runner.git_text(repo, &["rev-parse", "HEAD^{tree}"])?;
     let old = runner.git_text(repo, &["rev-parse", "bench-base"])?;
     let old_tree = runner.git_text(repo, &["rev-parse", "bench-base^{tree}"])?;
-    call(
+    crate::lifecycle::init_pool(
         runner,
         binary,
         repo,
+        None,
         &["init", "--capacity", "1", "--cleanup", cleanup.name()],
     )?;
     let mut evidence = Evidence::default();

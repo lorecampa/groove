@@ -733,6 +733,11 @@ fn collect_case(
             } else {
                 after = Some(observation)
             };
+            let path = scratch.path().to_owned();
+            scratch.close().map_err(|source| Error::Retained {
+                path,
+                source: Box::new(source.into()),
+            })?;
         }
         if measured {
             let measured = crate::statistics::Block {

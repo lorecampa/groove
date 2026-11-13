@@ -249,10 +249,11 @@ pub(crate) fn measure(
     } else {
         "pristine"
     };
-    call(
+    crate::lifecycle::init_pool(
         runner,
         binary,
         repo,
+        None,
         &["init", "--capacity", "1", "--cleanup", cleanup],
     )?;
     for (index, name) in PHASES.into_iter().enumerate() {
