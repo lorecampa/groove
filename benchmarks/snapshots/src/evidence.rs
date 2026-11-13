@@ -34,6 +34,8 @@ pub(crate) struct Evidence {
     pub(crate) checks: BTreeMap<String, bool>,
     pub(crate) object_growth: Option<Storage>,
     pub(crate) batch_seconds: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) build: Option<crate::build::BuildEvidence>,
 }
 impl Evidence {
     pub(crate) fn record(&mut self, name: &str, timing: serde_json::Value) -> Result<()> {
@@ -49,6 +51,23 @@ impl Evidence {
 }
 pub(crate) fn observation(case: &Case, evidence: Evidence) -> Result<Observation> {
     let (operations, checks): (Vec<(&str, usize)>, &[&str]) = match case.workload {
+        Workload::WorkspaceBuild { .. } => (
+            vec![
+                ("acquire", 6),
+                ("build", 6),
+                ("validate", 6),
+                ("release", 6),
+            ],
+            &[
+                "build_output",
+                "full_checkout_trees",
+                "cleanup_policy",
+                "independent_outputs",
+                "cache_loss",
+                "released",
+                "source_preserved",
+            ],
+        ),
         Workload::SnapshotSave { history_depth, .. } => (
             vec![
                 ("first_save", 1),
@@ -273,6 +292,15 @@ pub(crate) fn observation(case: &Case, evidence: Evidence) -> Result<Observation
             evidence.batch_seconds.is_none(),
             "Unexpected concurrent measurement",
         )?;
+    }
+    if let Workload::WorkspaceBuild { strategy, units } = case.workload {
+        let build = evidence
+            .build
+            .as_ref()
+            .ok_or_else(|| crate::util::Error::Invalid("Missing build evidence".into()))?;
+        crate::build::metrics(strategy, units, build, &evidence.measurements, &mut metrics)?;
+    } else {
+        require(evidence.build.is_none(), "Unexpected build evidence")?;
     }
     Ok(Observation {
         metrics,

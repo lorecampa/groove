@@ -10,6 +10,10 @@ acquisition. Running init on a ready pool fails with CONFIG_CONFLICT, even with
 identical settings: use `config show` or `config set` instead. An interrupted
 init must be resumed with --resume and the original settings.
 
+Pristine cleanup is the default and removes ignored files on acquisition. Choose
+warm only when your workflow validates retained ignored residue; rebuilding a
+checkout can discard it. External build-tool caches can also serve pristine pools.
+
 Initializes the selected pool (--pool NAME; default: default). The checkout root
 defaults to $HOME/.worktrees/<project>-<repo-id>/<pool> on Linux and macOS.
 The project name is sanitized and the ID hashes the canonical common Git directory,

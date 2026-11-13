@@ -312,6 +312,23 @@ pub(crate) fn summarize(report: &mut Value) -> Result<()> {
             profile.id == *id && profile.sha256()? == selected.sha256,
             "Profile identity/hash contradicts embedded definition",
         )?;
+        if profile.sampling.balanced_cases {
+            let (warmups, runs) = if mode == crate::Mode::Check {
+                (0, 1)
+            } else {
+                (profile.sampling.warmup_blocks, profile.sampling.blocks)
+            };
+            let expected: Vec<_> = (0..warmups + runs)
+                .map(|iteration| {
+                    crate::build::case_order(iteration.saturating_sub(warmups))
+                        .map(|index| profile.cases[index].id.clone())
+                })
+                .collect();
+            require(
+                report["case_schedule"][id] == json!(expected),
+                "Recorded strategy order differs from balanced sampling",
+            )?;
+        }
         for case in &profile.cases {
             let key = format!("{id}/{}", case.id);
             expected.insert(key.clone());
@@ -331,10 +348,20 @@ pub(crate) fn summarize(report: &mut Value) -> Result<()> {
                 result.blocks.len() == count,
                 "Raw block count differs from profile sampling",
             )?;
+            let mut build_tools = None;
             for block in &result.blocks {
                 for observation in std::iter::once(&block.candidate).chain(block.baseline.iter()) {
                     let evidence: crate::evidence::Evidence =
                         serde_json::from_value(observation.detail.clone())?;
+                    if let Some(build) = &evidence.build {
+                        require(
+                            build_tools
+                                .as_ref()
+                                .is_none_or(|tools| tools == &build.tools),
+                            "Build tools changed between binaries/blocks",
+                        )?;
+                        build_tools = Some(build.tools.clone());
+                    }
                     let recomputed = crate::evidence::observation(case, evidence)?;
                     require(
                         recomputed.verified

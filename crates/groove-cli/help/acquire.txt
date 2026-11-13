@@ -11,6 +11,12 @@ commands can select it with --task NAME instead of the lease ID. An active label
 cannot be reused: a second acquire with it fails with INVALID_ARGUMENT naming the
 existing lease and path. Labels and keys must not contain control characters.
 
+Cleanup follows the pool's policy: pristine (default) removes ignored files;
+warm retains them only when reusing a healthy checkout. Retained files are not
+validated build outputs and may disappear during rebuild. Run and validate your
+build directly in the returned checkout. Build-tool caches outside pool roots can
+survive pristine cleanup; the build tool owns their compatibility and sharing.
+
 Capacity: a zero --wait-ms scans once; a positive value bounds waiting for a
 free slot (not checkout preparation, which has its own Git timeouts). There is
 no FIFO fairness. On POOL_EXHAUSTED or ACQUIRE_TIMEOUT, wait or inspect with

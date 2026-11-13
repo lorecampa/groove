@@ -3,7 +3,7 @@ FROM rust:1.89.0-bookworm@sha256:c9ac3fa8945b61dede1e4500d25028aa8fd8a8fe46365fc
 RUN rm /etc/apt/sources.list.d/debian.sources \
  && printf '%s\n' 'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/20250901T000000Z bookworm main' > /etc/apt/sources.list \
  && apt-get -o Acquire::Check-Valid-Until=false update \
- && apt-get install -y --no-install-recommends time \
+ && apt-get install -y --no-install-recommends time ccache=4.8+really4.7.5-1 \
  && rm -rf /var/lib/apt/lists/*
 RUN curl --proto '=https' --tlsv1.2 -fsSL https://www.kernel.org/pub/software/scm/git/git-2.40.0.tar.xz -o /tmp/git.tar.xz \
  && echo 'b17a598fbf58729ef13b577465eb93b2d484df1201518b708b5044ff623bf46d  /tmp/git.tar.xz' | sha256sum -c - \

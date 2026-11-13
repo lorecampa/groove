@@ -1,4 +1,5 @@
 //! Development-only benchmark lab; never shipped with Groove.
+mod build;
 mod container;
 mod evidence;
 mod fixture;

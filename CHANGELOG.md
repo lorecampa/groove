@@ -15,6 +15,10 @@
 
 ### Added
 
+- An offline build benchmark compares pristine workspaces, external compiler
+  caching and warm reuse across source/flag changes and cache loss, checking
+  executed outputs and reporting total task time. Cleanup help explains external
+  build-tool caches and the limits of retained ignored files.
 - Long-running commands show delayed spinners on interactive stderr, or versioned
   JSON liveness events on stderr with `--json`. `--quiet` suppresses progress;
   redirected human output and the single JSON stdout response stay unchanged.

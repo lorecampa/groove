@@ -73,6 +73,9 @@ fn payload(bytes: usize, seed: u64) -> Vec<u8> {
         .collect()
 }
 pub(crate) fn prepare(runner: &Runner, repo: &Path, case: &Case) -> Result<()> {
+    if let Workload::WorkspaceBuild { units, .. } = case.workload {
+        return crate::build::prepare(runner, repo, units);
+    }
     let artifacts = match case.workload {
         Workload::WorkspaceDeletion {
             artifact_files,
@@ -133,6 +136,9 @@ pub(crate) fn measure(
     case: &Case,
 ) -> Result<Observation> {
     match case.workload {
+        Workload::WorkspaceBuild { strategy, units } => {
+            return crate::build::measure(runner, binary, repo, case, strategy, units)
+        }
         Workload::MonorepoReuse {
             cleanup,
             ignored_files,
