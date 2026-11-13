@@ -35,6 +35,9 @@ impl Spec {
         repo: &Path,
         case: &Case,
     ) -> Result<(String, Vec<PathBuf>)> {
+        if let Contents::Monorepo { history_commits } = case.contents {
+            return crate::monorepo::create(runner, repo, case, history_commits);
+        }
         let count = case.files;
         self.create(runner, repo, count)?;
         if case.contents == Contents::Unique {

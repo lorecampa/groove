@@ -298,7 +298,7 @@ fn trees(runner: &Runner, repo: &Path) -> Result<(String, String)> {
     oracle.git(repo, ["add", "-A"])?;
     Ok((staged, oracle.git_text(repo, &["write-tree"])?))
 }
-fn verify_trees(runner: &Runner, repo: &Path, index: &str, work: &str) -> Result<()> {
+pub(crate) fn verify_trees(runner: &Runner, repo: &Path, index: &str, work: &str) -> Result<()> {
     let (actual_index, actual_work) = trees(runner, repo)?;
     require(
         actual_index == index,
@@ -389,7 +389,7 @@ fn mutate(
             "unstaged-{iteration}"
         )?;
         if iteration == 0 {
-            let deleted = PathBuf::from(spec().path(case.files - 1));
+            let deleted = PathBuf::from(case.path(case.files - 1));
             require(
                 !selected.contains(&deleted),
                 "Deletion must be independent of edited paths",
@@ -612,6 +612,36 @@ fn collect_case(
 ) -> Result<()> {
     let key = format!("{}/{}", profile.id, case.id);
     report["cases"][&key] = json!({"identity":null,"blocks":[]});
+    // Expensive monorepo history is prepared once per case. Each side/block
+    // still gets independent objects and a freshly checked-out index/worktree.
+    let seed = if matches!(case.contents, crate::profiles::Contents::Monorepo { .. }) {
+        report["progress"] = json!({"profile":profile.id,"case":case.id,"phase":"fixture"});
+        write_json(&args.plan.output, report)?;
+        eprintln!("Preparing {key} immutable history seed");
+        let seed = tempfile::Builder::new()
+            .prefix("groove-bench-seed-")
+            .tempdir_in(&args.plan.temp_root)?;
+        let outcome = (|| -> Result<String> {
+            let local = runner.isolated(seed.path())?;
+            let (bytes, inodes) = case.scratch_budget();
+            crate::report::preflight(&local, seed.path(), bytes, inodes)?;
+            let repo = seed.path().join("repo");
+            spec().create_workload(&local, &repo, case)?;
+            local.git_text(&repo, &["rev-parse", "HEAD"])
+        })();
+        match outcome {
+            Ok(identity) => report["cases"][&key]["identity"] = json!(identity),
+            Err(source) => {
+                return Err(Error::Retained {
+                    path: seed.keep(),
+                    source: Box::new(source),
+                })
+            }
+        }
+        Some(seed)
+    } else {
+        None
+    };
     let (warmup, runs) = if args.mode == crate::Mode::Check {
         (0, 1)
     } else {
@@ -652,9 +682,20 @@ fn collect_case(
                 let (bytes, inodes) = case.scratch_budget();
                 crate::report::preflight(&local, scratch.path(), bytes, inodes)?;
                 let repo = scratch.path().join("repo");
-                let (_, selected) = spec().create_workload(&local, &repo, case)?;
+                let selected = if let Some(seed) = &seed {
+                    crate::monorepo::clone_seed(&local, &seed.path().join("repo"), &repo)?;
+                    crate::monorepo::selected(case)
+                } else {
+                    spec().create_workload(&local, &repo, case)?.1
+                };
                 crate::lifecycle::prepare(&local, &repo, case)?;
-                let identity = local.git_text(&repo, &["rev-parse", "HEAD^{tree}"])?;
+                let revision =
+                    if matches!(case.contents, crate::profiles::Contents::Monorepo { .. }) {
+                        "HEAD" // Bind the whole deterministic history, not only the tip tree.
+                    } else {
+                        "HEAD^{tree}"
+                    };
+                let identity = local.git_text(&repo, &["rev-parse", revision])?;
                 let observation = execute_case(&local, binary, &repo, case, &selected)?;
                 Ok((identity, observation))
             })();
@@ -707,13 +748,16 @@ pub(crate) fn run(args: RunArgs) -> Result<()> {
     }
     result
 }
-fn run_inner(args: RunArgs) -> Result<()> {
+fn run_inner(mut args: RunArgs) -> Result<()> {
     let profiles = crate::profiles::select(&args.plan.profiles)?;
     require(
         args.mode != crate::Mode::Check || args.baseline.is_none(),
         "Correctness checks do not compare baselines",
     )?;
     fs::create_dir_all(&args.plan.temp_root)?;
+    // Workers run from fixture/repository directories. Resolve relative scratch
+    // arguments once, before passing them to stat or isolated subprocesses.
+    args.plan.temp_root = fs::canonicalize(&args.plan.temp_root)?;
     let candidate = args
         .binary
         .clone()

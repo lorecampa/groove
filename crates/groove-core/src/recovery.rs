@@ -150,10 +150,11 @@ pub(crate) fn normalize(
         Err(e) => return Err(e.into()),
     }
     if had_index {
-        // Rebuild from trusted objects, then verify working bytes before filling
-        // stat entries. Checkout can retain matching files without trusting any
-        // flags or stat data left behind by the previous reservation.
-        git.run(path, &["read-tree", oid.as_str()], fds)?;
+        // Rebuild from the current commit, then verify working bytes before
+        // filling stat entries. Retaining the old tracked-path inventory lets
+        // checkout remove paths deleted by the target, even if now ignored.
+        // No flags or stat data from the previous reservation are trusted.
+        git.run(path, &["read-tree", "HEAD"], fds)?;
         match git.run(path, &["update-index", "-q", "--refresh"], fds) {
             Ok(_) => (),
             // Dirty/missing paths remain unrefreshed and are replaced by checkout.

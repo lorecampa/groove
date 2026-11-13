@@ -4,6 +4,7 @@ mod evidence;
 mod fixture;
 mod harness;
 mod lifecycle;
+mod monorepo;
 mod profiles;
 mod report;
 mod statistics;

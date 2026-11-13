@@ -118,6 +118,51 @@ fn reuse_preserves_clean_file_identity_but_replaces_hidden_same_size_edits() {
     }
 }
 #[test]
+fn warm_commit_switch_removes_old_tracked_paths_that_become_ignored() {
+    let r = Repo::new();
+    fs::create_dir(r.path.join("obsolete")).unwrap();
+    fs::write(r.path.join("obsolete/file"), "old tracked content\n").unwrap();
+    r.git(&["add", "obsolete/file"]);
+    r.git(&["commit", "-qm", "old tracked path"]);
+    let old = r.git(&["rev-parse", "HEAD"]);
+    r.git(&["rm", "obsolete/file"]);
+    fs::write(r.path.join(".gitignore"), "ignored/\nobsolete/\n").unwrap();
+    r.git(&["add", ".gitignore"]);
+    r.git(&["commit", "-qm", "remove and ignore old path"]);
+    let p = pool(&r, CleanupPolicy::Warm);
+    let lease = p
+        .acquire(AcquireOptions {
+            base: old.clone(),
+            ..Default::default()
+        })
+        .unwrap();
+    let path = lease.info().worktree_path.clone();
+    fs::create_dir(path.join("ignored")).unwrap();
+    fs::write(path.join("ignored/cache"), "keep cache\n").unwrap();
+    drop(lease);
+    let lease = p.acquire(Default::default()).unwrap();
+    assert!(!path.join("obsolete/file").exists());
+    assert_eq!(
+        fs::read(path.join("ignored/cache")).unwrap(),
+        b"keep cache\n"
+    );
+    drop(lease);
+    let _lease = p
+        .acquire(AcquireOptions {
+            base: old,
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(
+        fs::read(path.join("obsolete/file")).unwrap(),
+        b"old tracked content\n"
+    );
+    assert_eq!(
+        fs::read(path.join("ignored/cache")).unwrap(),
+        b"keep cache\n"
+    );
+}
+#[test]
 fn repairs_index_and_interrupted_operations_without_changing_lock_inode() {
     let r = Repo::new();
     let p = pool(&r, CleanupPolicy::Pristine);

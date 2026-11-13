@@ -42,6 +42,7 @@ pub(crate) enum Contents {
     Paths,
     Unique,
     Binary { bytes: usize },
+    Monorepo { history_commits: usize },
 }
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
@@ -53,6 +54,11 @@ pub(crate) enum Workload {
     SnapshotRestore,
     WorkspaceReuse {
         cleanup: Cleanup,
+    },
+    MonorepoReuse {
+        cleanup: Cleanup,
+        ignored_files: usize,
+        ignored_file_bytes: usize,
     },
     WorkspaceSetup {
         artifact_files: usize,
@@ -103,11 +109,22 @@ impl Profile {
     }
 }
 impl Case {
+    pub(crate) fn path(&self, index: usize) -> String {
+        if matches!(self.contents, Contents::Monorepo { .. }) {
+            crate::monorepo::path(index)
+        } else {
+            crate::fixture::spec().path(index)
+        }
+    }
     fn description(&self) -> String {
         let contents = match self.contents {
             Contents::Paths => "small repeated text".into(),
             Contents::Unique => "unique 1.5 KiB text".into(),
             Contents::Binary { bytes } => format!("plus a {} MiB binary", bytes / 1048576),
+            Contents::Monorepo { history_commits } => format!(
+                "heterogeneous text/binary, {:.2} GiB tracked, {history_commits} history commits",
+                crate::monorepo::content_bytes(self.files) as f64 / 1073741824.0
+            ),
         };
         let operations = match self.workload {
             Workload::SnapshotSave { history_depth, .. } => format!(
@@ -120,6 +137,10 @@ impl Case {
             Workload::WorkspaceReuse { cleanup } => {
                 format!("first/clean/dirty reuse with {} cleanup", cleanup.name())
             }
+            Workload::MonorepoReuse { cleanup, ignored_files, ignored_file_bytes } => format!(
+                "first/clean/dirty reuse and backward/forward commit changes; {} cleanup; {ignored_files} ignored files ({:.1} MiB)",
+                cleanup.name(), (ignored_files * ignored_file_bytes) as f64 / 1048576.0
+            ),
             Workload::WorkspaceSetup {
                 artifact_files,
                 artifact_file_bytes,
@@ -163,6 +184,26 @@ impl Case {
             Workload::WorkspaceDeletion { .. } => self.capacity() + 3,
             _ => self.capacity() + 1,
         } as u64;
+        if let Contents::Monorepo { history_commits } = self.contents {
+            let ignored = match self.workload {
+                Workload::MonorepoReuse {
+                    ignored_files,
+                    ignored_file_bytes,
+                    ..
+                } => (ignored_files * ignored_file_bytes) as u64,
+                _ => 0,
+            };
+            // Include objects/history, independent full-tree oracles, checkouts,
+            // directory allocation and ignored output. These are conservative
+            // admission budgets, not claimed disk-usage measurements.
+            let objects_and_copies = copies + history_commits as u64 + 4;
+            return (
+                crate::monorepo::content_bytes(self.files) * objects_and_copies
+                    + self.files as u64 * objects_and_copies * 8192
+                    + ignored * 2,
+                self.files as u64 * objects_and_copies * 3 + 20000,
+            );
+        }
         let binary = if let Contents::Binary { bytes } = self.contents {
             bytes as u64
         } else {
@@ -228,6 +269,21 @@ pub(crate) fn validate(profile: &Profile) -> Result<()> {
             Workload::WorkspaceConcurrency { workers } => {
                 require((1..=32).contains(workers), "Invalid worker count")?
             }
+            Workload::MonorepoReuse {
+                ignored_files,
+                ignored_file_bytes,
+                ..
+            } => {
+                require(
+                    matches!(case.contents, Contents::Monorepo { .. }),
+                    "Monorepo workload needs monorepo contents",
+                )?;
+                require(
+                    (1..=10000).contains(ignored_files)
+                        && (1..=1048576).contains(ignored_file_bytes),
+                    "Invalid monorepo ignored output",
+                )?;
+            }
             Workload::WorkspaceMultiPool {
                 pools,
                 workers_per_pool,
@@ -282,6 +338,21 @@ pub(crate) fn validate(profile: &Profile) -> Result<()> {
             require(
                 (65536..=96 * 1024 * 1024).contains(&bytes),
                 "Invalid binary fixture",
+            )?;
+        }
+        if let Contents::Monorepo { history_commits } = case.contents {
+            require(
+                (2..=32).contains(&history_commits) && case.files >= 100,
+                "Invalid monorepo history or size",
+            )?;
+            require(
+                matches!(
+                    case.workload,
+                    Workload::MonorepoReuse { .. }
+                        | Workload::SnapshotSave { .. }
+                        | Workload::SnapshotRestore
+                ),
+                "Unsupported monorepo workload",
             )?;
         }
     }
@@ -357,6 +428,21 @@ pub(crate) fn display(name: Option<&str>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn monorepo_profiles_budget_content_and_reject_incompatible_workloads() {
+        let mut profile = select(&["monorepo-reuse".into()]).unwrap().remove(0);
+        let case = &profile.cases[0];
+        assert!(crate::monorepo::content_bytes(case.files) > 2 * 1024 * 1024 * 1024);
+        assert!(case.scratch_budget().0 > crate::monorepo::content_bytes(case.files) * 4);
+        assert!(case.scratch_budget().1 > case.files as u64 * 4);
+        profile.cases[0].contents = Contents::Unique;
+        assert!(validate(&profile).is_err());
+        profile.cases[0].contents = Contents::Monorepo { history_commits: 0 };
+        assert!(validate(&profile).is_err());
+        profile.cases[0].contents = Contents::Monorepo { history_commits: 8 };
+        profile.cases[0].workload = Workload::WorkspaceConcurrency { workers: 2 };
+        assert!(validate(&profile).is_err());
+    }
     #[test]
     fn named_profiles_cover_distinct_user_workflows_with_real_sampling() {
         let all = select(&["all".into()]).unwrap();

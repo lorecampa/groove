@@ -154,6 +154,21 @@ pub(crate) fn measure(
     case: &Case,
 ) -> Result<Observation> {
     match case.workload {
+        Workload::MonorepoReuse {
+            cleanup,
+            ignored_files,
+            ignored_file_bytes,
+        } => {
+            return crate::monorepo::measure(
+                runner,
+                binary,
+                repo,
+                case,
+                cleanup,
+                ignored_files,
+                ignored_file_bytes,
+            )
+        }
         Workload::WorkspaceMultiPool {
             pools,
             workers_per_pool,

@@ -6,6 +6,9 @@
 
 - Reused workspaces rebuild and refresh a trusted index before checkout, retaining
   matching files while still clearing stale index flags and replacing dirty data.
+- The development benchmark lab adds heterogeneous multi-GiB monorepo profiles
+  with packed history, commit switching and full-tree recovery checks. Native
+  runs resolve relative scratch paths before invoking fixture subprocesses.
 - JSON output now requires `--json` on each command; `GROOVE_OUTPUT` is no
   longer read. Replace exported `GROOVE_OUTPUT=json` settings with explicit
   flags in scripts and agent commands. JSON response schemas are unchanged.
@@ -16,6 +19,8 @@
   Rust requirements and supported platforms, and drops the vague alpha warning.
 ### Fixed
 
+- Warm reuse removes previously tracked files when switching to a commit that
+  deletes and ignores those paths, while preserving unrelated ignored caches.
 - Snapshot reads and deletion refuse unreadable, corrupt or inconsistent pins.
   Deletion verifies pin and snapshot references together, preserving snapshots
   when either reference changes before removal.

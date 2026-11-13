@@ -26,6 +26,8 @@ fn profiles_are_discoverable_and_workload_overrides_are_rejected() {
     assert!(listing.status.success());
     let listing = String::from_utf8(listing.stdout).unwrap();
     for name in [
+        "monorepo-reuse",
+        "monorepo-snapshots",
         "snapshot-incremental",
         "snapshot-restore",
         "snapshot-scale",
@@ -77,6 +79,7 @@ fn operational_failures_leave_one_artifact_and_no_running_fixture() {
     let scratch = temp.path().join("scratch");
     let report = temp.path().join("report.json");
     let output = bench()
+        .current_dir(temp.path())
         .args([
             "check",
             "workspace-reuse",
@@ -85,7 +88,7 @@ fn operational_failures_leave_one_artifact_and_no_running_fixture() {
             "/usr/bin/false",
             "--temp-root",
         ])
-        .arg(&scratch)
+        .arg("scratch")
         .arg("--output")
         .arg(&report)
         .output()
