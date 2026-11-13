@@ -170,6 +170,40 @@ Neither publishes results. The next acquisition may discard all files in the slo
 residue and may be lost during rebuild. External caches can be used with pristine
 slots. Capacity bounds reservations, not process count, artifacts or disk usage.
 
+Prefer pristine cleanup for independent tasks. Keep dependency downloads or
+compiler results in an external cache supported by your build tool, outside all
+pool roots, and let the tool validate compatibility. Warm cleanup is useful when
+your workflow accepts and validates the previous task's ignored files. Retaining
+an output does not establish that it matches the current source, toolchain or
+build flags. A lockfile identifies dependencies, not arbitrary generated output.
+
+For example, this shell script uses a C project configured for `make` and `ccache`:
+
+```sh
+set -eu
+# In the repository; this pool uses the default pristine cleanup.
+groove --pool builds init --capacity 2
+lease=$(groove --json --pool builds acquire --task fix-parser)
+workspace=$(printf '%s\n' "$lease" | jq -er 'select(.ok == true) | .result.worktree_path')
+lease_id=$(printf '%s\n' "$lease" | jq -er '.result.lease_id')
+# The compiler cache survives workspace cleanup; object files stay in this slot.
+(cd "$workspace" && CCACHE_DIR="$HOME/.cache/ccache" CCACHE_NOHARDLINK=1 make CC='ccache cc')
+# Export required ignored outputs and stop every writer before releasing.
+groove --pool builds release --save --lease-id "$lease_id"
+```
+
+Check the acquisition's exit status and `ok` before using its paths in automation.
+If the build fails, retain the reservation to inspect or fix it before release.
+Your runner owns command cancellation, timeouts and logs. Saved snapshots exclude
+ignored files, including ignored build outputs.
+
+Use the build tool's supported cache-sharing interface. For ccache, keep
+[`hard_link` disabled](https://ccache.dev/manual/4.7.5.html#config_hard_link):
+modifying a hardlinked object can also modify the cached entry. Do not share
+mutable workspace output directories across reservations.
+When a disposable cache is missing, the build must be able to rebuild from source;
+its absence requires no Groove coordination-metadata repair.
+
 Worktrees share Git objects, refs and configuration. Branches created by agents
 remain in the repository; Groove does not manage/delete them. Coordinate shared
 state changes and avoid branch-name collisions. Worktrees are not security sandboxes.
