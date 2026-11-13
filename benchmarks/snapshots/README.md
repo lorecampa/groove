@@ -69,6 +69,14 @@ No developer checkout is used as a benchmark fixture. Arbitrary repositories or
 bundles cannot override a profile from the command line; a new dataset requires
 an explicit, versioned profile definition.
 
+`workspace-conversions` separately measures the conservative full-checkout path
+with CRLF attributes, including a small repository. Its physical-edit case changes
+CRLF to LF: the edited file still hashes to the committed blob after Git's
+normalization, but the acquired checkout must recover the expected CRLF bytes.
+This profile measures fallback overhead as
+well as correctness, rather than assuming the reuse optimization benefits every
+checkout configuration.
+
 ### Heterogeneous monorepos
 
 `monorepo-reuse` exercises acquisition, dirty cleanup and backward/forward commit

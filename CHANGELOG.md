@@ -11,6 +11,8 @@
 - The development benchmark lab adds heterogeneous multi-GiB monorepo profiles
   with packed history, commit switching and full-tree recovery checks. Native
   runs resolve relative scratch paths before invoking fixture subprocesses.
+  A separate CRLF profile measures full-checkout fallback costs and verifies
+  restoration of physical line endings that normalize to the same Git blob.
 - JSON output now requires `--json` on each command; `GROOVE_OUTPUT` is no
   longer read. Replace exported `GROOVE_OUTPUT=json` settings with explicit
   flags in scripts and agent commands. JSON response schemas are unchanged.

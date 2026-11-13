@@ -3,6 +3,18 @@
   "fixture_version": 1,
   "profiles": [
     {
+      "id": "workspace-conversions", "version": 1,
+      "purpose": "Measure full-checkout fallback overhead with CRLF attributes, including small repositories; restore physical line endings despite unchanged normalized Git blobs.",
+      "environment": "cli-linux-amd64-v4",
+      "sampling": {"blocks": 10, "warmup_blocks": 1},
+      "estimated_minutes": [2, 10],
+      "cases": [
+        {"id": "small-warm", "files": 100, "contents": {"kind": "converted-text"}, "workload": {"kind": "workspace-reuse", "cleanup": "warm"}},
+        {"id": "10k-pristine", "files": 10000, "contents": {"kind": "converted-text"}, "workload": {"kind": "workspace-reuse", "cleanup": "pristine"}},
+        {"id": "10k-warm", "files": 10000, "contents": {"kind": "converted-text"}, "workload": {"kind": "workspace-reuse", "cleanup": "warm"}}
+      ]
+    },
+    {
       "id": "monorepo-reuse", "version": 1,
       "purpose": "Reuse and commit switching over 100k heterogeneous files (2.26 GiB source payload), eight packed history commits and 64 MiB ignored build output. Full-tree correctness under warm and pristine cleanup.",
       "environment": "cli-linux-amd64-v4",

@@ -41,6 +41,7 @@ pub(crate) struct Case {
 pub(crate) enum Contents {
     Paths,
     Unique,
+    ConvertedText,
     Binary { bytes: usize },
     Monorepo { history_commits: usize },
 }
@@ -120,6 +121,7 @@ impl Case {
         let contents = match self.contents {
             Contents::Paths => "small repeated text".into(),
             Contents::Unique => "unique 1.5 KiB text".into(),
+            Contents::ConvertedText => "unique text with CRLF checkout conversion".into(),
             Contents::Binary { bytes } => format!("plus a {} MiB binary", bytes / 1048576),
             Contents::Monorepo { history_commits } => format!(
                 "heterogeneous text/binary, {:.2} GiB tracked, {history_commits} history commits",
@@ -340,6 +342,12 @@ pub(crate) fn validate(profile: &Profile) -> Result<()> {
                 "Invalid binary fixture",
             )?;
         }
+        if case.contents == Contents::ConvertedText {
+            require(
+                matches!(case.workload, Workload::WorkspaceReuse { .. }),
+                "Converted text is only supported by workspace reuse",
+            )?;
+        }
         if let Contents::Monorepo { history_commits } = case.contents {
             require(
                 (2..=32).contains(&history_commits) && case.files >= 100,
@@ -461,6 +469,9 @@ mod tests {
 
     #[test]
     fn lifecycle_profiles_reject_impossible_residue_and_worker_definitions() {
+        let mut converted = select(&["workspace-conversions".into()]).unwrap().remove(0);
+        converted.cases[0].workload = Workload::SnapshotRestore;
+        assert!(validate(&converted).is_err());
         let mut multi = select(&["workspace-multi-pool".into()]).unwrap().remove(0);
         multi.cases[0].workload = Workload::WorkspaceMultiPool {
             pools: 2,

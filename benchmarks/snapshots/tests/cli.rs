@@ -27,6 +27,7 @@ fn profiles_are_discoverable_and_workload_overrides_are_rejected() {
     let listing = String::from_utf8(listing.stdout).unwrap();
     for name in [
         "monorepo-reuse",
+        "workspace-conversions",
         "monorepo-snapshots",
         "snapshot-incremental",
         "snapshot-restore",
@@ -118,6 +119,7 @@ fn routine_profiles_verify_raw_evidence_and_preserve_host_configuration() {
             "snapshot-restore",
             "snapshot-binary",
             "workspace-reuse",
+            "workspace-conversions",
             "workspace-setup",
             "workspace-concurrency",
             "workspace-multi-pool",
@@ -147,7 +149,7 @@ fn routine_profiles_verify_raw_evidence_and_preserve_host_configuration() {
     assert_eq!(value["schema_version"], 4);
     assert_eq!(value["status"], "passed");
     assert_eq!(value["environment"]["canonical"], false);
-    assert_eq!(value["cases"].as_object().unwrap().len(), 19);
+    assert_eq!(value["cases"].as_object().unwrap().len(), 22);
     assert_eq!(fs::read_dir(&scratch).unwrap().count(), 0);
     let inspected = bench().arg("inspect").arg(&report).output().unwrap();
     assert!(inspected.status.success());

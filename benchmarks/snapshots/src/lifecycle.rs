@@ -207,7 +207,18 @@ pub(crate) fn measure(
             evidence.record("release", release(runner, binary, repo, "single", false)?)?;
             let (lease, _) = call(runner, binary, repo, &["acquire", "--task", "dirty"])?;
             let workspace = path(&lease)?;
-            fs::write(workspace.join(crate::fixture::spec().path(0)), b"dirty")?;
+            let dirty = workspace.join(crate::fixture::spec().path(0));
+            if case.contents == crate::profiles::Contents::ConvertedText {
+                // This has the same normalized blob but is physically wrong
+                // for the checkout. Reuse must restore CRLF, not retain LF.
+                let bytes: Vec<_> = fs::read(&dirty)?
+                    .into_iter()
+                    .filter(|b| *b != b'\r')
+                    .collect();
+                fs::write(dirty, bytes)?;
+            } else {
+                fs::write(dirty, b"dirty")?;
+            }
             fs::write(workspace.join("untracked"), b"dirty")?;
             fs::create_dir(workspace.join("ignored"))?;
             for i in 0..128 {

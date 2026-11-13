@@ -40,13 +40,16 @@ impl Spec {
         }
         let count = case.files;
         self.create(runner, repo, count)?;
-        if case.contents == Contents::Unique {
+        if matches!(case.contents, Contents::Unique | Contents::ConvertedText) {
             for i in 0..count {
                 fs::write(
                     repo.join(self.path(i)),
                     format!("unique-{i:016x}\n").repeat(64),
                 )?;
             }
+        }
+        if case.contents == Contents::ConvertedText {
+            fs::write(repo.join(".gitattributes"), "*.txt text eol=crlf\n")?;
         }
         let mut selected: Vec<_> = self
             .positions(count)
@@ -80,6 +83,14 @@ impl Spec {
                 "profile-fixture-v1",
             ],
         )?;
+        if case.contents == Contents::ConvertedText {
+            // Compare physical checkout bytes with an independently materialized
+            // source, not merely Git's normalized notion of clean content.
+            for i in 0..count {
+                fs::remove_file(repo.join(self.path(i)))?;
+            }
+            runner.git(repo, ["checkout-index", "--index", "--force", "--all"])?;
+        }
         runner.git(repo, ["repack", "-ad", "--depth=50", "--window=10"])?;
         Ok((
             runner.git_text(repo, &["rev-parse", "HEAD^{tree}"])?,
@@ -127,6 +138,42 @@ impl Spec {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn converted_fixture_distinguishes_normalized_blobs_from_checkout_bytes() {
+        let temp = tempfile::tempdir().unwrap();
+        let runner = Runner::new().isolated(temp.path()).unwrap();
+        let repo = temp.path().join("repo");
+        let case = Case {
+            id: "converted".into(),
+            files: 100,
+            contents: Contents::ConvertedText,
+            workload: crate::profiles::Workload::WorkspaceReuse {
+                cleanup: crate::profiles::Cleanup::Warm,
+            },
+        };
+        spec().create_workload(&runner, &repo, &case).unwrap();
+        let file = repo.join(spec().path(0));
+        let checked_out = fs::read(&file).unwrap();
+        assert!(checked_out.windows(2).any(|bytes| bytes == b"\r\n"));
+        assert!(runner
+            .git(&repo, ["status", "--porcelain"])
+            .unwrap()
+            .is_empty());
+        let normalized: Vec<_> = checked_out.into_iter().filter(|b| *b != b'\r').collect();
+        fs::write(file, normalized).unwrap();
+        let relative = spec().path(0);
+        assert_eq!(
+            runner
+                .git_text(
+                    &repo,
+                    &["hash-object", &format!("--path={relative}"), &relative]
+                )
+                .unwrap(),
+            runner
+                .git_text(&repo, &["rev-parse", &format!("HEAD:{relative}")])
+                .unwrap()
+        );
+    }
     #[test]
     fn deterministic_generator_matches_independent_golden_tree() {
         let temp = tempfile::tempdir().unwrap();
