@@ -13,6 +13,29 @@
   runs resolve relative scratch paths before invoking fixture subprocesses.
   A separate CRLF profile measures full-checkout fallback costs and verifies
   restoration of physical line endings that normalize to the same Git blob.
+- Mark pure query methods and error builders as `must_use`, and avoid per-byte
+  allocations when encoding cache keys, control names and release checksums.
+- Agent onboarding configures persistent harness instructions once, so users
+  do not need to request Groove separately for each task. The setup prompt uses
+  personal configuration unless shared project policy is requested.
+- Document snapshot and release API errors, including partial failure and
+  recovery behavior, in Rust API documentation.
+
+### Fixed
+
+- Warm reuse removes previously tracked files when switching to a commit that
+  deletes and ignores those paths, while preserving unrelated ignored caches.
+- Shell-style execution status conversion saturates extreme signal values in
+  public or deserialized results instead of overflowing.
+
+## [0.2.1] - 2026-11-13
+
+### Changed
+
+- Explain bounded workspace pools for parallel agents and the runner's
+  scheduling, communication and integration responsibilities. Agent onboarding
+  includes a concrete prompt for pool reuse, task assignments and preserving
+  results before release.
 - JSON output now requires `--json` on each command; `GROOVE_OUTPUT` is no
   longer read. Replace exported `GROOVE_OUTPUT=json` settings with explicit
   flags in scripts and agent commands. JSON response schemas are unchanged.
@@ -21,10 +44,9 @@
 
 - The README opens with a compact badge bar linking documentation, licensing,
   Rust requirements and supported platforms, and drops the vague alpha warning.
+
 ### Fixed
 
-- Warm reuse removes previously tracked files when switching to a commit that
-  deletes and ignores those paths, while preserving unrelated ignored caches.
 - Snapshot reads and deletion refuse unreadable, corrupt or inconsistent pins.
   Deletion verifies pin and snapshot references together, preserving snapshots
   when either reference changes before removal.

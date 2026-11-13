@@ -22,6 +22,11 @@ can return `ok:true` with a nonzero worker status.
 Installing this skill does not require Groove for every repository or authorize
 pushing, merging, discarding work or changing repository policy.
 
+Use your runner's existing delegation and messaging tools when available. Sharing
+a pool does not connect separately launched agents' conversations. The runner or
+coordinator supplies task scheduling, communication and result integration;
+`groove exec` optionally adds managed execution, logs and cancellation.
+
 ## Establish your assignment first
 
 - **Coordinator:** you are responsible for acquiring and eventually finishing

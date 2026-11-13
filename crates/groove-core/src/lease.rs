@@ -30,12 +30,14 @@ impl Lease {
         }
     }
     /// Return descriptive metadata; this metadata alone does not confer ownership.
+    #[must_use]
     pub fn info(&self) -> &LeaseInfo {
         &self.info
     }
     /// Whether this handle still retains its descriptor.
     ///
     /// External explicit unlock through a duplicate descriptor affects all copies.
+    #[must_use]
     pub fn is_active(&self) -> bool {
         self.guard.is_some()
     }

@@ -18,6 +18,7 @@ use uuid::Uuid;
 pub struct PoolName(String);
 impl PoolName {
     /// Return the canonical namespace string.
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -143,10 +144,12 @@ impl SlotId {
         Ok(Self(format!("wt-{number:04}")))
     }
     /// Return the canonical slot name.
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
     /// Return the stable one-based workspace number, independent of its task.
+    #[must_use]
     pub fn number(&self) -> u16 {
         self.0.as_bytes()[3..]
             .iter()
@@ -215,10 +218,12 @@ impl fmt::Display for SlotId {
 pub struct LeaseId(Uuid);
 impl LeaseId {
     /// Generate a fresh UUID v4 acquisition identity.
+    #[must_use]
     pub fn generate() -> Self {
         Self(Uuid::new_v4())
     }
     /// Borrow the underlying UUID for explicit interoperability.
+    #[must_use]
     pub fn as_uuid(&self) -> &Uuid {
         &self.0
     }
@@ -256,6 +261,7 @@ impl fmt::Display for LeaseId {
 pub struct CommitOid(String);
 impl CommitOid {
     /// Return the canonical hexadecimal representation.
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }

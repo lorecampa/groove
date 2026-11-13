@@ -48,6 +48,7 @@ pub enum ErrorCode {
 }
 impl ErrorCode {
     /// Return the stable v1 wire spelling.
+    #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::InvalidArgument => "INVALID_ARGUMENT",
@@ -180,6 +181,7 @@ impl Error {
     }
     /// Preserve an underlying error for [`std::error::Error::source`] inspection.
     /// Sources are not serialized into CLI responses.
+    #[must_use]
     pub fn with_source(mut self, source: impl std::error::Error + Send + Sync + 'static) -> Self {
         self.source = Some(Box::new(source));
         self
@@ -192,11 +194,13 @@ impl Error {
     ///     .with_details(|d| d.released = Some(false));
     /// assert_eq!(error.details.released, Some(false));
     /// ```
+    #[must_use]
     pub fn with_details(mut self, amend: impl FnOnce(&mut ErrorDetails)) -> Self {
         amend(&mut self.details);
         self
     }
     /// Exit status of the failed Git subprocess, if this is a Git failure.
+    #[must_use]
     pub fn git_exit_code(&self) -> Option<i32> {
         self.details.git.as_ref().and_then(|git| git.exit_code)
     }

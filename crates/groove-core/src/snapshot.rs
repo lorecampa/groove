@@ -5,7 +5,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeSet,
     ffi::OsStr,
     fs,
     io::{Seek, Write},
@@ -19,7 +19,9 @@ use std::{
 use uuid::Uuid;
 
 const PREFIX: &str = "refs/groove/snapshots/";
-const PINS: &str = "refs/groove/snapshot-pins/";
+mod pins;
+
+use pins::PINS;
 /// Tracked paths whose working files differ from the index.
 const DIFF_FILES_ARGS: &[&str] = &[
     "diff-files",
@@ -166,6 +168,10 @@ impl SnapshotLock {
 impl Snapshots {
     /// Discover a non-bare Git worktree, without initializing a Groove pool.
     /// The timeout bounds each Git subprocess and each wait for the shared snapshot lock.
+    ///
+    /// # Errors
+    /// Reports repository discovery, filesystem and Git failures, including bare
+    /// repositories and unsupported repository layouts. No pool is initialized.
     pub fn open(path: impl AsRef<Path>, timeout: Duration) -> Result<Self> {
         let git = Git::new(timeout);
         let repo = repository::Repository::discover(path.as_ref(), timeout)?;
@@ -311,183 +317,15 @@ impl Snapshots {
             Err(e) => Err(e),
         }
     }
-    fn reference(&self, id: &str) -> Result<String> {
+    fn reference(id: &str) -> Result<String> {
         Ok(format!("{PREFIX}{}", checked_id(id)?))
     }
-    fn ref_query(
-        &self,
-        args: &[&str],
-        input: Option<&[u8]>,
-        lock: &SnapshotLock,
-        timeout: Duration,
-    ) -> Result<String> {
-        let fds = lock.descriptors();
-        let stdin = input
-            .map(|bytes| -> Result<fs::File> {
-                let mut file = tempfile::tempfile()?;
-                file.write_all(bytes)?;
-                file.rewind()?;
-                Ok(file)
-            })
-            .transpose()?;
-        if timeout.is_zero() {
-            return Err(Error::new(
-                ErrorCode::GitError,
-                "Snapshot pin inspection timed out",
-            ));
-        }
-        let bytes = Git::new(timeout).run_with(
-            &self.root,
-            args,
-            Invocation {
-                inherit: &fds,
-                stdin,
-                reject_stderr: true,
-                ..Invocation::snapshot()
-            },
-        )?;
-        text(bytes)
-    }
-
-    /// Git can exit successfully while omitting broken refs. Such diagnostics
-    /// are failures here: an incomplete inventory cannot establish an absent pin.
-    fn pin_inventory(
-        &self,
-        pattern: &str,
-        lock: &SnapshotLock,
-        timeout: Duration,
-    ) -> Result<BTreeMap<String, String>> {
-        let output = self.ref_query(
-            &[
-                "for-each-ref",
-                "--format=%(refname)%09%(objectname)%09%(symref)",
-                pattern,
-            ],
-            None,
-            lock,
-            timeout,
-        )?;
-        let mut pins = BTreeMap::new();
-        for record in output.lines() {
-            let mut fields = record.splitn(3, '\t');
-            let reference = fields.next().unwrap_or_default();
-            let oid = fields.next().unwrap_or_default();
-            let symbolic = fields.next();
-            if !reference.starts_with(PINS)
-                || symbolic != Some("")
-                || oid.parse::<crate::CommitOid>().is_err()
-            {
-                return Err(Error::new(
-                    ErrorCode::GitError,
-                    "Invalid snapshot pin reference",
-                ));
-            }
-            pins.insert(reference.into(), oid.into());
-        }
-        Ok(pins)
-    }
-
-    /// A dangling symbolic ref may be silently omitted even by a diagnostic-free
-    /// inventory. Ask the ref backend to lock and verify absence, then abort.
-    /// Small batches bound Git's lock descriptors regardless of listing size.
-    fn verify_absent_pins(&self, absent: &[(String, usize)], lock: &SnapshotLock) -> Result<()> {
-        for batch in absent.chunks(32) {
-            // Git 2.40's ref transaction accepts a dangling symref as a zero
-            // value. Object resolution diagnoses that state even when ref
-            // enumeration silently omits it; retain those diagnostics as errors.
-            let names: String = batch.iter().map(|(name, _)| format!("{name}\n")).collect();
-            let resolved = self.ref_query(
-                &["cat-file", "--batch-check=%(objectname)"],
-                Some(names.as_bytes()),
-                lock,
-                self.timeout,
-            )?;
-            let expected: String = batch
-                .iter()
-                .map(|(name, _)| format!("{name} missing\n"))
-                .collect();
-            if resolved != expected.trim_end_matches('\n') {
-                return Err(Error::new(
-                    ErrorCode::GitError,
-                    "Snapshot pin appeared during inspection",
-                ));
-            }
-            let mut transaction = String::from("start\n");
-            for (reference, width) in batch {
-                transaction.push_str(&format!("verify {reference} {}\n", "0".repeat(*width)));
-            }
-            transaction.push_str("prepare\nabort\n");
-            self.run(
-                &["update-ref", "--no-deref", "--stdin"],
-                None,
-                Some(transaction.as_bytes()),
-                Some(lock),
-            )?;
-        }
-        Ok(())
-    }
-
-    fn pinned(&self, id: &str, oid: &str, lock: &SnapshotLock) -> Result<bool> {
-        let reference = format!("{PINS}{id}");
-        let pins = self.pin_inventory(&reference, lock, self.timeout)?;
-        match pins.get(&reference) {
-            Some(pin) if pin == oid => Ok(true),
-            Some(_) => Err(Error::new(
-                ErrorCode::GitError,
-                "Snapshot pin does not match its snapshot commit",
-            )),
-            None => {
-                self.verify_absent_pins(&[(reference, oid.len())], lock)?;
-                Ok(false)
-            }
-        }
-    }
-
-    /// Inspect the original ref while a prepared transaction holds its lock.
-    /// This deliberately does not start another absence-verification transaction.
-    fn validate_prepared_pin(
-        &self,
-        id: &str,
-        expected: Option<&str>,
-        lock: &SnapshotLock,
-        timeout: Duration,
-    ) -> Result<()> {
-        let started = std::time::Instant::now();
-        let pin = format!("{PINS}{id}");
-        let pins = self.pin_inventory(&pin, lock, timeout)?;
-        match (expected, pins.get(&pin)) {
-            (Some(oid), Some(pin_oid)) if pin_oid == oid => Ok(()),
-            (None, None) => {
-                // Old Git's zero-OID comparison accepts a dangling symref.
-                // Resolution emits a diagnostic for that otherwise omitted ref.
-                let resolved = self.ref_query(
-                    &["cat-file", "--batch-check=%(objectname)"],
-                    Some(format!("{pin}\n").as_bytes()),
-                    lock,
-                    timeout.saturating_sub(started.elapsed()),
-                )?;
-                if resolved == format!("{pin} missing") {
-                    Ok(())
-                } else {
-                    Err(Error::new(
-                        ErrorCode::GitError,
-                        "Snapshot pin changed before committing its transaction",
-                    ))
-                }
-            }
-            _ => Err(Error::new(
-                ErrorCode::GitError,
-                "Snapshot pin changed before committing its transaction",
-            )),
-        }
-    }
-
     fn load(&self, id: &str, lock: &SnapshotLock) -> Result<Snapshot> {
         Ok(self.load_at(id, lock)?.0)
     }
 
     fn load_at(&self, id: &str, lock: &SnapshotLock) -> Result<(Snapshot, String)> {
-        let reference = self.reference(id)?;
+        let reference = Self::reference(id)?;
         let oid = self.string(&["rev-parse", "--verify", "--end-of-options", &reference])?;
         let _: crate::CommitOid = oid.parse()?;
         let commit_oid = &oid;
@@ -525,6 +363,10 @@ impl Snapshots {
         Ok((snapshot, oid))
     }
     /// Read and validate one snapshot.
+    ///
+    /// # Errors
+    /// Reports invalid IDs, missing or malformed snapshots, inconsistent pins,
+    /// lock contention, and Git or filesystem failures.
     pub fn show(&self, id: &str) -> Result<Snapshot> {
         let lock = self.lock()?;
         self.load(id, &lock)
@@ -547,7 +389,7 @@ impl Snapshots {
                 .ok_or_else(|| invalid("Invalid snapshot reference metadata"))?;
             let _: crate::CommitOid = oid.parse()?;
             let mut snapshot: Snapshot = serde_json::from_str(message)?;
-            if snapshot.version != 1 || reference != self.reference(&snapshot.id)? {
+            if snapshot.version != 1 || reference != Self::reference(&snapshot.id)? {
                 return Err(invalid("Unsupported or inconsistent snapshot manifest"));
             }
             let pin = format!("{PINS}{}", snapshot.id);
@@ -575,6 +417,11 @@ impl Snapshots {
         Ok(result)
     }
     /// List checkpoints across all worktrees, newest first.
+    ///
+    /// # Errors
+    /// Reports invalid snapshot manifests, unreadable or inconsistent pins,
+    /// lock contention, and Git or filesystem failures. An incomplete pin
+    /// inventory is an error rather than evidence that snapshots are unpinned.
     pub fn list(&self) -> Result<Vec<Snapshot>> {
         let lock = self.lock()?;
         self.list_inner(&lock)
@@ -807,7 +654,7 @@ impl Snapshots {
                 "-c",
                 "core.fsync=loose-object,reference",
                 "update-ref",
-                &self.reference(&snapshot.id)?,
+                &Self::reference(&snapshot.id)?,
                 &commit,
                 &zero,
             ],
@@ -886,75 +733,44 @@ impl Snapshots {
     /// Capture without changing HEAD, working files or the real index.
     /// Preserves physical bytes, executable bits and symlinks independently of
     /// Git checkout preferences. Active content-converting attributes are rejected.
+    ///
+    /// ```no_run
+    /// use groove_core::{snapshot::{SaveOptions, Snapshots}, DEFAULT_GIT_TIMEOUT};
+    /// let snapshots = Snapshots::open("/path/to/repo", DEFAULT_GIT_TIMEOUT)?;
+    /// let checkpoint = snapshots.save(SaveOptions {
+    ///     description: "before refactor".into(),
+    ///     ..Default::default()
+    /// })?;
+    /// println!("Saved {}", checkpoint.id);
+    /// # Ok::<(), groove_core::Error>(())
+    /// ```
+    ///
+    /// # Errors
+    /// Rejects unsupported index states or attributes, oversized changed files,
+    /// and workspace changes detected during capture. Also reports lock, Git
+    /// and filesystem failures. Publication follows validation and the workspace
+    /// stability checks; a lost response can still leave a published snapshot.
     pub fn save(&self, options: SaveOptions) -> Result<Snapshot> {
         let lock = self.lock()?;
         self.capture(&options, &lock, true)
     }
-    /// Pin a checkpoint with a dedicated reference, so `delete` requires `force`.
-    /// `release --save` pins the snapshot it saves before releasing a workspace.
-    pub(crate) fn pin(&self, id: &str) -> Result<()> {
-        let lock = self.lock()?;
-        let (s, oid) = self.load_at(id, &lock)?;
-        let reference = format!("{PINS}{}", s.id);
-        let expected = if s.pinned {
-            oid.clone()
-        } else {
-            "0".repeat(oid.len())
-        };
-        let snapshot_ref = self.reference(id)?;
-        let transaction = format!(
-            "start\nverify {snapshot_ref} {oid}\nupdate {reference} {oid} {expected}\nprepare\n"
-        );
-        self.run_env(
-            &["update-ref", "--no-deref", "--stdin"],
-            None,
-            Some(transaction.as_bytes()),
-            Some(&lock),
-            &[],
-            Some(Box::new(|timeout| {
-                self.validate_prepared_pin(&s.id, s.pinned.then_some(oid.as_str()), &lock, timeout)
-            })),
-        )?;
-        Ok(())
-    }
-    fn delete_inner(&self, id: &str, force: bool, lock: &SnapshotLock) -> Result<()> {
-        let (s, oid) = self.load_at(id, lock)?;
-        if s.pinned && !force {
-            return Err(invalid(
-                "Snapshot is pinned by release --save; pass --force to delete it",
-            ));
-        }
-        let reference = self.reference(id)?;
-        crate::state::checkpoint("snapshot-before-delete");
-        let mut transaction = format!("start\ndelete {reference} {oid}\n");
-        if s.pinned {
-            transaction.push_str(&format!("delete {PINS}{} {oid}\n", s.id));
-        } else {
-            transaction.push_str(&format!(
-                "verify {PINS}{} {}\n",
-                s.id,
-                "0".repeat(oid.len())
-            ));
-        }
-        transaction.push_str("prepare\n");
-        self.run_env(
-            &["update-ref", "--no-deref", "--stdin"],
-            None,
-            Some(transaction.as_bytes()),
-            Some(lock),
-            &[],
-            Some(Box::new(|timeout| {
-                self.validate_prepared_pin(&s.id, s.pinned.then_some(oid.as_str()), lock, timeout)
-            })),
-        )?;
-        Ok(())
-    }
     /// Delete references only; pinned snapshots require explicit override.
+    ///
+    /// # Errors
+    /// Reports invalid or missing snapshots, corrupt pins, and pinned snapshots
+    /// when `force` is false. Reference comparison or pin validation failures
+    /// abort the deletion transaction. Also reports lock, Git and filesystem
+    /// failures. `force` does not bypass validation or reference comparisons.
     pub fn delete(&self, id: &str, force: bool) -> Result<()> {
         let lock = self.lock()?;
         self.delete_inner(id, force, &lock)
     }
     /// Produce a Git patch between checkpoints, or against current working files.
+    ///
+    /// # Errors
+    /// Reports invalid or unreadable snapshots and pins, lock contention, Git
+    /// failures, and non-UTF-8 patches. Comparing against working files also has
+    /// the capture restrictions of [`Self::save`], without publishing a snapshot.
     pub fn diff(&self, id: &str, other: Option<&str>) -> Result<String> {
         let lock = self.lock()?;
         let a = self.load(id, &lock)?;
@@ -1005,6 +821,14 @@ impl Snapshots {
     /// In-place restore requires the original HEAD and stopped external writers.
     /// Saved bytes and file types do not depend on current Git checkout preferences;
     /// active conversion attributes are checked before materializing the result.
+    ///
+    /// # Errors
+    /// Rejects unsafe or existing recovery destinations, unsupported attributes,
+    /// ignored-file collisions, and in-place restores whose HEAD differs from
+    /// the saved base. Also reports snapshot validation, lock, Git and filesystem
+    /// failures. In-place restore errors after the safety snapshot is captured
+    /// include its ID in the error details; a failed restore can leave partial
+    /// working-file changes, so retain that snapshot for recovery.
     pub fn restore(&self, id: &str, destination: Option<&Path>) -> Result<RestoreResult> {
         let mut lock = self.lock()?;
         // A main-checkout recovery must also exclude root/settings replacement
@@ -1064,7 +888,7 @@ impl Snapshots {
                         "fetch",
                         "--no-tags",
                         repository::utf8(&self.common)?,
-                        &self.reference(id)?,
+                        &Self::reference(id)?,
                     ],
                     &lock.descriptors(),
                 )?;

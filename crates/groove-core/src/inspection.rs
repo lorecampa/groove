@@ -65,6 +65,7 @@ pub struct WorkspaceGitStatus {
 }
 impl WorkspaceGitStatus {
     /// Whether anything would be lost: staged, modified or untracked files.
+    #[must_use]
     pub fn has_changes(&self) -> bool {
         self.staged || self.modified || self.untracked
     }
