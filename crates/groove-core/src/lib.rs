@@ -41,6 +41,7 @@ mod cache;
 mod destruction;
 mod error;
 mod execution;
+pub mod experimental;
 mod finish;
 mod git;
 mod history;

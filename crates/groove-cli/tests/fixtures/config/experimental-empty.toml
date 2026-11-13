@@ -1,0 +1,3 @@
+# Empty opt-ins do not change effective defaults or project fingerprints.
+[experimental]
+features = [] # No experiments selected.

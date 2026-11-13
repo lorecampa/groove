@@ -17,6 +17,9 @@ use std::{
 pub struct Project {
     /// Project format; only version 1 is supported.
     pub schema_version: u32,
+    /// Individually requested experiments; absent means no experimental opt-in.
+    #[serde(skip_serializing_if = "crate::experimental::ExperimentalConfig::is_empty")]
+    pub experimental: crate::experimental::ExperimentalConfig,
     /// Stable workspace environment and optional port mapping.
     pub workspace: WorkspaceConfig,
     /// Named ordered setup recipes.
@@ -32,6 +35,7 @@ impl Default for Project {
     fn default() -> Self {
         Self {
             schema_version: 1,
+            experimental: crate::experimental::ExperimentalConfig::default(),
             workspace: WorkspaceConfig::default(),
             setup: BTreeMap::new(),
             recipes: BTreeMap::new(),
@@ -285,6 +289,7 @@ impl Project {
                 "Unsupported project configuration version",
             ));
         }
+        self.experimental.validate()?;
         for (key, value) in &self.workspace.environment {
             if !env_valid(key, value) {
                 return Err(invalid(

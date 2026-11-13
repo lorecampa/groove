@@ -1,0 +1,12 @@
+[
+  { "input": "broken TOML!", "code": "INVALID_ARGUMENT" },
+  { "input": "unrecognized = true", "code": "INVALID_ARGUMENT", "schema_valid": false },
+  { "input": "[experimental]\nfeature = []", "code": "INVALID_ARGUMENT", "schema_valid": false },
+  { "input": "[experimental]\nfeatures = true", "code": "INVALID_ARGUMENT", "schema_valid": false },
+  { "input": "[experimental]\nfeatures = [1]", "code": "INVALID_ARGUMENT", "schema_valid": false },
+  { "input": "[experimental]\nfeatures = ['']", "code": "INVALID_ARGUMENT", "schema_valid": false },
+  { "input": "[experimental]\nfeatures = ['UPPERCASE']", "code": "INVALID_ARGUMENT", "schema_valid": false },
+  { "input": "[experimental]\nfeatures = ['future-feature', 'future-feature']", "code": "INVALID_ARGUMENT", "schema_valid": false },
+  { "input": "[experimental]\nfeatures = ['future-feature']", "code": "UNSUPPORTED_CONFIGURATION", "schema_valid": true },
+  { "input": "[experimental]\nfeatures = ['fixture-feature']", "code": "UNSUPPORTED_CONFIGURATION", "schema_valid": true }
+]

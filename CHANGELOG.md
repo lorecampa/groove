@@ -4,6 +4,10 @@
 
 ### Added
 
+- Named experimental-feature configuration for user preferences and project files,
+  with explicit opt-in, retained graduated names, and errors for unknown/removed
+  capabilities. The initial registry is empty. User preferences now have a
+  published TOML data-model schema.
 - Pi can install the portable skill as a Git/local package. Agent setup separates
   installation, session use and project defaults, with Hermes instructions and
   repository-catalog distribution guidance.

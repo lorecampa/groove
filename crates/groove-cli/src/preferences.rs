@@ -17,6 +17,8 @@ use std::{
 pub struct Config {
     pub logging: Logging,
     pub worktrees: Worktrees,
+    #[serde(skip_serializing_if = "groove_core::experimental::ExperimentalConfig::is_empty")]
+    pub experimental: groove_core::experimental::ExperimentalConfig,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
@@ -126,10 +128,11 @@ fn read(path: &PathBuf) -> Result<String> {
     }
 }
 fn parse(text: &str) -> Result<Config> {
-    let config: Config =
-        toml::from_str(text).map_err(|e| invalid(format!("Invalid user configuration: {e}")))?;
+    let config: Config = toml::from_str(text)
+        .map_err(|e| invalid(format!("Invalid user configuration: {e}")).with_source(e))?;
     config.logging.validate()?;
     config.worktrees.validate()?;
+    config.experimental.validate()?;
     Ok(config)
 }
 impl Logging {
@@ -263,6 +266,7 @@ pub fn change(change: Change) -> Result<serde_json::Value> {
                     .filter(|(section, field)| {
                         (*section == "logging" && KEYS.contains(field))
                             || (*section == "worktrees" && *field == "root")
+                            || (*section == "experimental" && *field == "features")
                     })
                     .ok_or_else(|| invalid(format!("Unknown setting: {key}")))?;
                 if let Some(value) = value {
