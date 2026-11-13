@@ -4,6 +4,8 @@
 
 ### Changed
 
+- Avoid redundant reservation metadata clones, defer unused error summaries,
+  and reduce allocations in benchmark hashes and terminal log fields.
 - Mark pure query methods and error builders as `must_use`, and avoid per-byte
   allocations when encoding cache keys, control names and release checksums.
 - Agent onboarding configures persistent harness instructions once, so users
