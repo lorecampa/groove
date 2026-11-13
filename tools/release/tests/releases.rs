@@ -330,6 +330,11 @@ fn repeated_package_checks_compile_the_current_archive_at_the_same_version() {
     let cwd = std::env::current_dir().unwrap();
     let result = match std::env::args().nth(2).unwrap().as_str() {
         "--version" => "{\"text\":\"groove 0.1.0\"}".to_string(),
+        "init" => {
+            let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap());
+            assert!(!home.starts_with(&cwd), "Default pool storage must be outside the smoke checkout");
+            "{}".to_string()
+        },
         "acquire" => format!("{{\"worktree_path\":\"{}\",\"lease_id\":\"fixture\"}}", cwd.display()),
         "exec" => {
             let stdout = cwd.join("stdout");

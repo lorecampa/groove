@@ -84,6 +84,9 @@
 
 ### Fixed
 
+- Release package smoke tests keep isolated user storage outside the fixture
+  checkout and disable background spare preparation before fixture teardown.
+
 - Warm reuse removes previously tracked files when switching to a commit that
   deletes and ignores those paths, while preserving unrelated ignored caches.
 

@@ -111,9 +111,13 @@ impl Release {
             .tempdir()?;
         let mut runner = self.runner.clone();
         runner.isolate(scratch.path())?;
+        // The default pool root lives under the isolated HOME. Keep it outside
+        // the source checkout, just as a real user's home is outside a project.
+        let repository = scratch.path().join("source");
+        fs::create_dir(&repository)?;
         let groove = |arguments: Vec<std::ffi::OsString>| -> Result<Value> {
             let arguments = [vec!["--json".into()], arguments].concat();
-            let bytes = runner.run(scratch.path(), binaries.join("groove"), arguments)?;
+            let bytes = runner.run(&repository, binaries.join("groove"), arguments)?;
             let value: Value = serde_json::from_slice(&bytes)?;
             require(value["ok"] == true, "Release CLI smoke command failed")?;
             Ok(value["result"].clone())
@@ -125,9 +129,9 @@ impl Release {
                 .is_some_and(|text| version_matches(text, version)),
             "CLI version mismatch",
         )?;
-        runner.run(scratch.path(), "git", args!["init", "-q"])?;
+        runner.run(&repository, "git", args!["init", "-q"])?;
         runner.run(
-            scratch.path(),
+            &repository,
             "git",
             args![
                 "-c",
@@ -140,7 +144,8 @@ impl Release {
                 "initial"
             ],
         )?;
-        groove(args!["init", "--capacity", "1"])?;
+        // No background replenishment may outlive this disposable fixture.
+        groove(args!["init", "--capacity", "1", "--ready-target", "0"])?;
         let lease = groove(args!["acquire", "--base", "HEAD"])?;
         let field = |key: &str| -> Result<&str> {
             lease[key]
