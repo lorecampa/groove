@@ -15,6 +15,9 @@ RUN rustup component add clippy rustfmt
 WORKDIR /workspace
 COPY . .
 RUN mv baseline /baseline
+# Directory overrides outrank contributor rust-toolchain.toml files and survive
+# the benchmark runner's environment sanitization, including isolated HOME.
+RUN rustup override set 1.89.0 && cd /baseline && rustup override set 1.89.0
 COPY --chmod=0644 benchmark-source.json /opt/benchmark-source.json
 RUN cargo vendor --locked --versioned-dirs --sync /baseline/Cargo.toml /vendor > /usr/local/cargo/config.toml \
  && find /vendor -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum > /opt/benchmark-vendor.sha256
