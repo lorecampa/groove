@@ -500,6 +500,19 @@ fn interrupted_named_initialization_keeps_its_root_claim_and_sibling_usable() {
         .unwrap()
         .iter()
         .any(|pool| pool["name"] == "frontend" && pool["phase"] == "initializing"));
+    let sizes = support::groove_in(&repo.path)
+        .args(["pools", "--disk-usage"])
+        .output()
+        .unwrap();
+    let sizes = support::assert_success(&sizes);
+    let interrupted = sizes["result"]["pools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|pool| pool["name"] == "frontend")
+        .unwrap();
+    assert_eq!(interrupted["phase"], "initializing");
+    assert_eq!(interrupted.get("storage"), Some(&serde_json::Value::Null));
     let lock = repo.state().join("pools/frontend/locks/wt-0001.lock");
     let inode = std::fs::metadata(&lock).unwrap().ino();
     assert_eq!(
@@ -600,6 +613,19 @@ fn interrupted_named_deletion_never_disables_a_siblings_workers_or_results() {
         PoolPhase::Ready
     );
     let finished = back.finish(b.lease_id, Default::default()).unwrap();
+    let sizes = support::groove_in(&repo.path)
+        .args(["pools", "--disk-usage"])
+        .output()
+        .unwrap();
+    let sizes = support::assert_success(&sizes);
+    let interrupted = sizes["result"]["pools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|pool| pool["name"] == "frontend")
+        .unwrap();
+    assert_eq!(interrupted["phase"], "deleting");
+    assert_eq!(interrupted.get("storage"), Some(&serde_json::Value::Null));
     let resumed = Pool::destroy_named(&repo.path, &frontend, DestroyOptions::default()).unwrap();
     assert!(resumed.deleted && resumed.resumed);
     let snapshots =

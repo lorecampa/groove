@@ -16,11 +16,12 @@ Set reviewed Git-specific environment explicitly inside the command argv.
 Execution-lock contention can be maintenance: retry the original lease/operation
 when INVALID_LEASE is retryable; never clear locks or protection to make progress.
 
-Both worker streams are mirrored live to stderr, also with --json. Stdout stays
-reserved for the final result. --quiet hides live output but keeps log files,
-errors and exit status. Child buffering can delay output. Slow or failed stderr
-consumers may miss live bytes; consult the captured files for complete output.
-To silence stderr completely, redirect it with 2>/dev/null.
+Worker output is mirrored live to stderr. Child buffering can delay output.
+Slow or failed stderr consumers may miss live bytes; consult the captured files
+for complete output.
+
+Returns the worker's exit status. Timeout exits 124; cancellation exits
+128+signal; exceeding the output limit exits 1.
 
 --setup runs a .groove.toml setup profile: it clears only approved ignored
 cache roots, seeds compatible artifacts and runs ordered steps. A failed,

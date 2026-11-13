@@ -8,6 +8,9 @@
   with explicit opt-in, retained graduated names, and errors for unknown/removed
   capabilities. The initial registry is empty. User preferences now have a
   published TOML data-model schema.
+- `pools --disk-usage` compares logical workspace, cache and log/history sizes.
+  `show --disk-usage` adds a storage breakdown to the selected pool's view.
+  Slow scans show an interactive spinner.
 - Pi can install the portable skill as a Git/local package. Agent setup separates
   installation, session use and project defaults, with Hermes instructions and
   repository-catalog distribution guidance.
@@ -17,6 +20,8 @@
 
 ### Changed
 
+- Global output rules and exit codes live in root help; command help retains
+  its result fields. Trim repeated flag explanations from help and guides.
 - Explain contributor Git hooks, name the checks in the security gate, and
   clarify the license choice. Keep vulnerability reporting separate from
   maintainer setup instructions.

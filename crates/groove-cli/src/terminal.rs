@@ -1,7 +1,7 @@
 //! Bounded stderr delivery, independent of stdout results and persistent logging.
 
 use std::{
-    io::{self, Write},
+    io::{self, IsTerminal, Write},
     os::fd::AsFd,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -50,6 +50,41 @@ pub struct Terminal {
     pub verbosity: Verbosity,
 }
 impl Terminal {
+    /// Animate slow interactive queries on stderr. Dropping the guard clears the line.
+    pub fn spinner(&self, json: bool, label: &str) -> Spinner {
+        if json
+            || self.verbosity.quiet
+            || !io::stderr().is_terminal()
+            || std::env::var_os("TERM").is_some_and(|term| term == "dumb")
+        {
+            return Spinner(None);
+        }
+        self.start_spinner(label)
+    }
+
+    fn start_spinner(&self, label: &str) -> Spinner {
+        let (stop, receiver) = mpsc::channel();
+        let terminal = self.clone();
+        let label = label.to_owned();
+        let worker = std::thread::Builder::new()
+            .name("groove-progress".into())
+            .spawn(move || {
+                let mut frame = ["|", "/", "-", "\\"].into_iter().cycle();
+                let mut visible = false;
+                // Avoid flicker for quick queries. The channel wakes immediately on drop.
+                while receiver.recv_timeout(Duration::from_millis(100))
+                    == Err(mpsc::RecvTimeoutError::Timeout)
+                {
+                    visible = true;
+                    terminal.write(format!("\r{} {label}", frame.next().unwrap_or("|")).as_bytes());
+                }
+                if visible {
+                    terminal.write(b"\r\x1b[2K");
+                }
+            });
+        Spinner(worker.ok().map(|worker| (stop, worker)))
+    }
+
     pub fn new(verbosity: Verbosity) -> Self {
         // A separate descriptor avoids holding Rust's global stderr mutex while
         // a pipe blocks, including during process shutdown.
@@ -128,10 +163,61 @@ impl Terminal {
     }
 }
 
+/// Stops and joins the presentation worker on success, error or unwind.
+pub struct Spinner(Option<(mpsc::Sender<()>, std::thread::JoinHandle<()>)>);
+
+impl Drop for Spinner {
+    fn drop(&mut self) {
+        if let Some((stop, worker)) = self.0.take() {
+            let _ = stop.send(());
+            let _ = worker.join();
+        }
+    }
+}
+
 impl groove_core::ExecutionObserver for Terminal {
     fn output(&self, _stream: groove_core::OutputStream, bytes: &[u8]) {
         if !self.verbosity.quiet {
             self.write(bytes);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Capture(mpsc::Sender<Vec<u8>>);
+    impl Write for Capture {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0.send(bytes.to_vec()).map_err(io::Error::other)?;
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn progress_clears_a_visible_frame_when_an_operation_fails() {
+        let (sender, receiver) = mpsc::channel();
+        let terminal = Terminal::with_writer(
+            Verbosity {
+                verbose: 0,
+                quiet: false,
+            },
+            Capture(sender),
+        );
+        fn failed_query(terminal: &Terminal, receiver: &mpsc::Receiver<Vec<u8>>) -> Result<(), ()> {
+            let _progress = terminal.start_spinner("Measuring disk usage");
+            let frame = receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert!(String::from_utf8_lossy(&frame).contains("Measuring disk usage"));
+            Err(())
+        }
+        let result = failed_query(&terminal, &receiver);
+        assert_eq!(result, Err(()));
+        terminal.finish();
+        let output: Vec<u8> = receiver.try_iter().flatten().collect();
+        assert!(output.ends_with(b"\r\x1b[2K"));
     }
 }

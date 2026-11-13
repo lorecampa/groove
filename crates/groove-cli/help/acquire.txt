@@ -29,5 +29,3 @@ Without a key, run `groove list` BEFORE retrying a lost response.
 --setup runs a reviewed .groove.toml profile in the new checkout. The
 reservation stays protected if setup fails; the error names its lease so you
 can inspect, retry with `groove exec --setup PROFILE --retry`, or release.
-Setup worker output streams to stderr, including in JSON mode. --quiet hides
-live output while preserving saved logs and the reservation result.
