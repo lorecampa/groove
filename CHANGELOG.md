@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.2.1] - 2026-11-13
+
 ### Changed
 
 - Explain bounded workspace pools for parallel agents and the runner's
