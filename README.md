@@ -37,17 +37,24 @@ Give your agent this prompt once:
 
 > Install Groove by following
 > https://github.com/lorecampa/groove/blob/main/docs/install.md.
-> Then configure this harness to use the Groove skill for development work
-> by default. Add the instruction to a persistent agent instruction file
-> that this harness loads automatically. Use my personal configuration
-> unless I ask for a shared project policy.
+> Then configure this harness to use Groove for development work in this project
+> by default, following the guide's setup for this agent. Use my personal
+> configuration unless I ask for a shared project policy.
 
 After setup, give your agent tasks normally. You don't need to mention Groove in
 every request.
 
-Claude Code and Codex can use [native plugins](docs/install.md#install-the-agent-plugins).
-The optional project plugin loads your workflow from a private, per-clone setting,
-including in linked worktrees. Other agents can use the portable skill.
+Setup has two parts: install the skill once for your agent, then choose whether
+to use Groove for one session or by default in a project. No custom workflow file
+is required. See [agent setup](docs/install.md#choose-your-agent) for Claude Code,
+Codex, Pi, Hermes and other agents.
+
+Claude Code and Codex also have an optional project plugin. Enable it once per
+clone with `git config --local groove.agent.enabled true`; new sessions then
+receive the Groove workflow automatically, including in linked worktrees. This
+setting is private to your clone. Pi and Hermes use their own skill and persistent
+instruction mechanisms. The agent handles reservations through the skill;
+the hooks only supply instructions.
 
 ## Use a workspace
 
