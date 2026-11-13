@@ -59,10 +59,15 @@ fn refuses_workspace_user(usage: ProcessUse) {
         {
             break;
         }
-        assert!(
-            child.try_wait().unwrap().is_none(),
-            "workspace user exited early"
-        );
+        if child.try_wait().unwrap().is_some() {
+            let output = child.wait_with_output().unwrap();
+            panic!(
+                "workspace user exited before {usage:?} readiness: status={} stdout={} stderr={}",
+                output.status,
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr),
+            );
+        }
         assert!(
             Instant::now() < deadline,
             "{usage:?} process not found: {processes:?}"
@@ -94,15 +99,26 @@ fn refuses_workspace_user(usage: ProcessUse) {
 
 #[test]
 fn working_directory_user_blocks_handoff_until_stopped() {
+    if !support::in_subprocess("working_directory_user_blocks_handoff_until_stopped") {
+        return;
+    }
     refuses_workspace_user(ProcessUse::WorkingDirectory);
 }
 
 #[test]
 fn workspace_executable_blocks_handoff_until_stopped() {
+    // Another fixture's fork can retain the executable copy's write descriptor
+    // until exec, making this otherwise-ready program fail with ETXTBSY.
+    if !support::in_subprocess("workspace_executable_blocks_handoff_until_stopped") {
+        return;
+    }
     refuses_workspace_user(ProcessUse::Executable);
 }
 
 #[test]
 fn open_workspace_file_blocks_handoff_until_stopped() {
+    if !support::in_subprocess("open_workspace_file_blocks_handoff_until_stopped") {
+        return;
+    }
     refuses_workspace_user(ProcessUse::OpenFile);
 }

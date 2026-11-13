@@ -86,6 +86,9 @@
 
 ### Fixed
 
+- Workspace-user process fixtures isolate descriptor ownership between
+  concurrently scheduled scenarios and retain diagnostics on early child exit.
+
 - JSON contract fixtures validate versioned stderr liveness instead of relying
   on commands finishing before the progress threshold. Unexpected diagnostics,
   malformed events and mismatched command/request identifiers remain failures.
