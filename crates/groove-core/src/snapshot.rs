@@ -817,6 +817,19 @@ impl Snapshots {
         )?)
         .map_err(|_| unsupported("Git patch must be UTF-8"))
     }
+
+    pub(crate) fn matches_saved_files(&self, id: &str) -> Result<bool> {
+        let lock = self.lock()?;
+        let saved = self.load(id, &lock)?;
+        if !saved.pinned {
+            return Ok(false);
+        }
+        let current = self.capture(&SaveOptions::default(), &lock, false)?;
+        Ok(saved.head == current.head
+            && saved.index_tree == current.index_tree
+            && saved.work_tree == current.work_tree
+            && saved.untracked_blob == current.untracked_blob)
+    }
     /// Restore in place, after a safety snapshot, or into a new checkout.
     /// In-place restore requires the original HEAD and stopped external writers.
     /// Saved bytes and file types do not depend on current Git checkout preferences;

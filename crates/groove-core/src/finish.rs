@@ -34,6 +34,25 @@ fn receipt_path(pool: &Pool, id: LeaseId) -> PathBuf {
         .join(format!("finish-{id}.json"))
 }
 
+pub(crate) fn released_files_saved(pool: &Pool, lease: &crate::LeaseInfo) -> Result<bool> {
+    let path = receipt_path(pool, lease.lease_id);
+    if !path.try_exists()? {
+        return Ok(false);
+    }
+    let receipt: FinishReceipt = state::read(&path)?;
+    if receipt.schema_version != state::SCHEMA_VERSION
+        || receipt.lease_id != lease.lease_id
+        || receipt.slot_id != lease.slot_id
+    {
+        return Err(Error::new(
+            ErrorCode::ConfigConflict,
+            "Invalid saved release receipt",
+        ));
+    }
+    Snapshots::open(&lease.worktree_path, pool.git_timeout)?
+        .matches_saved_files(&receipt.snapshot.id)
+}
+
 impl Lease {
     /// Save and pin a local checkpoint before releasing this reservation.
     /// A failed checkpoint leaves the reservation protected; retries reuse its saved checkpoint.

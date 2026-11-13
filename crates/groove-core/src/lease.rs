@@ -230,6 +230,16 @@ pub(crate) fn release(
     ) {
         tracing::warn!(slot = %slot, %error, "Could not detach HEAD in the released checkout; the next acquisition resets it");
     }
+    if record.phase != crate::state::SlotPhase::Released && pool.config.ready.is_some() {
+        record.idle_since_unix_ms = Some(crate::reservation::now_ms());
+        // Failure to observe HEAD leaves background work conservative; explicit
+        // acquisition retains its normal recovery path.
+        let path = pool.config.worktree_root.join(slot.as_str());
+        record.released_head = crate::git::Git::new(pool.git_timeout)
+            .run(&path, &["rev-parse", "--verify", "HEAD"], &[])
+            .ok()
+            .and_then(|bytes| String::from_utf8_lossy(&bytes).trim().parse().ok());
+    }
     record.phase = crate::state::SlotPhase::Released;
     if let Some(info) = &record.lease {
         pool.record_request(info, true)?;

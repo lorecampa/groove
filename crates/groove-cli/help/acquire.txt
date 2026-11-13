@@ -30,3 +30,9 @@ Retries: with --request-key, repeating the same key, base and task
 returns the same reservation, even across restarts. Changed inputs and
 completed keys are rejected; keys never expire, so use a new key per task.
 Without a key, run `groove list` BEFORE retrying a lost response.
+
+Pools with ready_target prefer prepared spares, then start replacement preparation
+in a separate process after reservation. Acquisition does not wait for replacement;
+it still prepares/verifies its own requested base. A currently preparing spare may
+be awaited within --git-timeout-ms even when --wait-ms is zero. Ready targets never
+reduce reservable capacity and never expire a protected reservation.

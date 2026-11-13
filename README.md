@@ -76,8 +76,8 @@ groove snapshot restore SNAPSHOT_ID --to ../recovered-parser
 ```
 
 Ignored files are excluded from snapshots. `release` frees a slot without saving
-a snapshot; the next acquisition can discard its contents. Nothing is merged or
-pushed automatically.
+a snapshot; background preparation or the next acquisition can discard its
+contents. Nothing is merged or pushed automatically.
 
 Pools can separate workflow capacity, cleanup and caches. Use `groove pools` to
 list them and pass the same `--pool NAME` on each pool command. Omitting it selects

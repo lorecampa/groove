@@ -102,8 +102,8 @@ published manifest excludes new slots until publication, and admin exclusion
 serializes growth, so no cooperating allocation can claim them in between.
 Active old slots are never acquired or cleaned. The new capacity/policy
 is published only after infrastructure sync. Interrupted unpublished slots are
-validated and reused on retry. Locks are never unlinked. New checkouts remain
-lazy. Handles refresh the manifest for acquisition scans, reservation lookup and
+validated and reused on retry. Locks are never unlinked. New checkouts materialize
+on acquisition or background preparation. Handles refresh the manifest for acquisition scans, reservation lookup and
 inspection; in-flight preparation may use its earlier observed policy.
 
 ## Allocation and cleanup
@@ -255,3 +255,41 @@ the mutation process group and reap the direct child before relinquishing protec
 
 Platform/configuration exclusions and operator recovery are in
 [operations](operations.md).
+
+## Ready checkouts and idle eviction
+
+The CLI copies global defaults into explicit pool policy at initialization and
+starts a short-lived worker after successful pool mutations. Core library callers
+choose a policy and their own execution of `request_ready`/`run_ready`. Existing
+manifests without policy retain lazy allocation. Enabling policy adds fields that
+older strict readers reject; mixed-version writers must not share enabled pools.
+
+A permanent per-pool ready lock serializes reconciliation. A versioned request
+nonce and the worker's final request check/descriptor closure are coordinated by
+repository admin exclusion. Requests arriving during work cause another pass;
+a request after closure starts a new owner. The CLI publishes requests in the
+child, so foreground success does not wait behind background administration.
+Workers use generation-checked lifecycle admission throughout their lifetime.
+Slot and execution locks, durable protection and path validation remain authoritative.
+No timestamp expires a reservation. Descriptor use is bounded independently of
+capacity; candidate counts are observations, so the ready target is best effort.
+
+Preparation prefers explicitly released or never-used slots. Dropped leases and
+quarantined records are not background disposal candidates. Before changing an
+existing checkout, the worker checks all observable external users and unsaved
+files. Saved-release contents must match the pinned snapshot's HEAD, index tree,
+working tree and untracked inventory. Checks remain best effort against external
+writers, which must stop before release. Ignored caches are disposable.
+
+Per-slot intent records bind preparation/eviction to the pool and lease generation.
+They permit retry after interruption, including removal of native registration
+before checkout contents. A subsequent acquisition changes the lease generation,
+invalidating the previous worker intent. Exact owned paths/registrations are
+revalidated; permanent locks, capacity, branches, snapshots and receipts survive.
+Missing idle timestamps begin a fresh observation period. Future timestamps do not
+age out; time is only an eligibility signal. Ready hints influence allocation order
+but never bypass normal acquisition verification.
+
+Workers exit after immediate work. Expiration is checked on later pool operations,
+not by a timer or daemon. Failures are observable through pool show; repeated work
+uses bounded retry backoff, while changed policy permits an immediate retry.

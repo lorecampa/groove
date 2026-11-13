@@ -57,6 +57,7 @@ fn initialization_crash_boundaries_resume_without_replacing_locks() {
             &r.path,
             PoolOptions {
                 resume: r.state().join("initializing.json").exists(),
+                ready: Some(Default::default()),
                 capacity: 1,
                 worktree_root: Some(support::worktree_root(&r.path, "default")),
                 ..Default::default()
@@ -551,6 +552,7 @@ fn interrupted_named_initialization_keeps_its_root_claim_and_sibling_usable() {
             capacity: 1,
             worktree_root: Some(root),
             resume: true,
+            ready: Some(Default::default()),
             ..Default::default()
         },
     )

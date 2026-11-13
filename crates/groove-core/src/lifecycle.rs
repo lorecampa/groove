@@ -57,6 +57,16 @@ pub(crate) fn write(repo: &Repository, record: &Lifecycle) -> Result<()> {
 }
 
 pub(crate) fn validate_config_locks(repo: &Repository, config: &state::Config) -> Result<()> {
+    if let Some(expected) = config.ready_lock {
+        if locking::identity(&locking::open(&repo.root.join("locks/ready.lock"), false)?)?
+            != expected
+        {
+            return Err(Error::new(
+                ErrorCode::ConfigConflict,
+                "Ready worker lock identity changed",
+            ));
+        }
+    }
     if locking::identity(&locking::open(&repo.admin_lock_path(), false)?)? != config.admin_identity
     {
         return Err(Error::new(

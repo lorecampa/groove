@@ -29,6 +29,7 @@ impl Pool {
 
     fn settings_snapshot(&self) -> PoolSettings {
         PoolSettings {
+            ready: self.config.ready.clone(),
             pool_name: self.repo.name.clone(),
             capacity: self.config.capacity,
             cleanup_policy: self.config.cleanup_policy,
@@ -83,6 +84,27 @@ impl Pool {
             crate::lifecycle::validate_config_locks(&self.repo, config)?;
         }
         let capacity = update.capacity.unwrap_or(current.config.capacity);
+        let mut ready = current.config.ready.clone();
+        if update.ready_target.is_some()
+            || update.idle_timeout.is_some()
+            || update.ready_base.is_some()
+        {
+            let candidate = ready.get_or_insert_with(crate::ReadySettings::default);
+            if let Some(target) = update.ready_target {
+                candidate.ready_target = target;
+            }
+            if let Some(timeout) = update.idle_timeout {
+                candidate.idle_timeout = timeout;
+            }
+            if let Some(base) = update.ready_base {
+                candidate.ready_base = base;
+            }
+            candidate.validate(capacity)?;
+            candidate.resolve_head(&self.repo, self.git_timeout)?;
+            if self.pool_id.is_none() {
+                return Err(Error::new(ErrorCode::UnsupportedConfiguration, "Legacy pool has no lifecycle generation; explicitly recreate it before enabling automatic checkout preparation"));
+            }
+        }
         let cleanup = update
             .cleanup_policy
             .unwrap_or(current.config.cleanup_policy);
@@ -92,7 +114,10 @@ impl Pool {
                 "Pool capacity can grow; shrinking is not supported",
             ));
         }
-        if capacity == current.config.capacity && cleanup == current.config.cleanup_policy {
+        if capacity == current.config.capacity
+            && cleanup == current.config.cleanup_policy
+            && ready == current.config.ready
+        {
             return Ok(PoolUpdateResult {
                 updated: false,
                 pool: current.settings_snapshot(),
@@ -221,6 +246,12 @@ impl Pool {
         }
         current.config.slots = identities;
         current.config.capacity = capacity;
+        if ready.is_some() && current.config.ready_lock.is_none() {
+            let file = locking::open(&self.repo.root.join("locks/ready.lock"), true)?;
+            file.sync_all()?;
+            current.config.ready_lock = Some(locking::identity(&file)?);
+        }
+        current.config.ready = ready;
         current.config.cleanup_policy = cleanup;
         state::sync_dir(&self.repo.root.join("locks"))?;
         state::checkpoint("before-pool-update");

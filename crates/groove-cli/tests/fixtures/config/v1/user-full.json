@@ -8,5 +8,11 @@
     "max_files": 7,
     "max_age_days": 30
   },
-  "worktrees": { "root": "/configured/worktrees" }
+  "worktrees": {
+    "root": "/configured/worktrees"
+  },
+  "pool_defaults": {
+    "ready_target": 1,
+    "idle_timeout": "7d"
+  }
 }

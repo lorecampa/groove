@@ -5,8 +5,9 @@ EXAMPLES:
   groove --pool frontend init --capacity 3 --cleanup warm
   groove config global set worktrees.root=/absolute/worktrees
 
-Creates slot metadata and permanent locks; checkouts are created lazily on first
-acquisition. Running init on a ready pool fails with CONFIG_CONFLICT, even with
+Creates slot metadata and permanent locks, then starts background preparation of
+ready_target spare checkouts (default 1). Remaining slots materialize on demand.
+Running init on a ready pool fails with CONFIG_CONFLICT, even with
 identical settings: use `config show` or `config set` instead. An interrupted
 init must be resumed with --resume and the original settings.
 
@@ -30,3 +31,21 @@ and every checkout (the exact legacy state/worktrees root remains accepted).
 Roots cannot overlap another pool's root, including pending
 and retained deleted pools. Relative paths resolve from the current directory.
 Never delete permanent lock files to force setup or recovery.
+
+READY CHECKOUTS:
+--ready-target defaults to pool_defaults.ready_target (1) and must be between 0
+and capacity. An incompatible global default is rejected; override it explicitly.
+--idle-timeout defaults to pool_defaults.idle_timeout (7d); accepts positive whole
+s/m/h/d durations or never. Excess idle checkouts become eligible for deletion,
+including ignored caches. Slot capacity, permanent locks, branches, snapshots and
+release receipts remain. Reservations never expire.
+--ready-base defaults to this checkout's HEAD branch, or its commit when detached.
+Only local Git state is used; no implicit fetch, build or setup command runs.
+The target is best effort: reservations, writers and failures can prevent it.
+Acquisition still verifies/prepares the requested revision before returning.
+
+Defaults are copied into this pool, not inherited dynamically. Legacy pools retain
+lazy behavior until explicitly configured. Use one supporting Groove version across
+this repository: older writers reject enabled pools' new metadata.
+Disable automatic work with --ready-target 0 --idle-timeout never.
+Use `groove show` to inspect background progress and failures.

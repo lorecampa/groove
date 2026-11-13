@@ -20,6 +20,10 @@ pub(crate) const SCHEMA_VERSION: u32 = 1;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Config {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ready_lock: Option<Identity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ready: Option<crate::ReadySettings>,
     pub schema_version: u32,
     pub capacity: usize,
     pub cleanup_policy: CleanupPolicy,
@@ -34,6 +38,15 @@ pub(crate) struct Config {
 impl Config {
     /// Reject manifests this release cannot interpret safely.
     pub fn validate(&self) -> Result<()> {
+        if let Some(ready) = &self.ready {
+            ready.validate(self.capacity)?;
+            if self.ready_lock.is_none() {
+                return Err(Error::new(
+                    crate::ErrorCode::ConfigConflict,
+                    "Missing ready worker lock identity",
+                ));
+            }
+        }
         if self.schema_version != SCHEMA_VERSION {
             return Err(Error::new(
                 crate::ErrorCode::UnsupportedConfiguration,
@@ -71,6 +84,10 @@ pub(crate) enum SlotPhase {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct SlotRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub released_head: Option<crate::CommitOid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_since_unix_ms: Option<u64>,
     pub schema_version: u32,
     pub phase: SlotPhase,
     pub lease: Option<LeaseInfo>,
@@ -86,6 +103,8 @@ pub(crate) struct ReuseProtection {
 impl SlotRecord {
     pub fn empty() -> Self {
         Self {
+            released_head: None,
+            idle_since_unix_ms: None,
             schema_version: SCHEMA_VERSION,
             phase: SlotPhase::Available,
             lease: None,

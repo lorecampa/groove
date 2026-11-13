@@ -94,7 +94,7 @@ fn stopped(path: &Path) -> Result<()> {
 // Refuse filesystem boundaries inside a tree: a mounted build directory must not
 // redirect recursive removal onto another filesystem. Interior symlinks are unlinked,
 // never traversed, by remove_dir_all.
-fn validate_tree(path: &Path, device: u64) -> Result<()> {
+pub(crate) fn validate_tree(path: &Path, device: u64) -> Result<()> {
     let metadata = fs::symlink_metadata(path)?;
     if metadata.is_dir() {
         if metadata.dev() != device {
@@ -316,6 +316,16 @@ impl Pool {
                 ));
             }
             Config {
+                ready_lock: if exists(&repo.root.join("locks/ready.lock"))? {
+                    Some(locking::identity(&locking::open(
+                        &repo.root.join("locks/ready.lock"),
+                        false,
+                    )?)?)
+                } else {
+                    None
+                },
+                // An interrupted init has no published worker infrastructure.
+                ready: None,
                 schema_version: state::SCHEMA_VERSION,
                 capacity: intent.capacity,
                 cleanup_policy: intent.cleanup_policy,
@@ -405,6 +415,14 @@ impl Pool {
                 .to_str()
                 .ok_or_else(|| conflict("Unknown lock entry", &item.path()))?;
             if matches!(name, "admin.lock" | "lifecycle.lock") {
+                continue;
+            }
+            if name == "ready.lock" {
+                let _guard =
+                    SlotGuard::try_lock(&item.path(), config.ready_lock)?.ok_or_else(|| {
+                        conflict("Ready worker still owns its descriptor", &item.path())
+                            .retryable(true)
+                    })?;
                 continue;
             }
             let stem = name

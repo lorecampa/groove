@@ -15,10 +15,34 @@ use std::{
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
+    pub pool_defaults: PoolDefaults,
     pub logging: Logging,
     pub worktrees: Worktrees,
     #[serde(skip_serializing_if = "groove_core::experimental::ExperimentalConfig::is_empty")]
     pub experimental: groove_core::experimental::ExperimentalConfig,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PoolDefaults {
+    pub ready_target: usize,
+    pub idle_timeout: groove_core::IdleTimeout,
+}
+impl Default for PoolDefaults {
+    fn default() -> Self {
+        Self {
+            ready_target: 1,
+            idle_timeout: Default::default(),
+        }
+    }
+}
+impl PoolDefaults {
+    fn validate(&self) -> Result<()> {
+        if self.ready_target > groove_core::MAX_CAPACITY {
+            return Err(invalid("pool_defaults.ready_target cannot exceed 4096"));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default)]
@@ -132,6 +156,7 @@ fn parse(text: &str) -> Result<Config> {
         .map_err(|e| invalid(format!("Invalid user configuration: {e}")).with_source(e))?;
     config.logging.validate()?;
     config.worktrees.validate()?;
+    config.pool_defaults.validate()?;
     config.experimental.validate()?;
     Ok(config)
 }
@@ -266,6 +291,8 @@ pub fn change(change: Change) -> Result<serde_json::Value> {
                     .filter(|(section, field)| {
                         (*section == "logging" && KEYS.contains(field))
                             || (*section == "worktrees" && *field == "root")
+                            || (*section == "pool_defaults"
+                                && ["ready_target", "idle_timeout"].contains(field))
                             || (*section == "experimental" && *field == "features")
                     })
                     .ok_or_else(|| invalid(format!("Unknown setting: {key}")))?;

@@ -66,6 +66,33 @@
     "worktree_root": {
       "pattern": "^/",
       "type": "string"
+    },
+    "ready": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ready_target",
+        "idle_timeout",
+        "ready_base"
+      ],
+      "properties": {
+        "ready_target": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "idle_timeout": {
+          "type": "string",
+          "pattern": "^(never|[1-9][0-9]*[smhd])$"
+        },
+        "ready_base": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "ready_lock": {
+      "$ref": "#/$defs/identity"
     }
   },
   "required": [
@@ -78,5 +105,10 @@
     "worktree_root"
   ],
   "title": "Groove ready manifest v1/v2/v3/v4/v5",
-  "type": "object"
+  "type": "object",
+  "dependentRequired": {
+    "ready": [
+      "ready_lock"
+    ]
+  }
 }

@@ -167,11 +167,13 @@ pub fn init(
     cleanup: Cleanup,
     worktree_root: Option<PathBuf>,
     resume: bool,
+    ready: groove_core::ReadySettings,
 ) -> Result<Output> {
     let result = Pool::init_named(
         context.repo,
         &context.pool_name(),
         PoolOptions {
+            ready: Some(ready),
             resume,
             capacity,
             cleanup_policy: cleanup.into(),
@@ -354,6 +356,23 @@ pub fn show(
     inspection.slots = slots;
     let mut text = fields(&serde_json::to_value(&settings)?, 0) + "\n" + &slot_table(&inspection);
     let mut value = json!({ "pool": settings, "inspection": inspection });
+    let ready = pool.ready_report()?;
+    text.push_str(&format!(
+        "\nBackground checkouts: {} ready at last pass; {}.\n",
+        ready.ready,
+        if ready.running {
+            "preparing or cleaning"
+        } else {
+            "idle"
+        }
+    ));
+    if let Some(error) = &ready.error {
+        text.push_str(&format!("  {error}\n"));
+    }
+    for (slot, error) in &ready.failures {
+        text.push_str(&format!("  {slot}: {error}\n"));
+    }
+    value["ready"] = serde_json::to_value(ready)?;
     if disk_usage {
         let usage = pool.storage_usage()?;
         text.push_str(&storage_text(&usage));

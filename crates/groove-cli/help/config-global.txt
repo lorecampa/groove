@@ -54,3 +54,13 @@ success. Invalid edits/editor failures preserve the original; concurrent changes
 fail with CONFIG_CONFLICT. Changes take effect on the next invocation. `path`
 and `edit` work with broken settings, and global configuration commands create
 no persistent diagnostic logs so they can repair the logging destination itself.
+
+NEW POOL DEFAULTS:
+pool_defaults.ready_target defaults to 1 (0..4096). pool_defaults.idle_timeout
+is a positive whole duration in s/m/h/d, default 7d, or never to disable eviction.
+For example:
+  groove config global set pool_defaults.ready_target=2 pool_defaults.idle_timeout=3d
+These values are copied at init, with explicit init flags taking precedence.
+Changing defaults never changes an existing pool. Initialization rejects a target
+above that pool's capacity; pass --ready-target explicitly instead of clamping.
+ready_base is repository-specific and is configured through init/config set.

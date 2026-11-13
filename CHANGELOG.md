@@ -19,6 +19,11 @@
   caching and warm reuse across source/flag changes and cache loss, checking
   executed outputs and reporting total task time. Cleanup help explains external
   build-tool caches and the limits of retained ignored files.
+- Pool-specific ready targets, preparation bases and idle timeouts, with global
+  defaults copied into new pools. Short-lived workers replenish spare checkouts
+  after pool operations and evict eligible excess checkouts without expiring
+  reservations. `show` reports background outcomes. Older pools stay lazy until
+  explicitly configured; older binaries reject enabled pools' new metadata.
 - Long-running commands show delayed spinners on interactive stderr, or versioned
   JSON liveness events on stderr with `--json`. `--quiet` suppresses progress;
   redirected human output and the single JSON stdout response stay unchanged.

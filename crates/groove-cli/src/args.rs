@@ -122,6 +122,15 @@ pub enum Command {
     /// Create a pool of reusable worktree slots for this repository.
     #[command(after_help = help!("init"))]
     Init {
+        /// Desired ready, unreserved checkouts (default: pool_defaults.ready_target, 1).
+        #[arg(long)]
+        ready_target: Option<usize>,
+        /// Evict excess idle checkouts after this duration, e.g. 7d, or never.
+        #[arg(long)]
+        idle_timeout: Option<groove_core::IdleTimeout>,
+        /// Local revision for spare preparation; defaults to the initializing checkout's HEAD branch or commit.
+        #[arg(long)]
+        ready_base: Option<String>,
         /// Maximum simultaneous reservations (1..=4096); grow later with `config set`.
         #[arg(long, value_parser = parse_capacity)]
         capacity: usize,
@@ -370,8 +379,17 @@ pub enum ConfigCommand {
     Show,
     /// Grow capacity and/or change cleanup for future acquisitions.
     Set {
+        /// Desired ready, unreserved checkouts; cannot exceed resulting capacity. Zero disables replenishment.
+        #[arg(long)]
+        ready_target: Option<usize>,
+        /// Idle duration for excess checkouts (positive s/m/h/d), or never to disable eviction.
+        #[arg(long)]
+        idle_timeout: Option<groove_core::IdleTimeout>,
+        /// Local revision for spare preparation; no implicit fetch or project commands.
+        #[arg(long)]
+        ready_base: Option<String>,
         /// New capacity (1..=4096); shrinking is rejected.
-        #[arg(long, value_parser = parse_capacity, required_unless_present = "cleanup")]
+        #[arg(long, value_parser = parse_capacity, required_unless_present_any = ["cleanup", "ready_target", "idle_timeout", "ready_base"])]
         capacity: Option<usize>,
         /// Cleanup policy for future acquisitions.
         #[arg(long, value_enum)]

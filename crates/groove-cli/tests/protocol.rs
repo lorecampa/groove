@@ -989,6 +989,8 @@ fn copied_advice_keeps_pool_selection_and_destroy_does_not_suggest_saving_releas
     let argv = shell_words::split(command).unwrap();
     let initialized = support::groove_in(&repo.path)
         .args(&argv[1..])
+        // This advice regression deliberately retains released ignored files.
+        .args(["--ready-target", "0", "--idle-timeout", "never"])
         .output()
         .unwrap();
     let initialized = assert_success(&initialized);
@@ -1235,7 +1237,21 @@ fn pool_and_slot_views_sort_before_paging_and_preserve_capacity() {
     let invalid = cli(&repo, &["show", "--task", "a-first", "--order", "desc"]);
     assert_eq!(invalid.status.code(), Some(2));
     assert_eq!(check(&invalid)["error"]["code"], "INVALID_ARGUMENT");
-    assert_success(&cli(&repo, &["--pool", "zzz", "init", "--capacity", "1"]));
+    // This catalog fixture needs immediate deletion, not background preparation.
+    assert_success(&cli(
+        &repo,
+        &[
+            "--pool",
+            "zzz",
+            "init",
+            "--capacity",
+            "1",
+            "--ready-target",
+            "0",
+            "--idle-timeout",
+            "never",
+        ],
+    ));
     assert_success(&cli(&repo, &["--pool", "zzz", "destroy"]));
     for (sort, first) in [("name", "default"), ("state", "zzz")] {
         let pools = check(&cli(
