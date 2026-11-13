@@ -384,37 +384,7 @@ impl<'a> Artifacts<'a> {
         }
         let mode = meta.mode() & 0o777;
         let entry = if meta.file_type().is_symlink() {
-            if path == artifact {
-                return Err(invalid("Artifact roots cannot be symlinks"));
-            }
-            let target = fs::read_link(&full)?;
-            let mut normalized = path
-                .parent()
-                .ok_or_else(|| invalid("Missing symlink parent"))?
-                .to_path_buf();
-            for part in target.components() {
-                match part {
-                    Component::Normal(part) => normalized.push(part),
-                    Component::CurDir => (),
-                    Component::ParentDir if normalized.pop() => (),
-                    _ => {
-                        return Err(invalid(
-                            "Artifact symlinks must remain within their approved root",
-                        ))
-                    }
-                }
-            }
-            if !normalized.starts_with(artifact) {
-                return Err(invalid("Artifact symlink escapes its approved root"));
-            }
-            Entry {
-                path: path.into(),
-                kind: Kind::Link,
-                mode,
-                bytes: 0,
-                hash: repository::utf8(&target)?.into(),
-                modified_ns: 0,
-            }
+            self.link_entry(path, &full, artifact, mode)?
         } else if meta.is_dir() {
             self.reject_git_store(&full)?;
             Entry {
@@ -426,62 +396,7 @@ impl<'a> Artifacts<'a> {
                 modified_ns: 0,
             }
         } else if meta.is_file() {
-            // Cleanup preflight must not read or hash soon-to-be-deleted files.
-            // Publication and seeding retain their byte limits and verification.
-            if !scan.hash_contents {
-                scan.entries.push(Entry {
-                    path: path.into(),
-                    kind: Kind::File,
-                    mode,
-                    bytes: 0,
-                    hash: String::new(),
-                    modified_ns: 0,
-                });
-                return Ok(());
-            }
-            scan.bytes = scan
-                .bytes
-                .checked_add(meta.len())
-                .ok_or_else(|| invalid("Artifact byte limit overflow"))?;
-            if scan.bytes > self.profile.max_bytes {
-                return Err(invalid("Artifact byte limit exceeded"));
-            }
-            let hash = self.hash_file(&full)?;
-            let after = fs::symlink_metadata(&full)?;
-            if (
-                meta.dev(),
-                meta.ino(),
-                meta.len(),
-                meta.mtime(),
-                meta.mtime_nsec(),
-                meta.ctime(),
-                meta.ctime_nsec(),
-            ) != (
-                after.dev(),
-                after.ino(),
-                after.len(),
-                after.mtime(),
-                after.mtime_nsec(),
-                after.ctime(),
-                after.ctime_nsec(),
-            ) {
-                return Err(invalid("Artifact file changed while reading"));
-            }
-            let modified_ns = meta
-                .modified()?
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|error| {
-                    invalid("Artifact timestamp predates Unix epoch").with_source(error)
-                })?
-                .as_nanos();
-            Entry {
-                path: path.into(),
-                kind: Kind::File,
-                mode,
-                bytes: meta.len(),
-                hash,
-                modified_ns,
-            }
+            self.file_entry(path, &full, &meta, mode, scan)?
         } else {
             return Err(invalid(
                 "Artifact snapshots reject sockets, devices and FIFOs",
@@ -507,6 +422,103 @@ impl<'a> Artifacts<'a> {
         }
         Ok(())
     }
+    fn link_entry(&self, path: &Path, full: &Path, artifact: &Path, mode: u32) -> Result<Entry> {
+        if path == artifact {
+            return Err(invalid("Artifact roots cannot be symlinks"));
+        }
+        let target = fs::read_link(full)?;
+        let mut normalized = path
+            .parent()
+            .ok_or_else(|| invalid("Missing symlink parent"))?
+            .to_path_buf();
+        for part in target.components() {
+            match part {
+                Component::Normal(part) => normalized.push(part),
+                Component::CurDir => (),
+                Component::ParentDir if normalized.pop() => (),
+                _ => {
+                    return Err(invalid(
+                        "Artifact symlinks must remain within their approved root",
+                    ))
+                }
+            }
+        }
+        if !normalized.starts_with(artifact) {
+            return Err(invalid("Artifact symlink escapes its approved root"));
+        }
+        Ok(Entry {
+            path: path.into(),
+            kind: Kind::Link,
+            mode,
+            bytes: 0,
+            hash: repository::utf8(&target)?.into(),
+            modified_ns: 0,
+        })
+    }
+
+    fn file_entry(
+        &self,
+        path: &Path,
+        full: &Path,
+        meta: &fs::Metadata,
+        mode: u32,
+        scan: &mut Scan,
+    ) -> Result<Entry> {
+        // Cleanup preflight must not read or hash soon-to-be-deleted files.
+        // Publication and seeding retain their byte limits and verification.
+        if !scan.hash_contents {
+            return Ok(Entry {
+                path: path.into(),
+                kind: Kind::File,
+                mode,
+                bytes: 0,
+                hash: String::new(),
+                modified_ns: 0,
+            });
+        }
+        scan.bytes = scan
+            .bytes
+            .checked_add(meta.len())
+            .ok_or_else(|| invalid("Artifact byte limit overflow"))?;
+        if scan.bytes > self.profile.max_bytes {
+            return Err(invalid("Artifact byte limit exceeded"));
+        }
+        let hash = self.hash_file(full)?;
+        let after = fs::symlink_metadata(full)?;
+        if (
+            meta.dev(),
+            meta.ino(),
+            meta.len(),
+            meta.mtime(),
+            meta.mtime_nsec(),
+            meta.ctime(),
+            meta.ctime_nsec(),
+        ) != (
+            after.dev(),
+            after.ino(),
+            after.len(),
+            after.mtime(),
+            after.mtime_nsec(),
+            after.ctime(),
+            after.ctime_nsec(),
+        ) {
+            return Err(invalid("Artifact file changed while reading"));
+        }
+        let modified_ns = meta
+            .modified()?
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|error| invalid("Artifact timestamp predates Unix epoch").with_source(error))?
+            .as_nanos();
+        Ok(Entry {
+            path: path.into(),
+            kind: Kind::File,
+            mode,
+            bytes: meta.len(),
+            hash,
+            modified_ns,
+        })
+    }
+
     fn hash_file(&self, path: &Path) -> Result<String> {
         let mut file = OpenOptions::new()
             .read(true)
