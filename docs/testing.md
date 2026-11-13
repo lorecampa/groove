@@ -71,10 +71,8 @@ CI explicitly disables the runner's system/global Git configuration. Snapshot
 fixtures must not inherit installed content filters or automatic CRLF conversion.
 Use `support::groove_in` for repository CLI fixtures, including checkpoint children;
 tests of user preferences can explicitly override their configuration paths.
-The `checkpoint_finish_*_ignores_parent_git_filters` tests exercise each
-release --save/recovery crash boundary in a child test process with a global
-filter definition. Independent crash scenarios have separate process deadlines;
-each retains the same bounded handshakes, teardown and preservation assertions.
+`checkpoint_finish_ignores_parent_git_filters` exercises the release --save/recovery crash
+scenario in a child test process with a global filter definition.
 
 Use explicit readiness handshakes, not sleep-based guesses. Bound connection,
 message and exit waits and report captured output on failure. `TestChild` captures

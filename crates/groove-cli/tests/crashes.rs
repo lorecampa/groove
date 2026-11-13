@@ -7,19 +7,6 @@ use std::{
 };
 use support::Repo;
 
-// Independent crash scenarios each keep the existing process deadline. A matrix
-// must not share one outer deadline across several complete repository lifecycles.
-macro_rules! isolated_crash_cases {
-    ($($test:ident: $scenario:ident($($arg:expr),*)),+ $(,)?) => {
-        $(#[test]
-        fn $test() {
-            if support::in_subprocess(stringify!($test)) {
-                $scenario($($arg),*);
-            }
-        })+
-    };
-}
-
 fn checkpoint_command(r: &Repo, name: &str, args: &[&str]) -> (Command, UnixListener) {
     let socket = r.temp.path().join("checkpoint.sock");
     let listener = UnixListener::bind(&socket).unwrap();
@@ -74,194 +61,206 @@ fn initialization_crash_boundaries_resume_without_replacing_locks() {
     }
 }
 
-fn deletion_crash_preserves_policy_results_and_inodes(name: &str) {
+#[test]
+fn deletion_crashes_resume_with_the_same_policy_and_preserve_results_and_inodes() {
+    if !support::in_subprocess(
+        "deletion_crashes_resume_with_the_same_policy_and_preserve_results_and_inodes",
+    ) {
+        return;
+    }
     use groove_core::{
         snapshot::{SaveOptions, Snapshots},
         DestroyOptions, ErrorCode,
     };
     use std::{fs, os::unix::fs::PermissionsExt, time::Duration};
-    let repo = Repo::new();
-    Pool::init(
-        &repo.path,
-        PoolOptions {
-            capacity: 2,
-            ..Default::default()
-        },
-    )
-    .unwrap();
-    let pool = Pool::open(&repo.path).unwrap();
-    let a = pool.acquire(Default::default()).unwrap();
-    let b = pool.acquire(Default::default()).unwrap();
-    drop(a);
-    drop(b);
-    let cache = repo.state().join("artifacts");
-    fs::create_dir(&cache).unwrap();
-    fs::set_permissions(&cache, fs::Permissions::from_mode(0o700)).unwrap();
-    let data = cache.join("b".repeat(64));
-    fs::create_dir(&data).unwrap();
-    fs::set_permissions(&data, fs::Permissions::from_mode(0o700)).unwrap();
-    fs::write(data.join("bytes"), "cache").unwrap();
-    let snapshots = Snapshots::open(&repo.path, Duration::from_secs(10)).unwrap();
-    let snapshot = snapshots.save(SaveOptions::default()).unwrap();
-    let inodes: Vec<_> = fs::read_dir(repo.state().join("locks"))
-        .unwrap()
-        .map(|e| {
-            let path = e.unwrap().path();
-            let ino = fs::metadata(&path).unwrap().ino();
-            (path, ino)
-        })
-        .collect();
-    let (mut command, listener) =
-        checkpoint_command(&repo, name, &["destroy", "--discard-changes"]);
-    kill_at_checkpoint(&mut command, listener, name);
-    assert_eq!(
-        Pool::open(&repo.path).unwrap_err().code,
-        if name == "pool-deleted" {
-            ErrorCode::NotInitialized
-        } else {
-            ErrorCode::ConfigConflict
-        }
-    );
-    if name != "pool-deleted" {
+    for name in [
+        "pool-deleting",
+        "pool-slot-removed",
+        "pool-artifact-removed",
+        "pool-deleted",
+    ] {
+        let repo = Repo::new();
+        Pool::init(
+            &repo.path,
+            PoolOptions {
+                capacity: 2,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let pool = Pool::open(&repo.path).unwrap();
+        let a = pool.acquire(Default::default()).unwrap();
+        let b = pool.acquire(Default::default()).unwrap();
+        drop(a);
+        drop(b);
+        let cache = repo.state().join("artifacts");
+        fs::create_dir(&cache).unwrap();
+        fs::set_permissions(&cache, fs::Permissions::from_mode(0o700)).unwrap();
+        let data = cache.join("b".repeat(64));
+        fs::create_dir(&data).unwrap();
+        fs::set_permissions(&data, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::write(data.join("bytes"), "cache").unwrap();
+        let snapshots = Snapshots::open(&repo.path, Duration::from_secs(10)).unwrap();
+        let snapshot = snapshots.save(SaveOptions::default()).unwrap();
+        let inodes: Vec<_> = fs::read_dir(repo.state().join("locks"))
+            .unwrap()
+            .map(|e| {
+                let path = e.unwrap().path();
+                let ino = fs::metadata(&path).unwrap().ino();
+                (path, ino)
+            })
+            .collect();
+        let (mut command, listener) =
+            checkpoint_command(&repo, name, &["destroy", "--discard-changes"]);
+        kill_at_checkpoint(&mut command, listener, name);
         assert_eq!(
-            Pool::init(
-                &repo.path,
-                PoolOptions {
-                    capacity: 2,
-                    ..Default::default()
-                }
-            )
-            .unwrap_err()
-            .code,
-            ErrorCode::ConfigConflict
+            Pool::open(&repo.path).unwrap_err().code,
+            if name == "pool-deleted" {
+                ErrorCode::NotInitialized
+            } else {
+                ErrorCode::ConfigConflict
+            }
         );
-        assert_eq!(
-            Pool::destroy(&repo.path, Default::default())
+        if name != "pool-deleted" {
+            assert_eq!(
+                Pool::init(
+                    &repo.path,
+                    PoolOptions {
+                        capacity: 2,
+                        ..Default::default()
+                    }
+                )
                 .unwrap_err()
                 .code,
-            ErrorCode::ConfigConflict
+                ErrorCode::ConfigConflict
+            );
+            assert_eq!(
+                Pool::destroy(&repo.path, Default::default())
+                    .unwrap_err()
+                    .code,
+                ErrorCode::ConfigConflict
+            );
+        }
+        let before = fs::read(repo.state().join("lifecycle.json")).unwrap();
+        let preview = Pool::destroy(
+            &repo.path,
+            DestroyOptions {
+                dry_run: true,
+                discard_changes: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read(repo.state().join("lifecycle.json")).unwrap(),
+            before
         );
+        let result = Pool::destroy(
+            &repo.path,
+            DestroyOptions {
+                discard_changes: true,
+                pool_id: preview.pool_id,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(result.deleted);
+        assert!(!repo.slot(1).exists() && !repo.slot(2).exists() && !data.exists());
+        for (path, ino) in inodes {
+            assert_eq!(fs::metadata(path).unwrap().ino(), ino);
+        }
+        assert_eq!(snapshots.show(&snapshot.id).unwrap().id, snapshot.id);
+        Pool::init(
+            &repo.path,
+            PoolOptions {
+                capacity: 1,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(Pool::open(&repo.path)
+            .unwrap()
+            .acquire(Default::default())
+            .is_ok());
     }
-    let before = fs::read(repo.state().join("lifecycle.json")).unwrap();
-    let preview = Pool::destroy(
-        &repo.path,
-        DestroyOptions {
-            dry_run: true,
-            discard_changes: true,
-            ..Default::default()
-        },
-    )
-    .unwrap();
-    assert_eq!(
-        fs::read(repo.state().join("lifecycle.json")).unwrap(),
-        before
-    );
-    let result = Pool::destroy(
-        &repo.path,
-        DestroyOptions {
-            discard_changes: true,
-            pool_id: preview.pool_id,
-            ..Default::default()
-        },
-    )
-    .unwrap();
-    assert!(result.deleted);
-    assert!(!repo.slot(1).exists() && !repo.slot(2).exists() && !data.exists());
-    for (path, ino) in inodes {
-        assert_eq!(fs::metadata(path).unwrap().ino(), ino);
-    }
-    assert_eq!(snapshots.show(&snapshot.id).unwrap().id, snapshot.id);
-    Pool::init(
-        &repo.path,
-        PoolOptions {
-            capacity: 1,
-            ..Default::default()
-        },
-    )
-    .unwrap();
-    assert!(Pool::open(&repo.path)
-        .unwrap()
-        .acquire(Default::default())
-        .is_ok());
 }
 
-isolated_crash_cases! {
-    deletion_started_preserves_policy_results_and_inodes: deletion_crash_preserves_policy_results_and_inodes("pool-deleting"),
-    deletion_slot_removed_preserves_policy_results_and_inodes: deletion_crash_preserves_policy_results_and_inodes("pool-slot-removed"),
-    deletion_artifact_removed_preserves_policy_results_and_inodes: deletion_crash_preserves_policy_results_and_inodes("pool-artifact-removed"),
-    deletion_completed_preserves_policy_results_and_inodes: deletion_crash_preserves_policy_results_and_inodes("pool-deleted"),
-}
-
-fn deletion_excludes_operations_at_boundary(point: &str) {
+#[test]
+fn deletion_excludes_new_operations_and_covers_finish_metadata_after_unlock() {
+    if !support::in_subprocess(
+        "deletion_excludes_new_operations_and_covers_finish_metadata_after_unlock",
+    ) {
+        return;
+    }
     use groove_core::{DestroyOptions, ErrorCode, PoolUpdate};
     use std::io::Write;
-    let repo = Repo::new();
-    Pool::init(
-        &repo.path,
-        PoolOptions {
-            capacity: 1,
-            ..Default::default()
-        },
-    )
-    .unwrap();
-    let pool = Pool::open(&repo.path).unwrap();
-    drop(pool.acquire(Default::default()).unwrap());
-    let id = if point == "finish-released" {
-        Some(
-            pool.reserve(Default::default())
-                .unwrap()
-                .lease_id
-                .to_string(),
+    for point in [
+        "before-normalization",
+        "before-pool-update",
+        "finish-released",
+    ] {
+        let repo = Repo::new();
+        Pool::init(
+            &repo.path,
+            PoolOptions {
+                capacity: 1,
+                ..Default::default()
+            },
         )
-    } else {
-        None
-    };
-    let args = match point {
-        "before-normalization" => vec!["acquire"],
-        "before-pool-update" => vec!["config", "set", "--capacity", "2"],
-        _ => vec!["release", "--save", "--lease-id", id.as_deref().unwrap()],
-    };
-    let (mut command, listener) = checkpoint_command(&repo, point, &args);
-    let mut child = support::TestChild::spawn(&mut command);
-    let mut stream = child
-        .checkpoint(&listener, point, support::PROCESS_TIMEOUT)
         .unwrap();
-    let rejected = Pool::destroy(
-        &repo.path,
-        DestroyOptions {
-            discard_changes: true,
+        let pool = Pool::open(&repo.path).unwrap();
+        drop(pool.acquire(Default::default()).unwrap());
+        let id = if point == "finish-released" {
+            Some(
+                pool.reserve(Default::default())
+                    .unwrap()
+                    .lease_id
+                    .to_string(),
+            )
+        } else {
+            None
+        };
+        let args = match point {
+            "before-normalization" => vec!["acquire"],
+            "before-pool-update" => vec!["config", "set", "--capacity", "2"],
+            _ => vec!["release", "--save", "--lease-id", id.as_deref().unwrap()],
+        };
+        let (mut command, listener) = checkpoint_command(&repo, point, &args);
+        let mut child = support::TestChild::spawn(&mut command);
+        let mut stream = child
+            .checkpoint(&listener, point, support::PROCESS_TIMEOUT)
+            .unwrap();
+        let rejected = Pool::destroy(
+            &repo.path,
+            DestroyOptions {
+                discard_changes: true,
+                ..Default::default()
+            },
+        );
+        stream.write_all(b"g").unwrap();
+        assert!(child.wait().unwrap().success());
+        assert_eq!(rejected.unwrap_err().code, ErrorCode::ConfigConflict);
+        // Reservation creation may have succeeded in the acquire case.
+        for lease in pool.protected_leases().unwrap() {
+            pool.release_lease(lease.lease_id).unwrap();
+        }
+        let (mut command, listener) =
+            checkpoint_command_after_removing_socket(&repo, "pool-deleting", &["destroy"]);
+        let mut child = support::TestChild::spawn(&mut command);
+        let mut stream = child
+            .checkpoint(&listener, "pool-deleting", support::PROCESS_TIMEOUT)
+            .unwrap();
+        let acquire = pool.acquire(Default::default());
+        let configure = pool.configure(PoolUpdate {
+            capacity: Some(3),
             ..Default::default()
-        },
-    );
-    stream.write_all(b"g").unwrap();
-    assert!(child.wait().unwrap().success());
-    assert_eq!(rejected.unwrap_err().code, ErrorCode::ConfigConflict);
-    // Reservation creation may have succeeded in the acquire case.
-    for lease in pool.protected_leases().unwrap() {
-        pool.release_lease(lease.lease_id).unwrap();
+        });
+        stream.write_all(b"g").unwrap();
+        assert!(child.wait().unwrap().success());
+        assert_eq!(acquire.unwrap_err().code, ErrorCode::ConfigConflict);
+        assert_eq!(configure.unwrap_err().code, ErrorCode::ConfigConflict);
+        assert!(!repo.slot(1).exists());
     }
-    let (mut command, listener) =
-        checkpoint_command_after_removing_socket(&repo, "pool-deleting", &["destroy"]);
-    let mut child = support::TestChild::spawn(&mut command);
-    let mut stream = child
-        .checkpoint(&listener, "pool-deleting", support::PROCESS_TIMEOUT)
-        .unwrap();
-    let acquire = pool.acquire(Default::default());
-    let configure = pool.configure(PoolUpdate {
-        capacity: Some(3),
-        ..Default::default()
-    });
-    stream.write_all(b"g").unwrap();
-    assert!(child.wait().unwrap().success());
-    assert_eq!(acquire.unwrap_err().code, ErrorCode::ConfigConflict);
-    assert_eq!(configure.unwrap_err().code, ErrorCode::ConfigConflict);
-    assert!(!repo.slot(1).exists());
-}
-
-isolated_crash_cases! {
-    deletion_excludes_acquire: deletion_excludes_operations_at_boundary("before-normalization"),
-    deletion_excludes_configuration: deletion_excludes_operations_at_boundary("before-pool-update"),
-    deletion_excludes_finish_after_unlock: deletion_excludes_operations_at_boundary("finish-released"),
 }
 
 fn checkpoint_command_after_removing_socket(
@@ -650,96 +649,99 @@ fn snapshot_recovery_serializes_new_namespace_claims_until_materialization_finis
         .is_ok());
 }
 
-fn pool_growth_crash_boundary(name: &str, reinitialized: bool) {
-    let r = Repo::new();
-    Pool::init(
-        &r.path,
-        PoolOptions {
-            capacity: if reinitialized { 2 } else { 1 },
-            ..Default::default()
-        },
-    )
-    .unwrap();
-    if reinitialized {
-        let old = Pool::open(&r.path).unwrap();
-        let leases = [
-            old.acquire(Default::default()).unwrap(),
-            old.acquire(Default::default()).unwrap(),
-        ];
-        drop(leases);
-        Pool::destroy(&r.path, Default::default()).unwrap();
+#[test]
+fn pool_growth_crash_boundaries_preserve_reservations_and_lock_inodes() {
+    if !support::in_subprocess("pool_growth_crash_boundaries_preserve_reservations_and_lock_inodes")
+    {
+        return;
+    }
+    for (name, reinitialized) in [
+        "metadata-synced",
+        "metadata-renamed",
+        "pool-slot-added",
+        "before-pool-update",
+        "pool-updated",
+    ]
+    .into_iter()
+    .flat_map(|name| [(name, false), (name, true)])
+    {
+        let r = Repo::new();
         Pool::init(
             &r.path,
             PoolOptions {
-                capacity: 1,
-                worktree_root: Some(r.temp.path().join("replacement-root")),
+                capacity: if reinitialized { 2 } else { 1 },
                 ..Default::default()
             },
         )
         .unwrap();
-    }
-    let pool = Pool::open(&r.path).unwrap();
-    let lease = pool.reserve(Default::default()).unwrap();
-    std::fs::write(
-        lease.worktree_path.join("tracked.txt"),
-        "protected result\n",
-    )
-    .unwrap();
-    let lock = r.state().join("locks/wt-0001.lock");
-    let inode = std::fs::metadata(&lock).unwrap().ino();
-    let (mut command, listener) = checkpoint_command(
-        &r,
-        name,
-        &["config", "set", "--capacity", "3", "--cleanup", "warm"],
-    );
-    kill_at_checkpoint(&mut command, listener, name);
-    let new_locks: Vec<_> = ["wt-0002.lock", "wt-0002.execution.lock"]
-        .into_iter()
-        .map(|name| {
-            let path = r.state().join("locks").join(name);
-            let inode = std::fs::metadata(&path).unwrap().ino();
-            (path, inode)
+        if reinitialized {
+            let old = Pool::open(&r.path).unwrap();
+            let leases = [
+                old.acquire(Default::default()).unwrap(),
+                old.acquire(Default::default()).unwrap(),
+            ];
+            drop(leases);
+            Pool::destroy(&r.path, Default::default()).unwrap();
+            Pool::init(
+                &r.path,
+                PoolOptions {
+                    capacity: 1,
+                    worktree_root: Some(r.temp.path().join("replacement-root")),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        }
+        let pool = Pool::open(&r.path).unwrap();
+        let lease = pool.reserve(Default::default()).unwrap();
+        std::fs::write(
+            lease.worktree_path.join("tracked.txt"),
+            "protected result\n",
+        )
+        .unwrap();
+        let lock = r.state().join("locks/wt-0001.lock");
+        let inode = std::fs::metadata(&lock).unwrap().ino();
+        let (mut command, listener) = checkpoint_command(
+            &r,
+            name,
+            &["config", "set", "--capacity", "3", "--cleanup", "warm"],
+        );
+        kill_at_checkpoint(&mut command, listener, name);
+        let new_locks: Vec<_> = ["wt-0002.lock", "wt-0002.execution.lock"]
+            .into_iter()
+            .map(|name| {
+                let path = r.state().join("locks").join(name);
+                let inode = std::fs::metadata(&path).unwrap().ino();
+                (path, inode)
+            })
+            .collect();
+        assert_eq!(
+            pool.settings().unwrap().capacity,
+            if name == "pool-updated" { 3 } else { 1 }
+        );
+        pool.configure(groove_core::PoolUpdate {
+            capacity: Some(3),
+            cleanup_policy: Some(groove_core::CleanupPolicy::Warm),
+            ..Default::default()
         })
-        .collect();
-    assert_eq!(
-        pool.settings().unwrap().capacity,
-        if name == "pool-updated" { 3 } else { 1 }
-    );
-    pool.configure(groove_core::PoolUpdate {
-        capacity: Some(3),
-        cleanup_policy: Some(groove_core::CleanupPolicy::Warm),
-        ..Default::default()
-    })
-    .unwrap();
-    assert_eq!(pool.protected_leases().unwrap()[0].lease_id, lease.lease_id);
-    assert_eq!(
-        std::fs::read(lease.worktree_path.join("tracked.txt")).unwrap(),
-        b"protected result\n"
-    );
-    assert_eq!(std::fs::metadata(&lock).unwrap().ino(), inode);
-    for (path, inode) in new_locks {
-        assert_eq!(std::fs::metadata(path).unwrap().ino(), inode);
+        .unwrap();
+        assert_eq!(pool.protected_leases().unwrap()[0].lease_id, lease.lease_id);
+        assert_eq!(
+            std::fs::read(lease.worktree_path.join("tracked.txt")).unwrap(),
+            b"protected result\n"
+        );
+        assert_eq!(std::fs::metadata(&lock).unwrap().ino(), inode);
+        for (path, inode) in new_locks {
+            assert_eq!(std::fs::metadata(path).unwrap().ino(), inode);
+        }
+        let one = pool.acquire(Default::default()).unwrap();
+        let two = pool.acquire(Default::default()).unwrap();
+        assert_ne!(one.info().slot_id, two.info().slot_id);
+        assert_eq!(
+            pool.acquire(Default::default()).err().unwrap().code,
+            groove_core::ErrorCode::PoolExhausted
+        );
     }
-    let one = pool.acquire(Default::default()).unwrap();
-    let two = pool.acquire(Default::default()).unwrap();
-    assert_ne!(one.info().slot_id, two.info().slot_id);
-    assert_eq!(
-        pool.acquire(Default::default()).err().unwrap().code,
-        groove_core::ErrorCode::PoolExhausted
-    );
-}
-
-isolated_crash_cases! {
-    growth_metadata_synced: pool_growth_crash_boundary("metadata-synced", false),
-    growth_metadata_renamed: pool_growth_crash_boundary("metadata-renamed", false),
-    growth_slot_added: pool_growth_crash_boundary("pool-slot-added", false),
-    growth_before_update: pool_growth_crash_boundary("before-pool-update", false),
-    growth_updated: pool_growth_crash_boundary("pool-updated", false),
-    reinitialized_growth_metadata_synced: pool_growth_crash_boundary("metadata-synced", true),
-    reinitialized_growth_metadata_renamed: pool_growth_crash_boundary("metadata-renamed", true),
-    reinitialized_growth_slot_added: pool_growth_crash_boundary("pool-slot-added", true),
-    reinitialized_growth_before_update: pool_growth_crash_boundary("before-pool-update", true),
-    reinitialized_growth_updated: pool_growth_crash_boundary("pool-updated", true),
 }
 
 #[test]
@@ -985,54 +987,50 @@ fn durable_request_retry_recovers_protection_published_before_its_journal() {
     }
 }
 
-fn finish_crash_preserves_checkpoint_and_successor(checkpoint: &str) {
-    let r = Repo::new();
-    let cli = |args: &[&str]| support::groove_in(&r.path).args(args).output().unwrap();
-    support::assert_success(&cli(&["init", "--capacity", "1"]));
-    let lease = support::assert_success(&cli(&["acquire"]))["result"].clone();
-    let id = lease["lease_id"].as_str().unwrap();
-    std::fs::write(r.slot(1).join("tracked.txt"), "checkpoint results").unwrap();
-    let (mut command, listener) =
-        checkpoint_command(&r, checkpoint, &["release", "--save", "--lease-id", id]);
-    kill_at_checkpoint(&mut command, listener, checkpoint);
-    let receipt: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(r.state().join(format!("slots/finish-{id}.json"))).unwrap(),
-    )
-    .unwrap();
-    let successor = if checkpoint == "finish-released" {
-        Some(support::assert_success(&cli(&["acquire"]))["result"].clone())
-    } else {
-        assert!(!cli(&["acquire"]).status.success());
-        None
-    };
-    let retry = support::assert_success(&cli(&["release", "--save", "--lease-id", id]));
-    assert_eq!(retry["result"]["snapshot"]["id"], receipt["snapshot"]["id"]);
-    let recovered = r.temp.path().join("recovered");
-    support::assert_success(&cli(&[
-        "snapshot",
-        "restore",
-        receipt["snapshot"]["id"].as_str().unwrap(),
-        "--to",
-        recovered.to_str().unwrap(),
-    ]));
-    assert_eq!(
-        std::fs::read_to_string(recovered.join("tracked.txt")).unwrap(),
-        "checkpoint results"
-    );
-    if let Some(successor) = successor {
-        assert!(!cli(&["acquire"]).status.success());
-        support::assert_success(&cli(&[
-            "release",
-            "--lease-id",
-            successor["lease_id"].as_str().unwrap(),
-        ]));
-    }
-}
-
 #[test]
 fn finish_crash_retries_preserve_checkpoint_and_never_release_a_successor() {
     for checkpoint in ["finish-snapshot-saved", "finish-released"] {
-        finish_crash_preserves_checkpoint_and_successor(checkpoint);
+        let r = Repo::new();
+        let cli = |args: &[&str]| support::groove_in(&r.path).args(args).output().unwrap();
+        support::assert_success(&cli(&["init", "--capacity", "1"]));
+        let lease = support::assert_success(&cli(&["acquire"]))["result"].clone();
+        let id = lease["lease_id"].as_str().unwrap();
+        std::fs::write(r.slot(1).join("tracked.txt"), "checkpoint results").unwrap();
+        let (mut command, listener) =
+            checkpoint_command(&r, checkpoint, &["release", "--save", "--lease-id", id]);
+        kill_at_checkpoint(&mut command, listener, checkpoint);
+        let receipt: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(r.state().join(format!("slots/finish-{id}.json"))).unwrap(),
+        )
+        .unwrap();
+        let successor = if checkpoint == "finish-released" {
+            Some(support::assert_success(&cli(&["acquire"]))["result"].clone())
+        } else {
+            assert!(!cli(&["acquire"]).status.success());
+            None
+        };
+        let retry = support::assert_success(&cli(&["release", "--save", "--lease-id", id]));
+        assert_eq!(retry["result"]["snapshot"]["id"], receipt["snapshot"]["id"]);
+        let recovered = r.temp.path().join("recovered");
+        support::assert_success(&cli(&[
+            "snapshot",
+            "restore",
+            receipt["snapshot"]["id"].as_str().unwrap(),
+            "--to",
+            recovered.to_str().unwrap(),
+        ]));
+        assert_eq!(
+            std::fs::read_to_string(recovered.join("tracked.txt")).unwrap(),
+            "checkpoint results"
+        );
+        if let Some(successor) = successor {
+            assert!(!cli(&["acquire"]).status.success());
+            support::assert_success(&cli(&[
+                "release",
+                "--lease-id",
+                successor["lease_id"].as_str().unwrap(),
+            ]));
+        }
     }
 }
 
@@ -1225,11 +1223,8 @@ fn recovery_reconstructs_missing_history_without_guessing_origin_or_exit() {
     );
 }
 
-fn finish_with_parent_git_filters(test: &str, checkpoint: &str) {
-    if std::env::var("GROOVE_FILTER_TEST").as_deref() == Ok(test) {
-        finish_crash_preserves_checkpoint_and_successor(checkpoint);
-        return;
-    }
+#[test]
+fn checkpoint_finish_ignores_parent_git_filters() {
     let fixture = tempfile::tempdir().unwrap();
     let config = fixture.path().join("global.gitconfig");
     std::fs::write(&config, "[filter \"fixture\"]\nclean = cat\nsmudge = cat\n").unwrap();
@@ -1238,8 +1233,11 @@ fn finish_with_parent_git_filters(test: &str, checkpoint: &str) {
     // preserved snapshots and generation-safe retry through actual CLI crashes.
     let output = support::TestChild::spawn(
         Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", test, "--nocapture"])
-            .env("GROOVE_FILTER_TEST", test)
+            .args([
+                "--exact",
+                "finish_crash_retries_preserve_checkpoint_and_never_release_a_successor",
+                "--nocapture",
+            ])
             .env("GIT_CONFIG_GLOBAL", config)
             .env("GIT_CONFIG_NOSYSTEM", "1"),
     )
@@ -1252,22 +1250,6 @@ fn finish_with_parent_git_filters(test: &str, checkpoint: &str) {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
-}
-
-#[test]
-fn checkpoint_finish_saved_ignores_parent_git_filters() {
-    finish_with_parent_git_filters(
-        "checkpoint_finish_saved_ignores_parent_git_filters",
-        "finish-snapshot-saved",
-    );
-}
-
-#[test]
-fn checkpoint_finish_released_ignores_parent_git_filters() {
-    finish_with_parent_git_filters(
-        "checkpoint_finish_released_ignores_parent_git_filters",
-        "finish-released",
-    );
 }
 
 #[test]
