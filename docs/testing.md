@@ -45,6 +45,10 @@ change as a contract change, including defaults and experimental graduation.
 Validate sparse input against its published schema as well as exercising the
 actual loader. Exact document comparisons protect comment-preserving edits;
 roundtrips and current-schema validity alone cannot prove upgrade compatibility.
+For feature-specific runtime coverage and retaining old opt-in fixtures through
+graduation, follow the [experimental-feature
+procedure](configuration.md#test-before-releasing-the-experiment) and
+[stabilization cleanup](configuration.md#stabilization-and-cleanup).
 
 ## Libraries and tools
 

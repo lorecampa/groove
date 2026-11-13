@@ -30,6 +30,9 @@ under `crates/groove-cli/src/commands/` and long help in `crates/groove-cli/help
 Keep unsafe syscall boundaries small and document each safety
 argument. Changes to ownership/recovery need real-process regression tests.
 Protocol changes must update CLI help, schemas and conformance tests together.
+For experimental features, follow the [implementation and testing
+procedure](docs/configuration.md#implementing-an-experimental-feature) and
+[stabilization cleanup](docs/configuration.md#stabilization-and-cleanup).
 Do not introduce implicit task execution, a system-wide daemon, or automatic
 result publishing into v1. All tests must use disposable repositories.
 
