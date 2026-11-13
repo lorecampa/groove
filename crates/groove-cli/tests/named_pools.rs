@@ -326,7 +326,10 @@ fn an_explicit_default_preserves_existing_layout_and_human_output_names_named_po
         .output()
         .unwrap();
     assert!(empty.status.success());
-    assert_eq!(String::from_utf8_lossy(&empty.stdout), "No pools found.\n");
+    assert_eq!(
+        String::from_utf8_lossy(&empty.stdout),
+        "No pools on this page.\nTotal: 0 entries; offset: 0.\n"
+    );
     assert_success(&cli(
         &repo,
         &["--pool", "frontend", "init", "--capacity", "1"],

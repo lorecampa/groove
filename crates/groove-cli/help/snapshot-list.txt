@@ -1,0 +1,12 @@
+EXAMPLES:
+  groove snapshot list --sort created --order asc --limit 20
+  groove snapshot list --sort id --offset 20 --limit 20
+  groove snapshot list --unlimited
+
+Returns at most 50 entries by default. Sorting precedes pagination; timestamp ties
+use snapshot IDs. --sort created (default) orders by creation time, then ID;
+--sort id orders by ID. --order asc|desc applies to both keys and tie-breakers;
+the default is desc for created (newest first), asc for id.
+JSON includes pagination.total, offset, limit (null with
+--unlimited) and next_offset (null at the end). Metadata is still enumerated and
+sorted. Concurrent additions/deletions can shift offset pages.

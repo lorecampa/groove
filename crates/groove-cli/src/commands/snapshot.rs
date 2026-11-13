@@ -2,7 +2,7 @@
 
 use super::Context;
 use crate::{
-    args::SnapshotCommand,
+    args::{SnapshotCommand, SortOrder, TimeSort},
     output::{table, Output},
 };
 use groove_core::{
@@ -53,8 +53,16 @@ pub fn run(context: &Context<'_>, command: &SnapshotCommand) -> Result<Output> {
             session: session.clone(),
             max_file_bytes: *max_file_bytes,
         })?),
-        SnapshotCommand::List { page } => {
-            let snapshots = page.apply(service.list()?);
+        SnapshotCommand::List { page, sort } => {
+            let mut snapshots = service.list()?;
+            let default_order = match sort {
+                TimeSort::Created => SortOrder::Desc,
+                TimeSort::Id => {
+                    snapshots.sort_by(|a, b| a.id.cmp(&b.id));
+                    SortOrder::Asc
+                }
+            };
+            let (snapshots, pagination) = page.apply_ordered(snapshots, default_order);
             let rows: Vec<Vec<String>> = snapshots
                 .iter()
                 .map(|s| {
@@ -67,11 +75,11 @@ pub fn run(context: &Context<'_>, command: &SnapshotCommand) -> Result<Output> {
                 })
                 .collect();
             let text = if rows.is_empty() {
-                "No snapshots.".into()
+                "No snapshots on this page.".into()
             } else {
                 table(&["ID", "CREATED", "PINNED", "DESCRIPTION"], &rows)
             };
-            Output::text(json!({ "snapshots": snapshots }), text)
+            Output::text(json!({ "snapshots": snapshots }), text)?.paginated(pagination)
         }
         SnapshotCommand::Show { id } => snapshot_output(service.show(id)?),
         SnapshotCommand::Diff { id, other } => {
