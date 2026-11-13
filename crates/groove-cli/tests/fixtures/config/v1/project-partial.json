@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "workspace": { "port_base": null, "environment": {} },
+  "setup": { "dev": { "cache": null, "steps": [
+    { "name": "prepare", "command": ["touch", "MUST_NOT_RUN"], "timeout_ms": 600000, "when": "always" }
+  ] } },
+  "recipes": { "test": { "command": ["touch", "MUST_NOT_RUN"], "timeout_ms": 600000, "requires_setup": null } },
+  "caches": {},
+  "agents": {}
+}

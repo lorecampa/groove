@@ -37,6 +37,15 @@ A test should survive a refactor that preserves that guarantee.
   assertions or snapshots solely to increase a coverage percentage. Prefer a focused
   regression for each discovered bug and retain it after the broader property test.
 
+Configuration compatibility uses checked-in historical TOML inputs and independent
+effective JSON expectations under the CLI's `tests/fixtures/config/` directory.
+Keep historical inputs unchanged when the format evolves; add cases rather than
+regenerating old files with the current serializer. Review any expected-value
+change as a contract change, including defaults and experimental graduation.
+Validate sparse input against its published schema as well as exercising the
+actual loader. Exact document comparisons protect comment-preserving edits;
+roundtrips and current-schema validity alone cannot prove upgrade compatibility.
+
 ## Libraries and tools
 
 | Need | Preferred approach |

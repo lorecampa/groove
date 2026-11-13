@@ -1,0 +1,12 @@
+{
+  "logging": {
+    "enabled": true,
+    "level": "debug",
+    "directory": null,
+    "max_file_mib": 5,
+    "max_total_mib": 100,
+    "max_files": 100,
+    "max_age_days": 7
+  },
+  "worktrees": { "root": null }
+}

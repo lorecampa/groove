@@ -1,0 +1,7 @@
+# Keep this document's comments and explicit values.
+[logging] # diagnostics
+enabled = false
+max_files = 23 # retention
+
+[worktrees]
+root = "/configured/worktrees"

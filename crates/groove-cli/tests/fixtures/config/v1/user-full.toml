@@ -1,0 +1,11 @@
+[logging]
+enabled = false
+level = "warn"
+directory = "/configured/logs"
+max_file_mib = 9
+max_total_mib = 18
+max_files = 7
+max_age_days = 30
+
+[worktrees]
+root = "/configured/worktrees"
