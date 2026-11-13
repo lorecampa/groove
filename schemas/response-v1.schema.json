@@ -12,6 +12,7 @@
       "properties": {
         "pools": {
           "type": "array",
+          "description": "Repository pools, excluding deleted pools unless pools --all is requested. Interrupted pools remain visible.",
           "items": {
             "type": "object",
             "required": [

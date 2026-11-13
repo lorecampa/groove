@@ -1,5 +1,6 @@
 EXAMPLES:
   groove pools
+  groove pools --all
   groove --pool frontend init --capacity 3 --cleanup warm
   groove --pool backend init --capacity 2 --cleanup pristine
   groove --pool frontend acquire --task fix-navigation
@@ -8,8 +9,9 @@ EXAMPLES:
 Omitting --pool selects default; it never selects a different available pool.
 Names are 1..64 lowercase ASCII letters, digits, '_' or '-', starting with a
 letter. Pool names are portable across case-sensitive and case-insensitive disks.
-All linked worktrees share this catalog. Interrupted and deleted pools remain
-listed so their recovery state and retained history can be found.
+All linked worktrees share this catalog. Deleted pools are hidden by default in
+both text and JSON output; use --all to include them and find retained history.
+Interrupted pools (initializing or deleting) remain visible for recovery.
 
 Capacity, cleanup, checkout roots, task labels, request keys, caches, history and
 saved-release receipts are scoped to each pool. Keys stay tombstoned across reinit of

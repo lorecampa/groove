@@ -54,7 +54,7 @@ fn select_id(pool: &Pool, selector: &LeaseSelector) -> Result<groove_core::Lease
 /// Run one parsed command.
 pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
     match command {
-        Command::Pools => pool::pools(context),
+        Command::Pools { all } => pool::pools(context, *all),
         Command::Destroy {
             dry_run,
             discard_changes,

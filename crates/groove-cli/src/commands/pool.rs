@@ -9,8 +9,9 @@ use groove_core::{LeaseInfo, Pool, PoolInspection, PoolOptions, Result, SlotId, 
 use serde_json::json;
 use std::path::PathBuf;
 
-pub fn pools(context: &Context<'_>) -> Result<Output> {
-    let pools = Pool::list_pools(context.repo, context.git_timeout)?;
+pub fn pools(context: &Context<'_>, all: bool) -> Result<Output> {
+    let mut pools = Pool::list_pools(context.repo, context.git_timeout)?;
+    pools.retain(|pool| all || pool.phase != groove_core::PoolPhase::Deleted);
     let rows: Vec<Vec<String>> = pools
         .iter()
         .map(|p| {
@@ -31,7 +32,7 @@ pub fn pools(context: &Context<'_>) -> Result<Output> {
         })
         .collect();
     let text = if rows.is_empty() {
-        "No pools initialized.\n".into()
+        "No pools found.\n".into()
     } else {
         table(&["POOL", "STATE", "CAPACITY", "CHECKOUT ROOT"], &rows)
     };
