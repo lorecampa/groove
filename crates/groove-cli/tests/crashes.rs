@@ -1036,6 +1036,11 @@ fn finish_crash_retries_preserve_checkpoint_and_never_release_a_successor() {
 
 #[test]
 fn history_recovery_keeps_unknown_and_known_outcomes_distinct() {
+    // Unrelated fixture forks can inherit the execution guard used by recovery
+    // until exec, so dropping it need not make immediate cleanup possible.
+    if !support::in_subprocess("history_recovery_keeps_unknown_and_known_outcomes_distinct") {
+        return;
+    }
     use groove_core::{CleanupStatus, HistoryFilter, RunOutcome};
     use std::time::Duration;
     for (point, expected) in [
@@ -1104,9 +1109,12 @@ fn history_recovery_keeps_unknown_and_known_outcomes_distinct() {
                 None
             }
         );
+        let cleanup = pool.clean_logs(Duration::ZERO, false).unwrap();
         assert_eq!(
-            pool.clean_logs(Duration::ZERO, false).unwrap().entries[0].status,
-            CleanupStatus::Removed
+            cleanup.entries[0].status,
+            CleanupStatus::Removed,
+            "{:?}",
+            cleanup.entries[0]
         );
         assert_eq!(
             pool.lease_info(lease.lease_id).unwrap().lease_id,
