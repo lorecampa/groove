@@ -15,6 +15,7 @@ use std::{path::Path, time::Duration};
 
 /// Inputs shared by every handler.
 pub struct Context<'a> {
+    pub command_name: &'static str,
     pub repo: &'a Path,
     pub selected_pool: Option<&'a groove_core::PoolName>,
     pub git_timeout: Duration,
@@ -112,7 +113,7 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
             details,
             disk_usage,
         } => pool::show(context, selector, *details, *disk_usage, page, *sort),
-        Command::Completions { shell } => completions::run(*shell),
+        Command::Completions { shell } => completions::run(*shell, context.command_name),
         Command::Snapshot(command) => snapshot::run(context, command),
         Command::Config(command) => config::run(context, command),
     }

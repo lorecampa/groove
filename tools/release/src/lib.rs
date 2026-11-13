@@ -19,7 +19,7 @@ use process::{require, Runner};
 pub use process::{Error, Result};
 
 pub(crate) const PACKAGES: [&str; 2] = ["groove-core", "groove-cli"];
-pub(crate) const BINARIES: [&str; 1] = ["groove"];
+pub(crate) const BINARIES: [&str; 2] = ["groove", "grv"];
 
 /// A repository and isolated command environment for release operations.
 pub struct Release {
@@ -105,7 +105,14 @@ impl Release {
     }
 
     pub(crate) fn smoke(&self, binaries: &Path, version: &str) -> Result<()> {
-        let binaries = binaries.canonicalize()?;
+        for name in BINARIES {
+            self.smoke_binary(&binaries.join(name), version)?;
+        }
+        Ok(())
+    }
+
+    fn smoke_binary(&self, binary: &Path, version: &str) -> Result<()> {
+        let binary = binary.canonicalize()?;
         let scratch = tempfile::Builder::new()
             .prefix("groove-release-smoke-")
             .tempdir()?;
@@ -113,7 +120,7 @@ impl Release {
         runner.isolate(scratch.path())?;
         let groove = |arguments: Vec<std::ffi::OsString>| -> Result<Value> {
             let arguments = [vec!["--json".into()], arguments].concat();
-            let bytes = runner.run(scratch.path(), binaries.join("groove"), arguments)?;
+            let bytes = runner.run(scratch.path(), &binary, arguments)?;
             let value: Value = serde_json::from_slice(&bytes)?;
             require(value["ok"] == true, "Release CLI smoke command failed")?;
             Ok(value["result"].clone())

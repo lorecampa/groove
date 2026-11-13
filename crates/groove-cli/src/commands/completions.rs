@@ -3,12 +3,12 @@
 use crate::output::Output;
 use groove_core::{Error, ErrorCode, Result};
 
-pub fn run(shell: clap_complete::Shell) -> Result<Output> {
+pub fn run(shell: clap_complete::Shell, command_name: &'static str) -> Result<Output> {
     let mut script = Vec::new();
     clap_complete::generate(
         shell,
         &mut crate::contract::command(),
-        "groove",
+        command_name,
         &mut script,
     );
     let text = String::from_utf8(script).map_err(|error| {

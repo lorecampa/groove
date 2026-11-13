@@ -13,7 +13,12 @@ cargo install --locked groove-cli
 ```
 
 This installs the latest published release. Only select a specific version if
-the user requests one. The package is `groove-cli`; the command is `groove`.
+the user requests one. The package is `groove-cli`; it installs both `groove` and
+`grv`. Both names run the same CLI and work in terminals, scripts and agent commands.
+If `grv` is already owned by another installed tool, keep that tool and install
+only the canonical name with `cargo install --locked groove-cli --bin groove`.
+Oh My Zsh's Git plugin defines a `grv` alias for `git remote --verbose`; use
+`command grv` to bypass that alias without changing your shell configuration.
 If it isn't on PATH, locate Cargo's installation directory and make it available
 to your terminal.
 

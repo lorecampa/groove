@@ -317,13 +317,18 @@ fn repeated_package_checks_compile_the_current_archive_at_the_same_version() {
     fs::write(
         &manifest,
         format!(
-            "{}\n[[bin]]\nname = \"groove\"\npath = \"src/main.rs\"\n",
+            "{}\n[[bin]]\nname = \"groove\"\npath = \"src/main.rs\"\n\n[[bin]]\nname = \"grv\"\npath = \"src/grv.rs\"\n",
             fs::read_to_string(&manifest).unwrap()
         ),
     )
     .unwrap();
     let core = f.path("crates/groove-core/src/lib.rs");
     let cli = f.path("crates/groove-cli/src/main.rs");
+    fs::write(
+        f.path("crates/groove-cli/src/grv.rs"),
+        "include!(\"main.rs\");\n",
+    )
+    .unwrap();
     fs::write(&core, "pub fn old_api() {}\n").unwrap();
     let source = r#"fn main() {
     groove_core::old_api();
@@ -365,6 +370,7 @@ fn repeated_package_checks_compile_the_current_archive_at_the_same_version() {
             String::from_utf8_lossy(&out.stderr)
         );
         assert!(f.path("target/package-check/debug/groove").is_file());
+        assert!(f.path("target/package-check/debug/grv").is_file());
     }
 }
 
@@ -409,9 +415,11 @@ fn target_bundles_keep_independent_metadata_and_valid_checksums() {
         result(serde_json::json!({"leases":[]})),
         result(serde_json::json!({})),
     );
-    let binary = f.path("bin/groove");
-    fs::write(&binary, script).unwrap();
-    fs::set_permissions(&binary, fs::Permissions::from_mode(0o755)).unwrap();
+    for name in ["groove", "grv"] {
+        let binary = f.path(&format!("bin/{name}"));
+        fs::write(&binary, &script).unwrap();
+        fs::set_permissions(&binary, fs::Permissions::from_mode(0o755)).unwrap();
+    }
     let output = f.path("dist");
     let checksum = |bytes: Vec<u8>| -> String {
         Sha256::digest(bytes)
@@ -449,6 +457,14 @@ fn target_bundles_keep_independent_metadata_and_valid_checksums() {
         ));
         let extracted = f.path(&format!("extracted-{target}"));
         bundled.unpack(&extracted).unwrap();
+        for name in ["groove", "grv"] {
+            let binary = extracted.join(&prefix).join(name);
+            assert_eq!(fs::read(&binary).unwrap(), script.as_bytes());
+            assert_ne!(
+                fs::metadata(binary).unwrap().permissions().mode() & 0o111,
+                0
+            );
+        }
         assert_eq!(
             fs::read(
                 extracted

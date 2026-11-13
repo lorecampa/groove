@@ -3,6 +3,7 @@ EXAMPLES:
   source groove.bash
   groove completions zsh > _groove
   groove completions fish > groove.fish
+  grv completions zsh > _grv
 
 Prints a script; does not install it or change shell startup files. Redirecting
 stdout overwrites the destination file. Output is shell code by default. Do not
@@ -46,3 +47,8 @@ loaded using their shell's normal mechanism.
 
 Completes commands, options and fixed choices, not live task names or lease IDs.
 No repository or valid user configuration is required. Regenerate after upgrading.
+
+For the short command name, run grv completions instead. It generates registrations
+for grv. Follow the same setup above, replacing groove with grv in filenames,
+startup-file source lines and verification commands (for example, _grv for Zsh
+or grv.fish for Fish). Install both scripts if you use both command names.

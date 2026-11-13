@@ -1,3 +1,5 @@
+The CLI is installed as both groove and grv; either name accepts the same commands.
+
 WORKFLOW:
   groove init --capacity 4
   groove acquire --task fix-parser            # prints the path; work there

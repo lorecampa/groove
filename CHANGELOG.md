@@ -15,6 +15,8 @@
 
 ### Added
 
+- Install `grv` alongside `groove` as a shorter equivalent command, including in
+  release archives. `grv completions` generates shell completions for the short name.
 - An offline build benchmark compares pristine workspaces, external compiler
   caching and warm reuse across source/flag changes and cache loss, checking
   executed outputs and reporting total task time. Cleanup help explains external

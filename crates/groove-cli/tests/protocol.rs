@@ -26,6 +26,95 @@ fn check(output: &std::process::Output) -> Value {
 }
 
 #[test]
+fn short_command_name_shares_reservations_and_json_contract() {
+    let repo = Repo::new();
+    let run = |binary: &str, args: &[&str]| {
+        let mut command = support::command(&repo.path, binary);
+        command
+            .env("HOME", repo.temp.path())
+            .env("XDG_CONFIG_HOME", repo.temp.path().join("config-home"))
+            .env("GROOVE_LOG_ENABLED", "false")
+            .arg("--json")
+            .args(args);
+        support::TestChild::spawn(&mut command)
+            .wait_with_output()
+            .unwrap()
+    };
+    let groove = env!("CARGO_BIN_EXE_groove");
+    let grv = env!("CARGO_BIN_EXE_grv");
+    for args in [["--version"], ["--unknown-option"]] {
+        let canonical = run(groove, &args);
+        let short = run(grv, &args);
+        assert_eq!(short.status.code(), canonical.status.code());
+        let short_response = check(&short);
+        let canonical_response = check(&canonical);
+        if args == ["--version"] {
+            assert_success(&short);
+            assert!(short.stderr.is_empty());
+            assert_eq!(short_response, canonical_response);
+        } else {
+            assert_eq!(short.status.code(), Some(2));
+            assert_eq!(short_response["error"]["code"], "INVALID_ARGUMENT");
+        }
+    }
+    let help = run(grv, &["--help"]);
+    assert_success(&help);
+    assert!(check(&help)["result"]["text"]
+        .as_str()
+        .unwrap()
+        .contains("Usage: grv"));
+    assert_success(&run(grv, &["init", "--capacity", "1"]));
+    let acquired = run(groove, &["acquire", "--task", "short-name"]);
+    assert_success(&acquired);
+    let lease = check(&acquired)["result"].clone();
+    let shown = run(grv, &["show", "--task", "short-name"]);
+    assert_success(&shown);
+    assert_eq!(
+        check(&shown)["result"]["lease"]["lease_id"],
+        lease["lease_id"]
+    );
+    assert_success(&run(grv, &["release", "--task", "short-name"]));
+    let listed = run(groove, &["list"]);
+    assert_success(&listed);
+    assert_eq!(check(&listed)["result"]["leases"], serde_json::json!([]));
+}
+
+#[test]
+fn short_command_completions_register_the_short_name() {
+    let temp = tempfile::tempdir().unwrap();
+    for shell in ["bash", "zsh", "fish", "powershell", "elvish"] {
+        let mut command = support::command(temp.path(), env!("CARGO_BIN_EXE_grv"));
+        command.args(["--json", "completions", shell]);
+        let output = support::TestChild::spawn(&mut command)
+            .wait_with_output()
+            .unwrap();
+        assert_success(&output);
+        assert!(output.stderr.is_empty());
+        let response = check(&output);
+        let script = response["result"]["text"].as_str().unwrap();
+        assert!(script.contains("grv"), "{shell}");
+        assert!(script.contains("acquire"), "{shell}");
+        if shell == "bash" {
+            let path = temp.path().join("grv.bash");
+            std::fs::write(&path, script).unwrap();
+            let mut bash = support::command(temp.path(), "bash");
+            bash.args([
+                "--noprofile", "--norc", "-c",
+                "source \"$1\"; complete -p grv; COMP_WORDS=(grv sh); COMP_CWORD=1; _grv grv sh grv; printf '%s\\n' \"${COMPREPLY[@]}\"",
+                "completion-test",
+            ]).arg(path);
+            let output = support::TestChild::spawn(&mut bash)
+                .wait_with_output()
+                .unwrap();
+            assert!(output.status.success(), "{output:?}");
+            let text = String::from_utf8(output.stdout).unwrap();
+            assert!(text.contains("-F _grv grv"), "{text}");
+            assert!(text.ends_with("show\n"), "{text}");
+        }
+    }
+}
+
+#[test]
 fn preference_defaults_in_help_can_be_used_as_a_real_configuration() {
     let temp = tempfile::tempdir().unwrap();
     let config_home = temp.path().join("config");

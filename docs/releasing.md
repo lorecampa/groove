@@ -223,7 +223,8 @@ not the native binary archives produced by this workflow.
 ## Local crates.io publication and optional automation
 
 Two packages share the workspace version: `groove-core` (library) and
-`groove-cli` (installs `groove`). Internal tools declare `publish = false`.
+`groove-cli` (installs `groove` and `grv`). Binary archives include both names.
+Internal tools declare `publish = false`.
 Publish core before CLI; users installing CLI resolve core automatically.
 Publishing crate source makes it public even if the GitHub repository is private.
 

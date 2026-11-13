@@ -28,7 +28,7 @@ Building from source requires Rust 1.89+.
 cargo install --locked groove-cli
 ```
 
-The package is `groove-cli`; the installed command is `groove`.
+The package is `groove-cli`; it installs `groove` and the shorter equivalent `grv`.
 Cargo builds the latest published release locally.
 
 ## Use Groove with your coding agent

@@ -7,12 +7,17 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 readme.workspace = true
+default-run = "groove"
 keywords.workspace = true
 categories.workspace = true
 
 [[bin]]
 name = "groove"
 path = "src/main.rs"
+
+[[bin]]
+name = "grv"
+path = "src/bin/grv.rs"
 
 [dependencies]
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
