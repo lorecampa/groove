@@ -156,15 +156,22 @@ Document user-visible changes in [CHANGELOG.md](CHANGELOG.md). Use the
 Be respectful and focus review on code and behavior. Harassment, discrimination,
 and disclosure of private information are not acceptable in project spaces.
 
-## Repository hooks
+## Git hooks
 
-Run `./scripts/install-hooks.sh` once per clone. The installer sets the local
-`core.hooksPath` to the versioned `.githooks` directory and refuses to replace an
-existing custom path. Pre-commit checks staged whitespace and Rust formatting;
-pre-push runs the dependency security gate, formatting, Clippy, the full Rust suite
-(including release, benchmark and hook tests)
-with default scheduling, doctests and rustdoc. Hooks do not edit or stage files.
-Run the same gates directly with `./scripts/check.sh commit` or
+Git hooks are scripts Git runs before operations such as committing or pushing.
+Groove's contributor hooks run local checks; a failed check stops the operation.
+They do not edit or stage files, and installing Groove does not enable them.
+
+Run `./scripts/install-hooks.sh` once per clone to enable the hooks. The installer
+sets the local `core.hooksPath` to the checked-in `.githooks` directory and refuses
+to replace an existing custom path.
+
+- `pre-commit` checks staged whitespace and workspace Rust formatting.
+- `pre-push` runs the security gate, formatting, Clippy, the full Rust suite
+  (including release, benchmark and hook tests) with default scheduling,
+  doctests and rustdoc.
+
+Run the same checks directly with `./scripts/check.sh commit` or
 `./scripts/check.sh push`. Benchmarks and large pinned-container regressions are
 local-only opt-ins; see [the snapshot lab](benchmarks/snapshots/README.md).
 

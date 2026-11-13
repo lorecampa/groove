@@ -13,6 +13,9 @@
 
 ### Changed
 
+- Explain contributor Git hooks, name the checks in the security gate, and
+  clarify the license choice. Keep vulnerability reporting separate from
+  maintainer setup instructions.
 - The development benchmark lab adds heterogeneous multi-GiB monorepo profiles
   with packed history, commit switching and full-tree recovery checks. Native
   runs resolve relative scratch paths before invoking fixture subprocesses.

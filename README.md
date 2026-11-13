@@ -107,8 +107,7 @@ retain the lease ID for subsequent retries; see the [portable skill](skills/groo
 
 ## Guides
 
-- [Agent skill](skills/groove/SKILL.md): workspace selection, retries and handoff, with a
-  [portable skill](skills/groove/SKILL.md).
+- [Agent skill](skills/groove/SKILL.md): workspace selection, retries and handoff.
 - [Project setup](docs/project.md): explicit setup steps, caches and named commands
   in `.groove.toml`.
 - [Execution and recovery](docs/execution.md): worker ownership, cancellation and logs.
@@ -116,6 +115,7 @@ retain the lease ID for subsequent retries; see the [portable skill](skills/groo
 - [Snapshots](docs/snapshots.md): capture, recovery and retention.
 - `groove COMMAND --help`: inputs, JSON output contracts and recovery for integrations.
 - [Contributing](CONTRIBUTING.md): development and validation.
+- [Security](SECURITY.md): supported versions and private vulnerability reporting.
 
 <a id="license"></a>
-Licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE).
+Licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option.

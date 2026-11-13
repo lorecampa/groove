@@ -25,15 +25,20 @@ mise exec gitleaks@8.30.1 -- bash scripts/security.sh
 bash scripts/security.sh
 ```
 
-The gate is also required by `bash scripts/check.sh push`. It scans reachable
-Git history with redacted Gitleaks findings, audits both the
-workspace and isolated fuzz lockfiles, checks dependency sources/licenses/bans,
-and checks the recorded workspace review policy. It never installs tools,
-updates dependencies or certifies an audit. Missing tools and failed checks
-fail the gate. Gitleaks is a development binary, not a product/runtime dependency;
-the hosted workflow installs its pinned archive with an embedded SHA-256 check.
-History scanning covers committed reachable refs, not untracked files or
-unreachable/deleted history. The initial Cargo Vet exemptions are described below.
+The gate is also required by `bash scripts/check.sh push`:
+
+| Tool | Check |
+| --- | --- |
+| Gitleaks | Scans reachable Git history for secrets, with findings redacted. |
+| `cargo audit` | Checks the workspace and isolated fuzz lockfiles for known dependency vulnerabilities and other advisories. |
+| `cargo deny` | Checks both dependency graphs against source, license and dependency restrictions. |
+| `cargo vet` | Checks recorded workspace dependency reviews and exact-version exemptions. |
+
+Missing tools and failed checks fail the gate. It does not install tools, update
+dependencies or record new audits. Gitleaks is a development binary; the hosted
+workflow installs its pinned archive with an embedded SHA-256 check. History
+scanning excludes untracked files and unreachable/deleted history. The initial
+Cargo Vet exemptions are described below.
 
 `deny.toml` covers Linux and both macOS targets, including test/build inputs.
 Only crates.io registry sources are allowed. Advisory exceptions require a
