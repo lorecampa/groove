@@ -69,6 +69,12 @@ No developer checkout is used as a benchmark fixture. Arbitrary repositories or
 bundles cannot override a profile from the command line; a new dataset requires
 an explicit, versioned profile definition.
 
+Pool profiles control checkout materialization with automatic spare preparation
+and idle eviction disabled. Capability discovery is untimed; older baseline
+CLIs without these options already used lazy pools. Default background readiness
+has separate process regressions. Successful blocks must finish checked fixture
+cleanup before the runner records success.
+
 `workspace-conversions` separately measures checkout-conversion costs
 with CRLF attributes, including a small repository. Its physical-edit case changes
 CRLF to LF: the edited file still hashes to the committed blob after Git's

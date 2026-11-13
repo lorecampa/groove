@@ -3,8 +3,8 @@
   "fixture_version": 1,
   "profiles": [
     {
-      "id": "workspace-build", "version": 2,
-      "purpose": "Time to verified offline build output over 10k source-shaped paths and 32 real C compilation units: pristine, pristine with an external ccache, and warm residue in balanced case order. Repeat, source/flag changes, return to A and cache loss; measure acquire/build/validation/release and total task time.",
+      "id": "workspace-build", "version": 3,
+      "purpose": "Time to verified offline build output over 10k source-shaped paths and 32 real C compilation units: pristine, pristine with an external ccache, and warm residue in balanced case order. Repeat, source/flag changes, return to A and cache loss; measure acquire/build/validation/release and total task time. Pools disable automatic preparation and idle eviction.",
       "environment": "cli-linux-amd64-v5",
       "sampling": {"blocks": 6, "warmup_blocks": 1, "balanced_cases": true},
       "estimated_minutes": [4, 20],
@@ -15,8 +15,8 @@
       ]
     },
     {
-      "id": "workspace-conversions", "version": 1,
-      "purpose": "Measure checkout-conversion costs with CRLF attributes, including small repositories; restore physical line endings despite unchanged normalized Git blobs.",
+      "id": "workspace-conversions", "version": 2,
+      "purpose": "Measure checkout-conversion costs with CRLF attributes, including small repositories; restore physical line endings despite unchanged normalized Git blobs. Pools disable automatic preparation and idle eviction.",
       "environment": "cli-linux-amd64-v5",
       "sampling": {"blocks": 10, "warmup_blocks": 1},
       "estimated_minutes": [2, 10],
@@ -27,8 +27,8 @@
       ]
     },
     {
-      "id": "monorepo-reuse", "version": 1,
-      "purpose": "Reuse and commit switching over 100k heterogeneous files (2.26 GiB source payload), eight packed history commits and 64 MiB ignored build output. Full-tree correctness under warm and pristine cleanup.",
+      "id": "monorepo-reuse", "version": 2,
+      "purpose": "Reuse and commit switching over 100k heterogeneous files (2.26 GiB source payload), eight packed history commits and 64 MiB ignored build output. Full-tree correctness under warm and pristine cleanup. Pools disable automatic preparation and idle eviction.",
       "environment": "cli-linux-amd64-v5",
       "sampling": {"blocks": 6, "warmup_blocks": 1},
       "estimated_minutes": [30, 120],
@@ -48,8 +48,8 @@
       ]
     },
     {
-      "id": "workspace-multi-pool", "version": 2,
-      "purpose": "First registration and warm acquire/release throughput across named pools sharing Git administration, with independent repeated task labels/keys and catalog verification.",
+      "id": "workspace-multi-pool", "version": 3,
+      "purpose": "First registration and warm acquire/release throughput across named pools sharing Git administration, with independent repeated task labels/keys and catalog verification. Pools disable automatic preparation and idle eviction.",
       "environment": "cli-linux-amd64-v5",
       "sampling": {"blocks": 10, "warmup_blocks": 1},
       "estimated_minutes": [1, 5],
@@ -116,8 +116,8 @@
       ]
     },
     {
-      "id": "workspace-reuse", "version": 1,
-      "purpose": "First acquisition, clean reuse and sanitation of tracked, untracked and ignored residue under both cleanup policies.",
+      "id": "workspace-reuse", "version": 2,
+      "purpose": "First acquisition, clean reuse and sanitation of tracked, untracked and ignored residue under both cleanup policies. Pools disable automatic preparation and idle eviction.",
       "environment": "cli-linux-amd64-v5",
       "sampling": {"blocks": 10, "warmup_blocks": 1},
       "estimated_minutes": [1, 5],
@@ -127,8 +127,8 @@
       ]
     },
     {
-      "id": "workspace-concurrency", "version": 2,
-      "purpose": "Warm acquire/release throughput, per-worker latency and full-pool contention at fixed worker counts.",
+      "id": "workspace-concurrency", "version": 3,
+      "purpose": "Warm acquire/release throughput, per-worker latency and full-pool contention at fixed worker counts. Pools disable automatic preparation and idle eviction.",
       "environment": "cli-linux-amd64-v5",
       "sampling": {"blocks": 10, "warmup_blocks": 1},
       "estimated_minutes": [1, 5],
