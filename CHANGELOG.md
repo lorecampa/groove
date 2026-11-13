@@ -88,6 +88,8 @@
 
 - Workspace-user process fixtures isolate descriptor ownership between
   concurrently scheduled scenarios and retain diagnostics on early child exit.
+- Ready-worker process fixtures likewise isolate unrelated descriptor owners,
+  preserving explicit contention scenarios without cross-fixture fork races.
 - Canonical benchmarks use Docker's init reaper so detached checkout workers
   cannot accumulate zombies and exhaust the process limit. Environment v5
   records and validates this runtime requirement.
