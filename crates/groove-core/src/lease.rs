@@ -82,7 +82,7 @@ impl Lease {
     pub fn into_protected(mut self) -> Result<LeaseInfo> {
         self.info.ownership = crate::Ownership::Durable;
         self.protect_from_reuse()?;
-        Ok(self.info.clone())
+        Ok(self.info)
     }
 
     /// Explicit release invalidates this handle on success and retains it on failure.

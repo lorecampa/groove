@@ -101,7 +101,7 @@ impl Failure {
     fn keep<T>(&mut self, result: Result<T>) -> Option<T> {
         result
             .map_err(|error| {
-                self.0.get_or_insert(error.summary());
+                self.0.get_or_insert_with(|| error.summary());
             })
             .ok()
     }

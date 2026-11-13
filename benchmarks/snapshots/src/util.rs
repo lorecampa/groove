@@ -71,7 +71,13 @@ pub(crate) fn root() -> PathBuf {
         .expect("project root exists")
 }
 pub(crate) fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for &byte in bytes {
+        encoded.push(char::from(DIGITS[usize::from(byte >> 4)]));
+        encoded.push(char::from(DIGITS[usize::from(byte & 0xf)]));
+    }
+    encoded
 }
 pub(crate) fn hash(bytes: &[u8]) -> String {
     hex(&Sha256::digest(bytes))
