@@ -18,6 +18,8 @@ offset, limit (null with --unlimited) and next_offset (null at the end).
 inspection.capacity remains the full capacity. Concurrent changes can shift
 offset pages; metadata and --details Git status still scan all slots. Sorting
 and pagination options are rejected with a selector, which shows one entity.
+--order asc (default) or --order desc applies to the sort key and slot-ID
+tie-breaker before pagination. Descending task order puts unlabelled entries last.
 
 --disk-usage adds workspace, cache, log and history sizes to the pool view;
 it cannot be used with a reservation or slot selector. The scan includes ignored

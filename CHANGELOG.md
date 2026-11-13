@@ -41,9 +41,11 @@
   JSON includes pagination metadata. Pool --all continues to include deleted
   pools independently of pagination. Metadata enumeration and detailed slot
   inspections still scan the complete collection.
-- Collection commands accept --sort before pagination: newest/oldest/id for
+- Collection commands accept --sort before pagination: created/id for
   snapshots, name/state for pools, and slot/task for reservation and slot views.
-  Equal keys use IDs or pool names as tie-breakers.
+  Equal keys use IDs or pool names as tie-breakers. --order asc|desc controls
+  keys and tie-breakers; defaults are descending for creation time and ascending
+  for other sort keys.
 - Global output rules and exit codes live in root help; command help retains
   its result fields. Trim repeated flag explanations from help and guides.
 - Explain contributor Git hooks, name the checks in the security gate, and

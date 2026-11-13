@@ -2,7 +2,7 @@
 
 use super::Context;
 use crate::{
-    args::{SnapshotCommand, TimeSort},
+    args::{SnapshotCommand, SortOrder, TimeSort},
     output::{table, Output},
 };
 use groove_core::{
@@ -55,12 +55,14 @@ pub fn run(context: &Context<'_>, command: &SnapshotCommand) -> Result<Output> {
         })?),
         SnapshotCommand::List { page, sort } => {
             let mut snapshots = service.list()?;
-            match sort {
-                TimeSort::Newest => {}
-                TimeSort::Oldest => snapshots.reverse(),
-                TimeSort::Id => snapshots.sort_by(|a, b| a.id.cmp(&b.id)),
-            }
-            let (snapshots, pagination) = page.apply(snapshots);
+            let default_order = match sort {
+                TimeSort::Created => SortOrder::Desc,
+                TimeSort::Id => {
+                    snapshots.sort_by(|a, b| a.id.cmp(&b.id));
+                    SortOrder::Asc
+                }
+            };
+            let (snapshots, pagination) = page.apply_ordered(snapshots, default_order);
             let rows: Vec<Vec<String>> = snapshots
                 .iter()
                 .map(|s| {

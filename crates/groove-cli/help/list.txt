@@ -16,3 +16,5 @@ Metadata is still enumerated; --details checks Git status for all slots.
 Concurrent changes can shift offset pages; observations never grant ownership.
 --sort task orders labels lexicographically, with unlabelled entries first and
 slot ID breaking ties. --sort slot restores the default order.
+--order asc (default) or --order desc applies to the sort key and slot-ID
+tie-breaker before pagination. Descending task order puts unlabelled entries last.

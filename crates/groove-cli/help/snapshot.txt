@@ -35,7 +35,8 @@ snapshot list returns at most 50 snapshots, newest first, by default.
 Use --limit 20 --offset 20 for another page, or --unlimited for the complete list.
 JSON includes pagination.total, offset, limit (null with --unlimited) and next_offset
 (null at the end). Snapshot IDs break ties for equal creation times.
---sort newest (default) orders creation time and snapshot ID descending;
---sort oldest reverses that order; --sort id orders IDs ascending. Sorting
-precedes pagination. These options are available on snapshot list only.
+--sort created (default) uses creation time, then snapshot ID; --sort id uses
+snapshot ID. --order asc|desc controls the key and its tie-breaker; the default
+is desc for created (newest first), asc for id. Sorting precedes pagination.
+These options are available on snapshot list only.
 Metadata is still enumerated/sorted. Concurrent changes can shift offset pages.
