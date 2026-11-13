@@ -3,6 +3,8 @@
 //! undeliverable responses. Each asserts the exit category, the versioned JSON
 //! error and the preserved reservation state.
 
+#[path = "support/json_progress.rs"]
+mod json_progress;
 mod support;
 use serde_json::Value;
 use std::{fs, path::Path, process::Output};
@@ -260,7 +262,7 @@ fn redirected_human_and_json_patches_apply_with_forced_color_and_custom_prefixes
         .output()
         .unwrap();
     assert!(output.status.success(), "{output:?}");
-    assert!(output.stderr.is_empty(), "{output:?}");
+    json_progress::assert_only(&output, "snapshot");
     let json = checked(&output);
     assert_eq!(json["ok"], true);
     let patch = json["result"]["patch"].as_str().unwrap();

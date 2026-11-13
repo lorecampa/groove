@@ -1,4 +1,6 @@
 //! Historical inputs and independent expectations protect the configuration API.
+#[path = "support/json_progress.rs"]
+mod json_progress;
 mod support;
 
 use serde_json::Value;
@@ -51,7 +53,7 @@ fn run(home: &Path, args: &[&str]) -> Value {
     );
     let response = response(&output);
     assert_eq!(response["ok"], true);
-    assert!(output.stderr.is_empty());
+    json_progress::assert_only(&output, "config");
     response["result"].clone()
 }
 

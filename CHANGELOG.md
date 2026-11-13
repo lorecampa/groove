@@ -86,6 +86,10 @@
 
 ### Fixed
 
+- JSON contract fixtures validate versioned stderr liveness instead of relying
+  on commands finishing before the progress threshold. Unexpected diagnostics,
+  malformed events and mismatched command/request identifiers remain failures.
+
 - Release package smoke tests keep isolated user storage outside the fixture
   checkout and disable background spare preparation before fixture teardown.
 - Release preparation updates the standalone fuzz dependency and lockfile,
