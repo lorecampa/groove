@@ -1,3 +1,5 @@
+#[path = "support/json_progress.rs"]
+mod json_progress;
 mod support;
 use serde_json::Value;
 use support::{assert_success, Repo};
@@ -397,7 +399,7 @@ fn logging_flags_preserve_protocol_and_failures_are_best_effort() {
     let logs = r.path.join("test-logs");
     let output = cli(&r, &["init", "--capacity", "1"]);
     assert_success(&output);
-    assert!(output.stderr.is_empty());
+    json_progress::assert_only(&output, "init");
     let entries: Vec<_> = std::fs::read_dir(&logs)
         .unwrap()
         .flatten()
@@ -696,7 +698,7 @@ fn completions_preserve_output_modes_without_a_repository_or_valid_config() {
         {
             let json = run(true);
             assert_success(&json);
-            assert!(json.stderr.is_empty());
+            json_progress::assert_only(&json, "completions");
             assert_eq!(check(&json)["result"]["text"], script);
         }
         if shell == "bash" {

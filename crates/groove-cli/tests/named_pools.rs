@@ -1,3 +1,5 @@
+#[path = "support/json_progress.rs"]
+mod json_progress;
 mod support;
 use serde_json::Value;
 use support::{assert_success, Repo};
@@ -51,7 +53,7 @@ fn disk_usage_is_opt_in_scoped_and_includes_ignored_files_without_following_syml
     ] {
         let output = cli(&repo, &args);
         assert!(output.status.success());
-        assert!(output.stderr.is_empty(), "{output:?}");
+        json_progress::assert_only(&output, "pools");
         let value = checked(&output);
         let pools = value["result"]["pools"].as_array().unwrap();
         assert_eq!(pools[0]["name"], "default");
@@ -61,7 +63,7 @@ fn disk_usage_is_opt_in_scoped_and_includes_ignored_files_without_following_syml
     }
     let output = cli(&repo, &["show", "--disk-usage", "--details"]);
     assert!(output.status.success());
-    assert!(output.stderr.is_empty(), "{output:?}");
+    json_progress::assert_only(&output, "show");
     let value = checked(&output);
     assert_eq!(value["result"]["storage"]["workspace_bytes"], before + 4096);
     assert_eq!(value["result"]["inspection"]["capacity"], 1);

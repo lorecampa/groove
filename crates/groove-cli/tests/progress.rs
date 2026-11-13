@@ -1,7 +1,40 @@
+#[path = "support/json_progress.rs"]
+mod json_progress;
 mod support;
 
 use serde_json::Value;
 use support::{assert_success, Repo, TestChild};
+
+#[test]
+fn json_contract_guard_accepts_liveness_but_rejects_unrelated_or_malformed_stderr() {
+    use std::{os::unix::process::ExitStatusExt, process::Output};
+    let output = |stderr: Vec<u8>| Output {
+        status: std::process::ExitStatus::from_raw(0),
+        stdout: br#"{"api_version":1,"ok":true,"request_id":"contract","result":{}}"#.to_vec(),
+        stderr,
+    };
+    json_progress::assert_only(&output(Vec::new()), "config");
+    let valid = serde_json::json!({
+        "api_version": 1, "event": "progress", "command": "config",
+        "request_id": "contract", "elapsed_ms": 1500
+    });
+    json_progress::assert_only(&output(serde_json::to_vec(&valid).unwrap()), "config");
+    let mut rejected = vec![b"unexpected warning\n".to_vec(), b"{malformed}\n".to_vec()];
+    for (key, value) in [
+        ("api_version", serde_json::json!(2)),
+        ("command", serde_json::json!("show")),
+        ("request_id", serde_json::json!("another request")),
+        ("elapsed_ms", serde_json::json!(500)),
+    ] {
+        let mut event = valid.clone();
+        event[key] = value;
+        rejected.push(serde_json::to_vec(&event).unwrap());
+    }
+    for stderr in rejected {
+        let out = output(stderr);
+        assert!(std::panic::catch_unwind(|| json_progress::assert_only(&out, "config")).is_err());
+    }
+}
 
 #[test]
 fn long_waits_report_json_liveness_preserve_errors_and_respect_quiet() {
