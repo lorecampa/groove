@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.3.0] - 2026-11-13
+
 ### Removed
 
 - Remove managed task execution: `exec`, `stop`, `recover`, setup profiles,
