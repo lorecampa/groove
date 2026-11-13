@@ -1,4 +1,4 @@
-# Security
+# Security policy
 
 Groove worktrees are for cooperative agents and CI. They share Git objects,
 configuration and refs and are not sandboxes for untrusted code. Supported scope
@@ -17,8 +17,6 @@ If that form is unavailable, [open a contact request](https://github.com/lorecam
 asking only for a private reporting channel. Do not include vulnerability details,
 proofs of concept, secrets or affected private data in that public request.
 
-In the private report, include the Git/Rust/kernel versions, filesystem, affected
-command and a reproduction using a disposable repository. Maintainers should
-prepare the reporting policy while private, then enable and verify private
-vulnerability reporting when the repository becomes public. The presence of this
-policy does not enable the GitHub setting. See [release preparation](docs/releasing.md#public-availability).
+In the private report, include the Groove version, operating system,
+Git/Rust/kernel versions, filesystem, affected command and a reproduction using
+a disposable repository.

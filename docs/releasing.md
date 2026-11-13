@@ -120,6 +120,10 @@ and [security maintenance](security.md) describe the reporting and credential
 boundaries. Checked-in workflows do not enable hosted settings or establish
 successful remote validation. Change visibility only as an explicit maintainer action.
 
+Prepare the reporting policy while the repository is private. When it becomes
+public, enable private vulnerability reporting and verify that the report link
+in `SECURITY.md` works. Publishing the policy does not enable the GitHub setting.
+
 Verify installation, links, downloads and skill discovery from a fresh environment
 with the access level intended for users. Authenticated installation does not
 establish anonymous availability. Keep the exact revision's validation evidence
