@@ -108,183 +108,179 @@ and any startup-file changes. Do not execute commands selected by completion.
 
 ## Choose your agent
 
-First install the skill for the agent you use. Then choose its scope:
+Install the skill once, then tell your harness when to use it:
 
-- **One session:** load the skill once and ask the agent to use Groove for that
-  session. You do not need to repeat the instruction for every task.
-- **Project default:** configure a persistent instruction for that project.
-  Claude Code and Codex can use the optional project plugin and private Git
-  setting below. Other harnesses use their supported instruction mechanism.
+- **One session:** load the skill and ask the agent to use Groove throughout that
+  session. There is no need to repeat the instruction for every task.
+- **Project default:** add an instruction through your harness's existing
+  personal or project configuration. For Omnigent, a private custom agent can
+  carry the workflow and be selected as the project's default agent.
 
-Installing the skill makes it available; it does not require Groove everywhere.
-A custom workflow file is optional. The basic reservation workflow is already
-included in the skill and project plugin.
-If a harness cannot express private project defaults, use its session preload
-option or ask for a supported alternative; do not silently turn a personal
-preference into shared contributor policy.
+Installing the skill makes it available; it does not enable a project policy.
+Groove ships skill plugins only. It does not install lifecycle hooks or read
+`groove.agent.enabled` / `groove.agent.instructionsFile` settings.
 
-| Agent | Skill setup | Project defaults |
+| Agent | Skill setup | Persistent instructions |
 | --- | --- | --- |
-| Claude Code | Native `groove` plugin | Optional `groove-project` hooks and clone-local opt-in |
-| Codex | Native `groove` plugin | Optional `groove-project` hooks, reviewed hook trust and clone-local opt-in |
-| Pi | Git/local Pi package or portable skill | Pi's persistent instructions; no Groove-specific Pi hooks shipped |
-| Hermes | Skills Hub GitHub install or portable skill | Hermes' persistent instructions; no Groove-specific Hermes hooks shipped |
-| OpenCode | Portable skill in its skill discovery directory | OpenCode's supported instruction files/configuration |
+| Claude Code | Native `groove` plugin | Claude instructions, imports or local project instructions |
+| Codex | Native `groove` plugin | Agent instructions or supported Codex configuration |
+| Pi | Git/local Pi package or portable skill | Pi's existing personal/project instructions |
+| Hermes | Skills Hub GitHub install or portable skill | Hermes' project context or session preload |
+| OpenCode | Portable skill in its discovery directory | OpenCode instruction files/configuration |
 | Gemini CLI | Native skill installer | Gemini's `GEMINI.md` context |
-| Other agents | Complete portable skill directory | The harness's supported personal/project instructions |
 
 ## Install the agent plugins
 
-For Claude Code or Codex, install the native plugins using that harness's CLI.
-The `groove` plugin packages the [portable skill](../skills/groove/SKILL.md).
-The optional `groove-project` plugin loads project workflow instructions at
-session and subagent startup. Its hooks require Bash, Git and jq 1.6+ on PATH.
-Skill updates and hook updates are separate so changing the skill does not
-change Codex's hook package fingerprint.
-
-The three commands below register our repository's plugin catalog, install the
-skill, and install the optional project hooks. Skip the last command if you only
-want the skill. Register the catalog once per harness; it can serve both packages.
+For Claude Code or Codex, register this repository's plugin catalog once, then
+install the `groove` skill plugin. These are two separate native operations;
+no public directory listing is needed.
 
 ### Claude Code
 
 ```sh
 claude plugin marketplace add lorecampa/groove
 claude plugin install groove@groove
-claude plugin install groove-project@groove
 ```
 
-The skill is available as `/groove:groove`. For updates, refresh the marketplace
-with `claude plugin marketplace update groove`, then run
-`claude plugin update groove@groove` and
-`claude plugin update groove-project@groove`. Restart the session afterward.
+In a fresh session, invoke `/groove:groove`. To update, run
+`claude plugin marketplace update groove` and `claude plugin update groove@groove`,
+then restart the session.
 
 ### Codex
 
 ```sh
 codex plugin marketplace add lorecampa/groove
 codex plugin add groove@groove
-codex plugin add groove-project@groove
 ```
 
-Restart the session and review/trust the `groove-project` hooks in Codex's
-`/hooks` menu. Installing a plugin does not automatically trust its hooks.
-For updates, run `codex plugin marketplace upgrade groove` and reinstall the
-two plugins with `codex plugin add`. Review changed hooks again when prompted.
+Start a fresh session and ask Codex to load the Groove skill. To update, run
+`codex plugin marketplace upgrade groove` and `codex plugin add groove@groove`,
+then restart. The skill plugin has no hooks to approve.
 
 ## Pi
 
-Pi can install the authored skill directly as a Git package; no npm publication
-is needed:
+Install the authored skill as a Git package:
 
 ```sh
 pi install git:github.com/lorecampa/groove
 pi list
 ```
 
-The repository's `package.json` selects only `skills/groove/`; it adds no
-extensions or npm dependencies. In a fresh Pi session, invoke `/skill:groove`
-once to use the workflow for that session. To try a local checkout without
-installing a package, run:
+The repository's private `package.json` selects only `skills/groove/`, with no
+extensions or npm dependencies. In a fresh session invoke `/skill:groove`.
+For a local checkout, use `pi install /absolute/path/to/groove`, or load it for
+one launch with `pi --skill /absolute/path/to/groove/skills/groove`.
+Keep installed local paths outside reusable pool slots.
 
-```sh
-pi --skill /absolute/path/to/groove/skills/groove
-```
-
-For persistent use, add the Groove instruction to the personal or project
-instructions Pi already loads. Preserve existing instructions and choose the
-scope you intend. Project files that are not committed will not appear in newly
-acquired worktrees; verify the chosen instructions from a pool worktree too.
-The Claude/Codex `groove.agent.enabled` setting does not configure Pi.
-
-Update a Git package with `pi update --extensions`; remove it with
-`pi remove git:github.com/lorecampa/groove`. If a Pi version uses a different
-update command, follow its `pi update --help`. For local development,
-`pi install /absolute/path/to/groove` and `pi remove /absolute/path/to/groove`
-use the local package. Keep installed local paths outside reusable pool slots.
-See [Pi packages](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/packages.md)
+Use Pi's existing personal/project instructions for persistent defaults. Update
+with `pi update git:github.com/lorecampa/groove` and remove with
+`pi remove git:github.com/lorecampa/groove`. Follow your version's `--help` if
+its package commands differ. See [Pi packages](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/packages.md)
 and [Pi skills](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/skills.md).
 
 ## Hermes
 
-Use the explicit GitHub skill path so Hermes installs the portable skill and its
-references, not a same-named plugin mirror:
+Install the explicit authored skill path, including its references:
 
 ```sh
 hermes skills install lorecampa/groove/skills/groove
 hermes skills list
-```
-
-Start a session with the skill preloaded:
-
-```sh
 hermes -s groove
 ```
 
-For project defaults, add a persistent Groove instruction through Hermes'
-supported project context, such as an opted-in `.hermes.md` or `AGENTS.md`.
-Hermes uses the first matching context source, so check the active file instead
-of adding a lower-priority file that will never load. Personal uncommitted project
-files do not propagate to pool worktrees; preload the skill with `-s groove`
-when launching there, or use an explicitly shared project instruction. Follow
-the active Hermes profile's configuration and skill paths. The Claude/Codex
-project plugin and `groove.agent.enabled` flag do not configure Hermes hooks.
-
-Update Hub-installed skills with `hermes skills update`; remove this skill with
-`hermes skills uninstall groove`. Hermes scans third-party skills during install;
-review its findings instead of bypassing the scan. See the
-[Hermes skills guide](https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/features/skills.md).
+The last command starts a session with Groove preloaded. For persistent project
+rules, use Hermes' supported context, such as an opted-in `.hermes.md` or
+`AGENTS.md`. Hermes uses the first matching context source; check which file
+actually loads. Follow the active profile's skill/configuration paths.
+Update with `hermes skills update` and remove with
+`hermes skills uninstall groove`. Review the installer's scan findings.
+See [Hermes skills](https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/features/skills.md).
 
 ## OpenCode
 
-From a stable, authenticated checkout of Groove, copy the complete skill into
-OpenCode's personal skill directory. Inspect an existing destination first and
-preserve local customizations:
+Reuse an existing Groove skill in `~/.agents/skills/`, or copy the complete skill
+from a stable checkout after inspecting the destination for local changes:
 
 ```sh
 mkdir -p ~/.config/opencode/skills
 cp -R /absolute/path/to/groove/skills/groove ~/.config/opencode/skills/
 ```
 
-OpenCode also discovers `~/.agents/skills/`; reuse an existing Groove installation
-there instead of creating a competing copy. In a fresh session, ask OpenCode to
-load the Groove skill. For project defaults, use its supported persistent
-instructions. No OpenCode lifecycle plugin is shipped. Updates use the same
-reviewed copy procedure; remove only the `groove` directory you installed.
+In a fresh session ask OpenCode to load Groove. Configure defaults through its
+supported persistent instructions. Updates use the same reviewed copy procedure;
+remove only the skill directory you installed.
 See [OpenCode skills](https://opencode.ai/docs/skills/).
 
 ## Gemini CLI
-
-Install the explicit skill subdirectory:
 
 ```sh
 gemini skills install https://github.com/lorecampa/groove.git --path skills/groove
 gemini skills list --all
 ```
 
-Review the install prompt. Gemini also discovers `~/.agents/skills/`, so reuse an
-existing skill there when appropriate. In a fresh session, ask Gemini to activate
-Groove. For project defaults, add the instruction to the `GEMINI.md` context you
-intend to use, and verify it is available in pool worktrees. No Groove-specific
-Gemini hooks are shipped. To update, review and reinstall from the same source;
-remove a personal install with `gemini skills uninstall groove --scope user`.
+Review the install prompt. Gemini also discovers `~/.agents/skills/`; reuse an
+existing skill there when appropriate. Ask Gemini to activate Groove in a fresh
+session. Configure defaults through the intended `GEMINI.md` context. Update by
+reviewing and reinstalling from the same source; remove a personal install with
+`gemini skills uninstall groove --scope user`.
 See [Gemini skills](https://geminicli.com/docs/cli/skills/).
 
 ## Other agents and existing skill installations
 
-Install [skills/groove/](https://github.com/lorecampa/groove/tree/main/skills/groove)
-from this repository for your current agent. Use the skill installer and discovery
-location supported by that agent; inspect its existing configuration if needed.
-Install only for the current agent, not every agent found on the machine.
+Install the complete [skills/groove/](../skills/groove/) directory, including
+`references/`, in the discovery location supported by your current agent.
+Prefer a personal installation that remains available in new worktrees. Preserve
+existing customizations and avoid competing copies. Use authenticated Git access
+or a local checkout if the repository is private.
 
-By default, make the skill available across the user's projects so it also loads
-in newly acquired worktrees. Install into a particular repository only when the
-user asks for that. There is no need to ask the user to choose a directory.
+## Use Groove by default in a project
 
-If copying manually, copy the whole `skills/groove/` directory, including
-`references/`. Compare an existing copy before replacing it and preserve local
-customizations. While the repository is private, use an authenticated checkout
-or the user's existing Git access to obtain the skill.
+Add this instruction through your harness's persistent instruction mechanism:
+
+> Use the Groove skill to manage development workspaces for this project.
+
+For shared team policy, put it in the project's versioned agent instructions
+only when that policy is intended for contributors. For personal preferences,
+use a private agent configuration or a supported local instruction file. If the
+harness cannot express a private project scope, use session preload rather than
+silently changing contributor policy.
+
+### Personal workflow files and worktrees
+
+A personal Markdown file can hold your preferred workflow, including PR and
+rebase rules. Keep its canonical copy outside reusable worktrees. In Omnigent,
+put its contents in a private custom agent's instructions (or a supported bundled
+instruction file), then select that agent as the project default. Configure
+worker agents too; choosing a default does not make unrelated agents inherit
+its instructions. A referenced file in an uploaded agent bundle is a snapshot;
+after changing the source file, update the agent configuration.
+
+An optional line in a shared `AGENTS.md`, such as “If `WORKFLOW.local.md` exists,
+read it for personal workflow preferences,” is another possible convention.
+Ignore that file using `.git/info/exclude` for a preference private to your clone,
+or `.gitignore` if the team adopts the convention. A plain Markdown link is not
+a portable automatic import: the agent must follow the instruction to read it.
+Git ignores prevent commits; they do not prevent an agent from reading a file.
+
+Ignored files are not copied into new Git or Groove worktrees. That convention
+therefore needs a local file in each relevant checkout, and it will not survive
+slot reuse by itself. Do not rely on it for instructions that must apply before
+an agent edits files in a new workspace. Codex's `AGENTS.override.md` can replace
+`AGENTS.md` in the same directory, so it is not a universal additive local file.
+Claude supports `@path` imports and `CLAUDE.local.md`; their loading rules are
+specific to Claude, and local files still need to be available in each worktree.
+See [Claude memory](https://code.claude.com/docs/en/memory) and
+[Codex instruction discovery](https://developers.openai.com/codex/guides/agents-md).
+
+Initialize a pool separately if the project does not have one:
+
+```sh
+groove --pool default init --capacity 4
+```
+
+Choose the capacity and reuse existing settings. Installing a skill does not
+initialize or resize a pool. Assigned workers reuse the reservation supplied by
+their coordinator; the skill owns acquisition and handoff guidance.
 
 ## Verify
 
@@ -293,82 +289,19 @@ groove --version
 groove --json --help
 ```
 
-Confirm that the `groove` skill is discoverable by your agent. If discovery needs
-a new session, tell the user to restart rather than claiming it is already loaded.
-Inspect the reported skill source when multiple copies exist: a personal skill
-can take precedence over a newly installed package. Verify its bundled references
-are present too.
-Report the CLI version and installed skill location. Do not initialize a project
-pool or start a task as part of installation.
-
-## Use Groove by default in a project
-
-This automatic hook path is for Claude Code and Codex. With `groove-project`
-installed, opt in once from the project's Git checkout:
-
-```sh
-git config --local groove.agent.enabled true
-```
-
-This preference lives in the clone's Git config and applies in its linked
-worktrees. It is not committed and imposes no requirement on other contributors.
-The plugin can be installed across your projects while this switch selects which
-clones should use it by default. There is no need to create a Markdown file for
-the basic workflow.
-The hooks tell agents to load the skill for code, test and documentation changes;
-assigned workers reuse their coordinator's reservation. No reservation is acquired
-by the hook, and ending a session never releases one. Coordinators preserve
-results and release explicitly through the skill.
-
-If the project does not have a pool yet, initialize one as a separate project
-setup step, choosing its capacity. For example:
-
-```sh
-groove --pool default init --capacity 4
-```
-
-Reuse an existing pool's settings. Do not resize it as part of agent installation.
-Then start a fresh session in the project and give the agent an ordinary task.
-
-To include your own project instructions, point to an existing UTF-8 Markdown
-file outside reusable worktrees (maximum 32 KiB):
-
-```sh
-git config --local groove.agent.instructionsFile /absolute/path/to/workflow.md
-```
-
-The hook reads that file directly; no `AGENTS.md` or `CLAUDE.md` replacement is
-needed. Configured files must be readable regular files with absolute paths.
-The hook rejects missing or oversized files rather than silently omitting them.
-Repository lookup uses the harness's hook `cwd`, not its process directory or
-inherited `GIT_*` variables. Open a fresh session and ask it to describe the
-project workflow already in its instructions without reading files or using
-tools. Verify the plugin source and your custom rules are present. Test from a
-reserved worktree too if that is where you launch agents. Skills being listed
-alone does not establish that the context hook ran.
-
-Disable the project preference with:
-
-```sh
-git config --local groove.agent.enabled false
-```
-
-For other harnesses, use their supported persistent agent instruction mechanism.
-If a team explicitly wants shared project policy, it can add a short instruction:
-
-> Use the Groove skill for coding task workspaces in this repository. Workers
-> already assigned a reservation reuse it and hand results back; the coordinator
-> owns acquisition and finalization.
-
-Commit project instructions before acquiring if workers need them in their
-checkouts. Uncommitted files do not propagate to a new checkout.
+Start a fresh session and check both skill discovery and the instructions loaded
+at startup. Ask it to describe the project workflow without opening files or
+using tools; then separately ask it to load the skill and confirm the source.
+An installed skill alone does not prove a project preference was loaded.
+Check for competing skill copies and bundled references. Verify the instructions
+from a reserved pool worktree too. Report CLI/skill versions, loaded sources and
+whether a restart or updated worker configuration is needed.
 
 ## Remove the plugins
 
 For Claude Code:
 
 ```sh
-claude plugin uninstall groove-project@groove
 claude plugin uninstall groove@groove
 claude plugin marketplace remove groove
 ```
@@ -376,50 +309,34 @@ claude plugin marketplace remove groove
 For Codex:
 
 ```sh
-codex plugin remove groove-project@groove
 codex plugin remove groove@groove
 codex plugin marketplace remove groove
 ```
 
-Removing plugins does not release reservations, delete snapshots or remove
-your instruction file. A manually installed skill is separate; remove only
-the copy you installed when it is no longer needed.
+Plugin removal does not release reservations, remove snapshots or change your
+personal instruction files. Remove manual skill copies only when no longer needed.
 
 ## Develop the plugins locally
 
-The authored skill remains in `skills/groove/`. After editing it, run
-`bash scripts/sync-plugins.sh --write`; `--check` verifies the real-file mirror
-under `plugins/groove/`. Native plugin installers can omit symlinks, so the
-distributed skill includes its references as regular files.
-
-Both marketplace commands accept an absolute path to a local checkout instead
-of `lorecampa/groove`. Use a stable checkout or export the marketplace manifests
-and `plugins/` to a private directory first. Do not register a reusable pool
-worktree as a permanent marketplace source: its contents can change after release.
-For a local Pi package export, include `package.json` and `skills/` as well.
-With Omnigent, run Codex installation against your normal user `CODEX_HOME`,
-not an existing session's private home, then verify a fresh Omnigent session.
-The integration uses native plugins and requires no Omnigent changes.
+Edit the canonical skill in `skills/groove/`, then run
+`bash scripts/sync-plugins.sh --write`; `--check` verifies the real-file mirror.
+Plugin installers may omit symlinks, so the package includes regular files.
+Both marketplace commands accept a stable local checkout path. Export the
+catalogs and `plugins/` outside reusable slots before registering a local source.
+For Pi, also export `package.json` and `skills/`.
+With Omnigent, install Codex plugins against your normal user `CODEX_HOME`, then
+verify a fresh session. No Omnigent change is required.
 
 ## Distribute the setup
 
-No public marketplace listing is required for these installation paths. The
-`.claude-plugin/marketplace.json` and `.agents/plugins/marketplace.json` files
-make this Git repository a plugin catalog. Users add it through their harness's
-marketplace command. Pi installs the Git package directly; Hermes installs the
-GitHub skill path. A private repository requires access through the relevant
-installer; use an authenticated local checkout when needed.
-
-A repository catalog is different from a listing in Anthropic's or OpenAI's
-public directory. Submitting for a public listing is an optional, separate
-publication step; it is not performed by this setup. OpenAI's current public
-submission rules exclude lifecycle-hook packages, so distribute `groove-project`
-through the repository/manual installation path. The separate skill package can
-be evaluated for a skills-only public listing.
-
-See [Claude marketplace hosting](https://code.claude.com/docs/en/plugin-marketplaces),
-[OpenAI repository marketplaces](https://developers.openai.com/plugins/build/plugins),
-and [OpenAI submission requirements](https://developers.openai.com/plugins/deploy/submission).
+The Git repository hosts the Claude/Codex catalogs through
+`.claude-plugin/marketplace.json` and `.agents/plugins/marketplace.json`.
+Pi installs the Git package and Hermes installs the GitHub skill path. Public
+marketplace listings and npm publication are not required. Private repository
+access must work through the installer or an authenticated local checkout.
+Public directory submission is an optional, separate publication step.
+See [Claude marketplace hosting](https://code.claude.com/docs/en/plugin-marketplaces)
+and [OpenAI repository marketplaces](https://developers.openai.com/plugins/build/plugins).
 
 ## Source installations
 

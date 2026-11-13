@@ -1,8 +1,0 @@
-{
-  "name": "groove-project",
-  "version": "0.1.0",
-  "author": { "name": "Groove maintainers" },
-  "description": "Load Groove workflow instructions for repositories that explicitly opt in.",
-  "license": "MIT OR Apache-2.0",
-  "repository": "https://github.com/lorecampa/groove"
-}

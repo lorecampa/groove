@@ -7,12 +7,6 @@
       "source": { "source": "local", "path": "./plugins/groove" },
       "policy": { "installation": "AVAILABLE" },
       "category": "Productivity"
-    },
-    {
-      "name": "groove-project",
-      "source": { "source": "local", "path": "./plugins/groove-project" },
-      "policy": { "installation": "AVAILABLE" },
-      "category": "Productivity"
     }
   ]
 }

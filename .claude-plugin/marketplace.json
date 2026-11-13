@@ -1,9 +1,8 @@
 {
   "name": "groove",
-  "metadata": { "description": "Groove skills and optional project workflow hooks" },
+  "metadata": { "description": "Groove workspace skill for coding agents" },
   "owner": { "name": "Groove maintainers" },
   "plugins": [
-    { "name": "groove", "source": "./plugins/groove", "description": "Groove workspace skill" },
-    { "name": "groove-project", "source": "./plugins/groove-project", "description": "Opt-in project workflow context for native agents" }
+    { "name": "groove", "source": "./plugins/groove", "description": "Groove workspace skill" }
   ]
 }

@@ -49,12 +49,10 @@ to use Groove for one session or by default in a project. No custom workflow fil
 is required. See [agent setup](docs/install.md#choose-your-agent) for Claude Code,
 Codex, Pi, Hermes and other agents.
 
-Claude Code and Codex also have an optional project plugin. Enable it once per
-clone with `git config --local groove.agent.enabled true`; new sessions then
-receive the Groove workflow automatically, including in linked worktrees. This
-setting is private to your clone. Pi and Hermes use their own skill and persistent
-instruction mechanisms. The agent handles reservations through the skill;
-the hooks only supply instructions.
+Claude Code and Codex can install the skill as a native plugin. Configure project
+defaults through your harness's existing instructions or a private custom agent;
+see [personal workflows and worktrees](docs/install.md#personal-workflow-files-and-worktrees).
+The agent follows the skill to reserve and release workspaces.
 
 ## Use a workspace
 

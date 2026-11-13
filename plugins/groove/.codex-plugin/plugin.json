@@ -2,6 +2,5 @@
   "name": "groove",
   "version": "0.1.0",
   "description": "Reserve, use and safely return reusable Git worktrees with the Groove skill.",
-  "skills": "./skills/",
-  "hooks": { "hooks": {} }
+  "skills": "./skills/"
 }
