@@ -4,14 +4,10 @@
 
 ### Changed
 
-- Reused workspaces rebuild and refresh a trusted index before checkout, retaining
-  matching files while still clearing stale index flags and replacing dirty data.
-  Commit changes, content-converting attributes and checkout settings that can
-  hide physical differences retain the full checkout path.
 - The development benchmark lab adds heterogeneous multi-GiB monorepo profiles
   with packed history, commit switching and full-tree recovery checks. Native
   runs resolve relative scratch paths before invoking fixture subprocesses.
-  A separate CRLF profile measures full-checkout fallback costs and verifies
+  A separate CRLF profile measures checkout-conversion costs and verifies
   restoration of physical line endings that normalize to the same Git blob.
 - Mark pure query methods and error builders as `must_use`, and avoid per-byte
   allocations when encoding cache keys, control names and release checksums.

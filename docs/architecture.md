@@ -165,7 +165,13 @@ between destination validation and materialization.
 Capacity bounds reservable slots, not process count, artifacts, CPU, memory or Git
 object storage. Waiting has no FIFO guarantee; Git preparation has its own timeout.
 
-Normalization removes the owned index and uses forced detached checkout plus
+Normalization removes the owned index, discarding its flags and stat cache. If
+the previous HEAD is readable, `read-tree HEAD` reconstructs only its tracked-path
+inventory so checkout can remove paths the destination deletes and ignores.
+The index is not refreshed: forced detached checkout rewrites tracked files,
+breaking shared hardlinks and recreating file metadata. If the previous HEAD is
+unreadable or unborn, any partial index is discarded and checkout proceeds
+without it, preserving in-place recovery and warm caches. Cleanup uses
 `git clean -ffdx` (`pristine`) or `-ffd` (`warm`). Warm ignored files are unverified
 residue and may be discarded during recovery. Branches created by tasks survive
 cleanup; detached commits without a durable ref may become unreachable.

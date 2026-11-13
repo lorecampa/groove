@@ -4,7 +4,7 @@
   "profiles": [
     {
       "id": "workspace-conversions", "version": 1,
-      "purpose": "Measure full-checkout fallback overhead with CRLF attributes, including small repositories; restore physical line endings despite unchanged normalized Git blobs.",
+      "purpose": "Measure checkout-conversion costs with CRLF attributes, including small repositories; restore physical line endings despite unchanged normalized Git blobs.",
       "environment": "cli-linux-amd64-v4",
       "sampling": {"blocks": 10, "warmup_blocks": 1},
       "estimated_minutes": [2, 10],

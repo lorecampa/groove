@@ -3,14 +3,15 @@ use groove_core::{CleanupPolicy, Pool, PoolOptions};
 use std::{
     collections::BTreeMap,
     fs,
-    os::unix::fs::{symlink, PermissionsExt},
+    os::unix::fs::{symlink, MetadataExt, PermissionsExt},
     path::{Path, PathBuf},
 };
 use support::{git, Repo};
 
 // Compare observable checkout state without asking Git to normalize the bytes.
-fn physical_tree(root: &Path) -> BTreeMap<PathBuf, (u32, Vec<u8>)> {
-    fn visit(root: &Path, dir: &Path, out: &mut BTreeMap<PathBuf, (u32, Vec<u8>)>) {
+type PhysicalTree = BTreeMap<PathBuf, (u32, u64, Vec<u8>)>;
+fn physical_tree(root: &Path) -> PhysicalTree {
+    fn visit(root: &Path, dir: &Path, out: &mut PhysicalTree) {
         for entry in fs::read_dir(dir).unwrap() {
             let entry = entry.unwrap();
             if entry.file_name() == ".git" {
@@ -34,11 +35,11 @@ fn physical_tree(root: &Path) -> BTreeMap<PathBuf, (u32, Vec<u8>)> {
                 (0o040000, Vec::new())
             } else {
                 (
-                    metadata.permissions().mode() & 0o111,
+                    metadata.permissions().mode() & 0o7777,
                     fs::read(&path).unwrap(),
                 )
             };
-            out.insert(relative, value);
+            out.insert(relative, (value.0, metadata.nlink(), value.1));
         }
     }
     let mut tree = BTreeMap::new();
@@ -191,4 +192,248 @@ fn reused_checkout_matches_full_rewrite_for_configuration_and_path_contamination
             );
         }
     }
+}
+
+#[test]
+fn reuse_breaks_external_hardlinks() {
+    for cleanup in [CleanupPolicy::Pristine, CleanupPolicy::Warm] {
+        let r = Repo::new();
+        Pool::init(
+            &r.path,
+            PoolOptions {
+                capacity: 1,
+                cleanup_policy: cleanup,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let pool = Pool::open(&r.path).unwrap();
+        let lease = pool.acquire(Default::default()).unwrap();
+        let workspace = lease.info().worktree_path.clone();
+        let outside = r.temp.path().join("outside.txt");
+        fs::write(&outside, b"baseline\n").unwrap();
+        fs::remove_file(workspace.join("tracked.txt")).unwrap();
+        fs::hard_link(&outside, workspace.join("tracked.txt")).unwrap();
+        drop(lease);
+        let _next = pool.acquire(Default::default()).unwrap();
+        let text = fs::metadata(workspace.join("tracked.txt")).unwrap();
+        assert_eq!(text.nlink(), 1, "{cleanup:?}");
+        assert_ne!(text.ino(), fs::metadata(&outside).unwrap().ino());
+        fs::write(workspace.join("tracked.txt"), b"next reservation\n").unwrap();
+        assert_eq!(fs::read(outside).unwrap(), b"baseline\n");
+    }
+}
+
+#[test]
+fn orphaned_slot_head_preserves_warm_cache_during_normalization() {
+    let r = Repo::new();
+    Pool::init(
+        &r.path,
+        PoolOptions {
+            capacity: 1,
+            cleanup_policy: CleanupPolicy::Warm,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let pool = Pool::open(&r.path).unwrap();
+    let lease = pool.acquire(Default::default()).unwrap();
+    let workspace = lease.info().worktree_path.clone();
+    git(&workspace, &["checkout", "--orphan", "scratch"]);
+    fs::create_dir(workspace.join("ignored")).unwrap();
+    fs::write(workspace.join("ignored/cache"), "keep\n").unwrap();
+    drop(lease);
+    let next = pool.acquire(Default::default()).unwrap();
+    assert_eq!(
+        next.info().recovery,
+        groove_core::RecoveryOutcome::Sanitized
+    );
+    assert_eq!(
+        fs::read(workspace.join("ignored/cache")).unwrap(),
+        b"keep\n"
+    );
+    assert_eq!(
+        fs::read(workspace.join("tracked.txt")).unwrap(),
+        b"baseline\n"
+    );
+}
+
+#[test]
+fn reuse_restores_read_only_and_special_permission_bits() {
+    for cleanup in [CleanupPolicy::Pristine, CleanupPolicy::Warm] {
+        let r = Repo::new();
+        fs::write(r.path.join("run.sh"), "#!/bin/sh\nexit 0\n").unwrap();
+        fs::set_permissions(r.path.join("run.sh"), fs::Permissions::from_mode(0o755)).unwrap();
+        git(&r.path, &["add", "run.sh"]);
+        git(&r.path, &["commit", "-qm", "executable"]);
+        Pool::init(
+            &r.path,
+            PoolOptions {
+                capacity: 1,
+                cleanup_policy: cleanup,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let pool = Pool::open(&r.path).unwrap();
+        let lease = pool.acquire(Default::default()).unwrap();
+        let workspace = lease.info().worktree_path.clone();
+        let expected = ["tracked.txt", "run.sh"].map(|p| {
+            fs::metadata(workspace.join(p))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o7777
+        });
+        fs::set_permissions(
+            workspace.join("tracked.txt"),
+            fs::Permissions::from_mode(0o444),
+        )
+        .unwrap();
+        fs::set_permissions(workspace.join("run.sh"), fs::Permissions::from_mode(0o4755)).unwrap();
+        drop(lease);
+        let _next = pool.acquire(Default::default()).unwrap();
+        let actual = ["tracked.txt", "run.sh"].map(|p| {
+            fs::metadata(workspace.join(p))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o7777
+        });
+        assert_eq!(actual, expected, "{cleanup:?}");
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn reuse_removes_extended_attributes_from_tracked_files() {
+    use std::{ffi::CString, os::unix::ffi::OsStrExt};
+    let r = Repo::new();
+    Pool::init(
+        &r.path,
+        PoolOptions {
+            capacity: 1,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let pool = Pool::open(&r.path).unwrap();
+    let lease = pool.acquire(Default::default()).unwrap();
+    let file = CString::new(
+        lease
+            .info()
+            .worktree_path
+            .join("tracked.txt")
+            .as_os_str()
+            .as_bytes(),
+    )
+    .unwrap();
+    let value = b"contamination";
+    // SAFETY: file/name are terminated strings and value is readable for its length.
+    let result = unsafe {
+        libc::setxattr(
+            file.as_ptr(),
+            c"user.groove-reset".as_ptr(),
+            value.as_ptr().cast(),
+            value.len(),
+            0,
+        )
+    };
+    if result != 0 {
+        let error = std::io::Error::last_os_error();
+        assert_eq!(error.raw_os_error(), Some(libc::EOPNOTSUPP), "{error}");
+        eprintln!("skipping xattr assertion: fixture filesystem does not support xattrs");
+        return;
+    }
+    drop(lease);
+    let _next = pool.acquire(Default::default()).unwrap();
+    // SAFETY: file/name are terminated strings; a null buffer queries the size.
+    let result = unsafe {
+        libc::getxattr(
+            file.as_ptr(),
+            c"user.groove-reset".as_ptr(),
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    assert_eq!(result, -1);
+    assert_eq!(
+        std::io::Error::last_os_error().raw_os_error(),
+        Some(libc::ENODATA)
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn reuse_restores_case_only_tracked_renames_on_case_insensitive_storage() {
+    let r = Repo::new();
+    if !r.path.join("TRACKED.TXT").exists() {
+        eprintln!("skipping case-insensitive assertion on a case-sensitive filesystem");
+        return;
+    }
+    Pool::init(
+        &r.path,
+        PoolOptions {
+            capacity: 1,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let pool = Pool::open(&r.path).unwrap();
+    let lease = pool.acquire(Default::default()).unwrap();
+    let workspace = lease.info().worktree_path.clone();
+    fs::rename(workspace.join("tracked.txt"), workspace.join("TRACKED.TXT")).unwrap();
+    drop(lease);
+    let _next = pool.acquire(Default::default()).unwrap();
+    let names: Vec<_> = fs::read_dir(workspace)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    assert!(names.iter().any(|n| n == "tracked.txt"));
+    assert!(!names.iter().any(|n| n == "TRACKED.TXT"));
+}
+
+#[test]
+fn warm_reuse_rewrites_backdated_tracked_files_without_touching_cached_output() {
+    use std::time::{Duration, UNIX_EPOCH};
+    let r = Repo::new();
+    Pool::init(
+        &r.path,
+        PoolOptions {
+            capacity: 1,
+            cleanup_policy: CleanupPolicy::Warm,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let pool = Pool::open(&r.path).unwrap();
+    let lease = pool.acquire(Default::default()).unwrap();
+    let workspace = lease.info().worktree_path.clone();
+    let tracked = workspace.join("tracked.txt");
+    let backdated = UNIX_EPOCH + Duration::from_secs(60);
+    fs::File::options()
+        .write(true)
+        .open(&tracked)
+        .unwrap()
+        .set_times(fs::FileTimes::new().set_modified(backdated))
+        .unwrap();
+    fs::create_dir(workspace.join("ignored")).unwrap();
+    let cache = workspace.join("ignored/output");
+    fs::write(&cache, b"unverified cache from another input\n").unwrap();
+    let cache_time = backdated + Duration::from_secs(1);
+    fs::File::options()
+        .write(true)
+        .open(&cache)
+        .unwrap()
+        .set_times(fs::FileTimes::new().set_modified(cache_time))
+        .unwrap();
+    drop(lease);
+    let _next = pool.acquire(Default::default()).unwrap();
+    assert_eq!(fs::read(&tracked).unwrap(), b"baseline\n");
+    assert!(fs::metadata(tracked).unwrap().modified().unwrap() > cache_time);
+    assert_eq!(
+        fs::read(&cache).unwrap(),
+        b"unverified cache from another input\n"
+    );
+    assert_eq!(fs::metadata(cache).unwrap().modified().unwrap(), cache_time);
 }
