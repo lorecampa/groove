@@ -695,6 +695,7 @@ fn pool_growth_crash_boundaries_preserve_reservations_and_lock_inodes() {
             &r.path,
             PoolOptions {
                 capacity: if reinitialized { 2 } else { 1 },
+                worktree_root: Some(support::worktree_root(&r.path, "default")),
                 ..Default::default()
             },
         )

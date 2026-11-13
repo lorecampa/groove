@@ -262,7 +262,7 @@ fn concurrent_init_creates_exactly_one_pool() {
     let mut children = Vec::new();
     for _ in 0..6 {
         children.push(
-            support::groove()
+            support::groove_in(&r.path)
                 .arg("--repo")
                 .arg(&r.path)
                 .args(["init", "--capacity", "2"])
