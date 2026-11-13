@@ -20,6 +20,7 @@ fn unrelated_child_keeps_ownership_until_exec_closes_inherited_descriptors() {
             &repo.path,
             PoolOptions {
                 capacity: 1,
+                worktree_root: Some(support::worktree_root(&repo.path, "default")),
                 ..Default::default()
             },
         )

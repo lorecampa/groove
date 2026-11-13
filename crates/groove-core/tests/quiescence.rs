@@ -12,6 +12,7 @@ fn refuses_workspace_user(usage: ProcessUse) {
         &repo.path,
         PoolOptions {
             capacity: 1,
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
             ..Default::default()
         },
     )

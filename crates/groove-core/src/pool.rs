@@ -35,7 +35,7 @@ impl Pool {
     }
 
     /// Initialize a named namespace with independent slots, settings and history.
-    /// `default` retains the original storage layout. Checkout roots cannot overlap
+    /// `default` retains the original state layout. Checkout roots cannot overlap
     /// another namespace, including pending or retained deleted pools.
     /// # Errors
     /// See [`Self::init`]; also rejects overlapping checkout-root claims.
@@ -75,7 +75,7 @@ impl Pool {
                 repository::utf8(&path)?;
                 path
             }
-            None => repo.default_worktree_root(),
+            None => repo.default_worktree_root(options.worktree_base)?,
         };
         if previous
             .as_ref()
@@ -369,7 +369,7 @@ impl Pool {
         if !config.worktree_root.exists() && !retained {
             // Manifests and native worktree registrations record absolute paths,
             // so a moved repository leaves them pointing at its old location.
-            // The default root is `<common>/groove/worktrees`.
+            // Legacy default roots lived at `<common>/groove/worktrees`.
             let recorded_common = repo.recorded_default_common(&config.worktree_root);
             let message = match recorded_common {
                 Some(old) if old != repo.common => format!(
@@ -756,15 +756,15 @@ pub(crate) struct InitIntent {
 }
 
 /// Whether a checkout root would place worktrees inside, or around, Git or Groove
-/// administration. Only the default `<state>/worktrees` root may live there.
+/// administration. The legacy `<state>/worktrees` root remains accepted.
 pub(crate) fn overlaps_administration(repo: &Repository, root: &Path) -> bool {
     root == repo.root
         || repo.common.starts_with(root)
-        || (root.starts_with(&repo.common) && root != repo.default_worktree_root())
+        || (root.starts_with(&repo.common) && root != repo.legacy_worktree_root())
 }
 
 /// The registered working tree (main or linked) that would contain `root`, if any.
-/// The default root lives inside Git administration, which Git never scans.
+/// Legacy roots inside Git administration are never scanned by Git.
 pub(crate) fn enclosing_checkout(
     repo: &Repository,
     root: &Path,

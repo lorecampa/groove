@@ -11,6 +11,7 @@ fn targeted_inspection_handles_growth_missing_workspaces_and_git_failures() {
         &r.path,
         PoolOptions {
             capacity: 1,
+            worktree_root: Some(support::worktree_root(&r.path, "default")),
             ..Default::default()
         },
     )

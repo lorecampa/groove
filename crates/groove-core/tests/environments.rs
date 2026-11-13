@@ -16,6 +16,7 @@ fn pool(path: &Path, capacity: usize) -> Pool {
         path,
         PoolOptions {
             capacity,
+            worktree_root: Some(support::worktree_root(path, "default")),
             ..Default::default()
         },
     )

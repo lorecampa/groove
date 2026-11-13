@@ -17,6 +17,21 @@ pub struct Repo {
     pub temp: TempDir,
     pub path: PathBuf,
 }
+
+/// Keep legacy-layout fixtures entirely in disposable storage. Tests of the new
+/// default supply a disposable base or HOME explicitly instead.
+pub fn worktree_root(path: &Path, name: &str) -> PathBuf {
+    let common = PathBuf::from(git(
+        path,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    ));
+    let state = if name == "default" {
+        common.join("groove")
+    } else {
+        common.join("groove/pools").join(name)
+    };
+    state.join("worktrees")
+}
 impl Repo {
     pub fn new() -> Self {
         Self::format("sha1")
@@ -51,7 +66,9 @@ impl Repo {
         self.path.join(".git/groove")
     }
     pub fn slot(&self, n: usize) -> PathBuf {
-        self.state().join(format!("worktrees/wt-{n:04}"))
+        let config: serde_json::Value =
+            serde_json::from_slice(&fs::read(self.state().join("config.json")).unwrap()).unwrap();
+        PathBuf::from(config["worktree_root"].as_str().unwrap()).join(format!("wt-{n:04}"))
     }
 }
 pub fn command(path: &Path, program: impl AsRef<OsStr>) -> Command {
@@ -342,7 +359,9 @@ pub fn groove_human() -> Command {
 
 /// Human-readable Groove with the controlled Git environment, run in `path`.
 pub fn groove_human_in(path: &Path) -> Command {
-    command(path, groove_binary())
+    let mut command = command(path, groove_binary());
+    isolate_home(&mut command, path);
+    command
 }
 
 /// The groove binary under test, emitting JSON.
@@ -355,6 +374,18 @@ pub fn groove() -> Command {
 /// [`groove`] with the controlled Git environment of [`command`], run in `path`.
 pub fn groove_in(path: &Path) -> Command {
     let mut command = command(path, groove_binary());
+    isolate_home(&mut command, path);
     command.arg("--json");
     command
+}
+
+fn isolate_home(command: &mut Command, path: &Path) {
+    let home = path
+        .ancestors()
+        .find(|ancestor| ancestor.join(".git").exists())
+        .and_then(Path::parent)
+        .unwrap_or(path);
+    command
+        .env("HOME", home)
+        .env("XDG_CONFIG_HOME", home.join("config-home"));
 }

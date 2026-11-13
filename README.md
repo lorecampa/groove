@@ -65,6 +65,11 @@ groove exec --task fix-parser -- cargo test
 groove release --save --task fix-parser
 ```
 
+New pools put checkouts in `~/.worktrees/<project>-<repo-id>/<pool>` on Linux and
+macOS. Set a different parent with
+`groove config global set worktrees.root=/absolute/worktrees`, or choose an exact
+pool location with `init --worktree-root`. Existing pools keep their locations.
+
 Acquisition returns a checkout path with detached HEAD. Work in that path, stop
 all writers, then run `groove release --save` to pin a local snapshot and free the
 slot. Recover its files and staging state with:

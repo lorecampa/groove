@@ -7,6 +7,7 @@ fn single_slot_pool(r: &Repo) -> Pool {
         &r.path,
         PoolOptions {
             capacity: 1,
+            worktree_root: Some(support::worktree_root(&r.path, "default")),
             ..Default::default()
         },
     )
@@ -85,6 +86,7 @@ fn unwinding_closes_lease_and_failed_release_retains_it() {
         &r.path,
         PoolOptions {
             capacity: 1,
+            worktree_root: Some(support::worktree_root(&r.path, "default")),
             ..Default::default()
         },
     )

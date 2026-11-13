@@ -14,6 +14,7 @@ fn init_idempotent_conflicts_and_permanent_inodes() {
     let r = Repo::new();
     let options = PoolOptions {
         capacity: 2,
+        worktree_root: Some(support::worktree_root(&r.path, "default")),
         ..Default::default()
     };
     assert!(Pool::init(&r.path, options.clone()).unwrap().created);
@@ -26,9 +27,15 @@ fn init_idempotent_conflicts_and_permanent_inodes() {
     );
     assert_eq!(fs::metadata(lock).unwrap().ino(), ino);
     assert_eq!(
-        Pool::init(&r.path, PoolOptions::default())
-            .unwrap_err()
-            .code,
+        Pool::init(
+            &r.path,
+            PoolOptions {
+                worktree_root: Some(support::worktree_root(&r.path, "default")),
+                ..Default::default()
+            }
+        )
+        .unwrap_err()
+        .code,
         groove_core::ErrorCode::ConfigConflict
     );
     let linked = r.temp.path().join("linked");
@@ -67,6 +74,7 @@ fn rejects_symlink_unknown_schema_and_missing_locks() {
         &r.path,
         PoolOptions {
             capacity: 1,
+            worktree_root: Some(support::worktree_root(&r.path, "default")),
             ..Default::default()
         },
     )
@@ -123,6 +131,7 @@ fn invalid_root_does_not_poison_initialization_and_unknown_slot_version_is_prese
         &r.path,
         PoolOptions {
             capacity: 1,
+            worktree_root: Some(support::worktree_root(&r.path, "default")),
             ..Default::default()
         },
     )

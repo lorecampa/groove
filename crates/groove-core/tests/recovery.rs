@@ -15,6 +15,7 @@ fn pool(r: &Repo, policy: CleanupPolicy) -> Pool {
         PoolOptions {
             capacity: 1,
             cleanup_policy: policy,
+            worktree_root: Some(support::worktree_root(&r.path, "default")),
             ..Default::default()
         },
     )
@@ -142,6 +143,7 @@ fn symlinked_slot_quarantines_without_touching_primary_or_other_slots() {
         &r.path,
         PoolOptions {
             capacity: 2,
+            worktree_root: Some(support::worktree_root(&r.path, "default")),
             ..Default::default()
         },
     )
