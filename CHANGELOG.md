@@ -4,9 +4,18 @@
 
 ### Changed
 
+- Mark pure query methods and error builders as `must_use`, and avoid per-byte
+  allocations when encoding cache keys, control names and release checksums.
 - Agent onboarding configures persistent harness instructions once, so users
   do not need to request Groove separately for each task. The setup prompt uses
   personal configuration unless shared project policy is requested.
+- Document snapshot and release API errors, including partial failure and
+  recovery behavior, in Rust API documentation.
+
+### Fixed
+
+- Shell-style execution status conversion saturates extreme signal values in
+  public or deserialized results instead of overflowing.
 
 ## [0.2.1] - 2026-11-13
 

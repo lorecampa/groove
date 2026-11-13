@@ -177,6 +177,7 @@ pub struct ExecResult {
 }
 impl ExecResult {
     /// Whether the worker exited on its own with status zero.
+    #[must_use]
     pub fn succeeded(&self) -> bool {
         self.termination == Termination::Exited && self.exit_code == Some(0)
     }
@@ -191,8 +192,9 @@ impl ExecResult {
     /// }
     /// # }
     /// ```
+    #[must_use]
     pub fn shell_status(&self) -> u8 {
-        let signalled = |signal: i32| (128 + signal).clamp(0, 255) as u8;
+        let signalled = |signal: i32| signal.saturating_add(128).clamp(0, 255) as u8;
         match self.termination {
             Termination::TimedOut => 124,
             Termination::OutputLimited => 1,

@@ -168,6 +168,10 @@ impl SnapshotLock {
 impl Snapshots {
     /// Discover a non-bare Git worktree, without initializing a Groove pool.
     /// The timeout bounds each Git subprocess and each wait for the shared snapshot lock.
+    ///
+    /// # Errors
+    /// Reports repository discovery, filesystem and Git failures, including bare
+    /// repositories and unsupported repository layouts. No pool is initialized.
     pub fn open(path: impl AsRef<Path>, timeout: Duration) -> Result<Self> {
         let git = Git::new(timeout);
         let repo = repository::Repository::discover(path.as_ref(), timeout)?;
@@ -313,7 +317,7 @@ impl Snapshots {
             Err(e) => Err(e),
         }
     }
-    fn reference(&self, id: &str) -> Result<String> {
+    fn reference(id: &str) -> Result<String> {
         Ok(format!("{PREFIX}{}", checked_id(id)?))
     }
     fn load(&self, id: &str, lock: &SnapshotLock) -> Result<Snapshot> {
@@ -321,7 +325,7 @@ impl Snapshots {
     }
 
     fn load_at(&self, id: &str, lock: &SnapshotLock) -> Result<(Snapshot, String)> {
-        let reference = self.reference(id)?;
+        let reference = Self::reference(id)?;
         let oid = self.string(&["rev-parse", "--verify", "--end-of-options", &reference])?;
         let _: crate::CommitOid = oid.parse()?;
         let commit_oid = &oid;
@@ -359,6 +363,10 @@ impl Snapshots {
         Ok((snapshot, oid))
     }
     /// Read and validate one snapshot.
+    ///
+    /// # Errors
+    /// Reports invalid IDs, missing or malformed snapshots, inconsistent pins,
+    /// lock contention, and Git or filesystem failures.
     pub fn show(&self, id: &str) -> Result<Snapshot> {
         let lock = self.lock()?;
         self.load(id, &lock)
@@ -381,7 +389,7 @@ impl Snapshots {
                 .ok_or_else(|| invalid("Invalid snapshot reference metadata"))?;
             let _: crate::CommitOid = oid.parse()?;
             let mut snapshot: Snapshot = serde_json::from_str(message)?;
-            if snapshot.version != 1 || reference != self.reference(&snapshot.id)? {
+            if snapshot.version != 1 || reference != Self::reference(&snapshot.id)? {
                 return Err(invalid("Unsupported or inconsistent snapshot manifest"));
             }
             let pin = format!("{PINS}{}", snapshot.id);
@@ -409,6 +417,11 @@ impl Snapshots {
         Ok(result)
     }
     /// List checkpoints across all worktrees, newest first.
+    ///
+    /// # Errors
+    /// Reports invalid snapshot manifests, unreadable or inconsistent pins,
+    /// lock contention, and Git or filesystem failures. An incomplete pin
+    /// inventory is an error rather than evidence that snapshots are unpinned.
     pub fn list(&self) -> Result<Vec<Snapshot>> {
         let lock = self.lock()?;
         self.list_inner(&lock)
@@ -641,7 +654,7 @@ impl Snapshots {
                 "-c",
                 "core.fsync=loose-object,reference",
                 "update-ref",
-                &self.reference(&snapshot.id)?,
+                &Self::reference(&snapshot.id)?,
                 &commit,
                 &zero,
             ],
@@ -720,16 +733,44 @@ impl Snapshots {
     /// Capture without changing HEAD, working files or the real index.
     /// Preserves physical bytes, executable bits and symlinks independently of
     /// Git checkout preferences. Active content-converting attributes are rejected.
+    ///
+    /// ```no_run
+    /// use groove_core::{snapshot::{SaveOptions, Snapshots}, DEFAULT_GIT_TIMEOUT};
+    /// let snapshots = Snapshots::open("/path/to/repo", DEFAULT_GIT_TIMEOUT)?;
+    /// let checkpoint = snapshots.save(SaveOptions {
+    ///     description: "before refactor".into(),
+    ///     ..Default::default()
+    /// })?;
+    /// println!("Saved {}", checkpoint.id);
+    /// # Ok::<(), groove_core::Error>(())
+    /// ```
+    ///
+    /// # Errors
+    /// Rejects unsupported index states or attributes, oversized changed files,
+    /// and workspace changes detected during capture. Also reports lock, Git
+    /// and filesystem failures. Publication follows validation and the workspace
+    /// stability checks; a lost response can still leave a published snapshot.
     pub fn save(&self, options: SaveOptions) -> Result<Snapshot> {
         let lock = self.lock()?;
         self.capture(&options, &lock, true)
     }
     /// Delete references only; pinned snapshots require explicit override.
+    ///
+    /// # Errors
+    /// Reports invalid or missing snapshots, corrupt pins, and pinned snapshots
+    /// when `force` is false. Reference comparison or pin validation failures
+    /// abort the deletion transaction. Also reports lock, Git and filesystem
+    /// failures. `force` does not bypass validation or reference comparisons.
     pub fn delete(&self, id: &str, force: bool) -> Result<()> {
         let lock = self.lock()?;
         self.delete_inner(id, force, &lock)
     }
     /// Produce a Git patch between checkpoints, or against current working files.
+    ///
+    /// # Errors
+    /// Reports invalid or unreadable snapshots and pins, lock contention, Git
+    /// failures, and non-UTF-8 patches. Comparing against working files also has
+    /// the capture restrictions of [`Self::save`], without publishing a snapshot.
     pub fn diff(&self, id: &str, other: Option<&str>) -> Result<String> {
         let lock = self.lock()?;
         let a = self.load(id, &lock)?;
@@ -780,6 +821,14 @@ impl Snapshots {
     /// In-place restore requires the original HEAD and stopped external writers.
     /// Saved bytes and file types do not depend on current Git checkout preferences;
     /// active conversion attributes are checked before materializing the result.
+    ///
+    /// # Errors
+    /// Rejects unsafe or existing recovery destinations, unsupported attributes,
+    /// ignored-file collisions, and in-place restores whose HEAD differs from
+    /// the saved base. Also reports snapshot validation, lock, Git and filesystem
+    /// failures. In-place restore errors after the safety snapshot is captured
+    /// include its ID in the error details; a failed restore can leave partial
+    /// working-file changes, so retain that snapshot for recovery.
     pub fn restore(&self, id: &str, destination: Option<&Path>) -> Result<RestoreResult> {
         let mut lock = self.lock()?;
         // A main-checkout recovery must also exclude root/settings replacement
@@ -839,7 +888,7 @@ impl Snapshots {
                         "fetch",
                         "--no-tags",
                         repository::utf8(&self.common)?,
-                        &self.reference(id)?,
+                        &Self::reference(id)?,
                     ],
                     &lock.descriptors(),
                 )?;

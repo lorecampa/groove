@@ -384,7 +384,7 @@ impl<'a> Artifacts<'a> {
         }
         let mode = meta.mode() & 0o777;
         let entry = if meta.file_type().is_symlink() {
-            self.link_entry(path, &full, artifact, mode)?
+            Self::link_entry(path, &full, artifact, mode)?
         } else if meta.is_dir() {
             self.reject_git_store(&full)?;
             Entry {
@@ -422,7 +422,7 @@ impl<'a> Artifacts<'a> {
         }
         Ok(())
     }
-    fn link_entry(&self, path: &Path, full: &Path, artifact: &Path, mode: u32) -> Result<Entry> {
+    fn link_entry(path: &Path, full: &Path, artifact: &Path, mode: u32) -> Result<Entry> {
         if path == artifact {
             return Err(invalid("Artifact roots cannot be symlinks"));
         }

@@ -29,6 +29,9 @@ pub struct Release {
 
 impl Release {
     /// Select the source checkout. Commands never change the current process directory.
+    ///
+    /// # Errors
+    /// Reports filesystem failures while canonicalizing the checkout path.
     pub fn new(root: impl AsRef<Path>) -> Result<Self> {
         Ok(Self {
             root: root.as_ref().canonicalize()?,
@@ -37,22 +40,41 @@ impl Release {
     }
 
     /// Check shared versions and, optionally, the release tag and main ancestry.
+    ///
+    /// # Errors
+    /// Reports unreadable or invalid manifests, inconsistent versions, invalid
+    /// tag or branch ancestry, and failed Git commands.
     pub fn validate(&self, tag: Option<&str>, branch: Option<&str>) -> Result<String> {
         self.validate_manifest(tag, branch)
     }
 
     /// Update the version, lockfile and changelog without committing, tagging or uploading.
+    ///
+    /// # Errors
+    /// Rejects invalid versions and checkouts that fail release preconditions.
+    /// Reports manifest, lockfile, changelog and command failures. On failure,
+    /// attempts to restore the original files; a restoration I/O failure can
+    /// leave partial edits for inspection.
     pub fn prepare(&self, version: &str) -> Result<()> {
         self.prepare_manifest(version)
     }
 
     /// Return the current version's dated changelog section.
+    ///
+    /// # Errors
+    /// Reports version validation failures, an unreadable changelog, or a missing
+    /// or invalid dated section for the current version.
     pub fn notes(&self) -> Result<String> {
         manifest::notes(&self.root, &self.validate(None, None)?)
     }
 
     /// Compile extracted packages and exercise production binaries in a disposable repository.
     /// With `auditable`, requires cargo-auditable and embeds dependency metadata.
+    ///
+    /// # Errors
+    /// Reports invalid release inputs, a dirty checkout unless allowed, missing
+    /// build tools, and failures while packaging, building or smoke-testing the
+    /// extracted packages.
     pub fn packages(
         &self,
         allow_dirty: bool,
@@ -64,11 +86,20 @@ impl Release {
     }
 
     /// Publish in dependency order. An explicit execute flag and a clean tagged main commit are required.
+    ///
+    /// # Errors
+    /// Reports failed release preconditions, registry or authentication failures,
+    /// checksum mismatches, and failed publish or installation commands. A later
+    /// failure does not undo packages already published to the registry.
     pub fn publish(&self, tag: &str, execute: bool) -> Result<()> {
         self.publish_registry(tag, execute)
     }
 
     /// Archive production binaries, documentation, checksums and build metadata.
+    ///
+    /// # Errors
+    /// Reports invalid release inputs, missing binaries, and filesystem or command
+    /// failures while assembling the bundle. Partial output may remain on failure.
     pub fn bundle(&self, binaries: &Path, target: &str, output: &Path) -> Result<()> {
         self.bundle_archive(binaries, target, output)
     }

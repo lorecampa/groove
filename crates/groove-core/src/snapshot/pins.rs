@@ -197,7 +197,7 @@ impl Snapshots {
         } else {
             "0".repeat(oid.len())
         };
-        let snapshot_ref = self.reference(id)?;
+        let snapshot_ref = Self::reference(id)?;
         let transaction = format!(
             "start\nverify {snapshot_ref} {oid}\nupdate {reference} {oid} {expected}\nprepare\n"
         );
@@ -220,7 +220,7 @@ impl Snapshots {
                 "Snapshot is pinned by release --save; pass --force to delete it",
             ));
         }
-        let reference = self.reference(id)?;
+        let reference = Self::reference(id)?;
         crate::state::checkpoint("snapshot-before-delete");
         let mut transaction = format!("start\ndelete {reference} {oid}\n");
         if s.pinned {

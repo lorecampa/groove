@@ -176,7 +176,7 @@ fn endpoint_path(name: &str) -> Result<std::path::PathBuf> {
         ));
     }
     let digest = Sha256::digest(name.as_bytes());
-    let short: String = digest[..16].iter().map(|b| format!("{b:02x}")).collect();
+    let short = crate::project::hex(&digest[..16]);
     Ok(directory.join(format!("{short}.sock")))
 }
 
