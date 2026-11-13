@@ -144,8 +144,16 @@ impl Release {
                 "initial"
             ],
         )?;
-        // No background replenishment may outlive this disposable fixture.
-        groove(args!["init", "--capacity", "1", "--ready-target", "0"])?;
+        // No background preparation or eviction may outlive this fixture.
+        groove(args![
+            "init",
+            "--capacity",
+            "1",
+            "--ready-target",
+            "0",
+            "--idle-timeout",
+            "never"
+        ])?;
         let lease = groove(args!["acquire", "--base", "HEAD"])?;
         let field = |key: &str| -> Result<&str> {
             lease[key]

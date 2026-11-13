@@ -94,6 +94,8 @@
   process, retaining concurrency and recovery assertions under loaded scheduling.
 - Catalog rendering tests keep human-output fixtures lazy too, so background
   spare preparation cannot race their explicit deletion checks.
+- Logging lifecycle tests validate JSON progress messages separately from
+  timestamped diagnostics when commands cross the liveness threshold.
 - The deletion benchmark explicitly disables automatic spare preparation for
   its controlled materialization and teardown phases; its profile version is
   incremented because prior measurements used ambient defaults.

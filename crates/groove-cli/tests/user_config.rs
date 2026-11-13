@@ -272,7 +272,14 @@ fn successful_lifecycle_has_fresh_matching_timestamps_and_startup_notices() {
             .args(["-vv", "--request-id", "lifecycle", action]);
         match action {
             "init" => {
-                cmd.args(["--capacity", "1"]);
+                cmd.args([
+                    "--capacity",
+                    "1",
+                    "--ready-target",
+                    "0",
+                    "--idle-timeout",
+                    "never",
+                ]);
             }
             "release" => {
                 cmd.args(["--lease-id", lease["lease_id"].as_str().unwrap()]);
@@ -285,7 +292,21 @@ fn successful_lifecycle_has_fresh_matching_timestamps_and_startup_notices() {
         // Includes the startup announcement, not just tracing events.
         assert!(stderr.contains("DEBUG Log file:"));
         for line in stderr.lines() {
-            timestamp_in_window(line.split_once(' ').unwrap().0, before, after);
+            if let Ok(progress) = serde_json::from_str::<Value>(line) {
+                // Slow JSON commands also emit the documented stderr liveness
+                // envelope. It is separate from timestamped tracing output.
+                assert_eq!(progress["api_version"], 1);
+                assert_eq!(progress["event"], "progress");
+                assert_eq!(progress["command"], action);
+                assert_eq!(progress["request_id"], "lifecycle");
+                assert!(progress["elapsed_ms"].as_u64().is_some());
+            } else {
+                timestamp_in_window(
+                    line.split_once(' ').expect("timestamped diagnostic").0,
+                    before,
+                    after,
+                );
+            }
         }
         let files: Vec<_> = fs::read_dir(logs)
             .unwrap()
