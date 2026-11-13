@@ -155,11 +155,17 @@ pub(crate) fn normalize(
         // checkout remove paths deleted by the target, even if now ignored.
         // No flags or stat data from the previous reservation are trusted.
         git.run(path, &["read-tree", "HEAD"], fds)?;
-        match git.run(path, &["update-index", "-q", "--refresh"], fds) {
-            Ok(_) => (),
-            // Dirty/missing paths remain unrefreshed and are replaced by checkout.
-            Err(error) if error.git_exit_code() == Some(1) => (),
-            Err(error) => return Err(error),
+        match refresh_preserves_checkout_bytes(git, path, oid, fds) {
+            Ok(true) => match git.run(path, &["update-index", "-q", "--refresh"], fds) {
+                Ok(_) => (),
+                // Dirty/missing paths remain unrefreshed and are replaced by checkout.
+                Err(error) if error.git_exit_code() == Some(1) => (),
+                Err(error) => return Err(error),
+            },
+            Ok(false) => (),
+            // Refresh is optional. If its bounded queries cannot establish
+            // equivalence, leave stat entries empty and force the full checkout.
+            Err(error) => tracing::debug!(%error, "Skipping optional index refresh"),
         }
     }
     git.run(
@@ -181,6 +187,74 @@ pub(crate) fn normalize(
         fds,
     )?;
     Ok(())
+}
+fn refresh_preserves_checkout_bytes(
+    git: &Git,
+    path: &Path,
+    oid: &crate::CommitOid,
+    fds: &[i32],
+) -> Result<bool> {
+    use crate::git::Invocation;
+    use std::io::{Seek, Write};
+    // A commit switch can change attributes without changing a file's blob.
+    // Preserve full checkout behavior for every revision change.
+    if trim(&git.run(path, &["rev-parse", "--verify", "HEAD"], fds)?) != oid.as_str().as_bytes() {
+        return Ok(false);
+    }
+    let config = git.run(path, &["config", "--null", "--list"], fds)?;
+    for entry in config.split(|b| *b == 0) {
+        let mut fields = entry.splitn(2, |b| *b == b'\n');
+        let key = fields.next().unwrap_or_default();
+        let value = fields.next().unwrap_or_default();
+        if (key == b"core.autocrlf" && !value.eq_ignore_ascii_case(b"false"))
+            || key == b"core.eol"
+            || ([b"core.filemode".as_slice(), b"core.symlinks"].contains(&key)
+                && !value.eq_ignore_ascii_case(b"true"))
+        {
+            return Ok(false);
+        }
+    }
+    // Git-clean is not necessarily byte-identical to checkout: text, encoding
+    // and ident conversions can conceal physical edits. Ask Git about effective
+    // attributes, including info/global rules and ignored .gitattributes files,
+    // both before and after restoring tracked attribute files from the index.
+    let query = || Invocation {
+        inherit: fds,
+        stdout_limit: Some(128 * 1024 * 1024),
+        ..Invocation::default()
+    };
+    let names = git.run_with(path, &["ls-files", "-z"], query())?;
+    let mut input = tempfile::tempfile()?;
+    input.write_all(&names)?;
+    drop(names);
+    for cached in [false, true] {
+        input.rewind()?;
+        let mut invocation = query();
+        invocation.stdin = Some(input.try_clone()?);
+        let mut args = vec!["check-attr", "--all", "-z", "--stdin"];
+        if cached {
+            args.push("--cached");
+        }
+        let attrs = git.run_with(path, &args, invocation)?;
+        let mut fields = attrs.split(|b| *b == 0);
+        while let (Some(_path), Some(attribute), Some(value)) =
+            (fields.next(), fields.next(), fields.next())
+        {
+            if [
+                b"text".as_slice(),
+                b"eol",
+                b"filter",
+                b"working-tree-encoding",
+                b"ident",
+            ]
+            .contains(&attribute)
+                && value != b"unset"
+            {
+                return Ok(false);
+            }
+        }
+    }
+    Ok(true)
 }
 pub(crate) fn verify(
     git: &Git,

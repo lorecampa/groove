@@ -6,6 +6,8 @@
 
 - Reused workspaces rebuild and refresh a trusted index before checkout, retaining
   matching files while still clearing stale index flags and replacing dirty data.
+  Commit changes, content-converting attributes and checkout settings that can
+  hide physical differences retain the full checkout path.
 - The development benchmark lab adds heterogeneous multi-GiB monorepo profiles
   with packed history, commit switching and full-tree recovery checks. Native
   runs resolve relative scratch paths before invoking fixture subprocesses.

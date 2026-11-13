@@ -118,6 +118,117 @@ fn reuse_preserves_clean_file_identity_but_replaces_hidden_same_size_edits() {
     }
 }
 #[test]
+fn commit_switch_reapplies_attributes_to_unchanged_blobs() {
+    let r = Repo::new();
+    fs::write(r.path.join(".gitattributes"), "*.txt text eol=lf\n").unwrap();
+    r.git(&["add", ".gitattributes"]);
+    r.git(&["commit", "-qm", "LF checkout"]);
+    let old = r.git(&["rev-parse", "HEAD"]);
+    fs::write(r.path.join(".gitattributes"), "*.txt text eol=crlf\n").unwrap();
+    r.git(&["add", ".gitattributes"]);
+    r.git(&["commit", "-qm", "CRLF checkout"]);
+    let p = pool(&r, CleanupPolicy::Warm);
+    let lease = p
+        .acquire(AcquireOptions {
+            base: old.clone(),
+            ..Default::default()
+        })
+        .unwrap();
+    let path = lease.info().worktree_path.clone();
+    assert_eq!(fs::read(path.join("tracked.txt")).unwrap(), b"baseline\n");
+    drop(lease);
+    let lease = p.acquire(Default::default()).unwrap();
+    assert_eq!(fs::read(path.join("tracked.txt")).unwrap(), b"baseline\r\n");
+    drop(lease);
+    let _lease = p
+        .acquire(AcquireOptions {
+            base: old,
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(fs::read(path.join("tracked.txt")).unwrap(), b"baseline\n");
+}
+
+#[test]
+fn reuse_reapplies_checkout_conversions_from_working_and_committed_attributes() {
+    for (original, dirty, expected, tampered) in [
+        (
+            "*.txt -text\n",
+            "*.txt text eol=crlf\n",
+            b"baseline\n".as_slice(),
+            b"baseline\r\n".as_slice(),
+        ),
+        (
+            "*.txt text eol=crlf\n",
+            "*.txt -text\n",
+            b"baseline\r\n".as_slice(),
+            b"baseline\n".as_slice(),
+        ),
+    ] {
+        let r = Repo::new();
+        fs::write(r.path.join(".gitattributes"), original).unwrap();
+        r.git(&["add", ".gitattributes"]);
+        r.git(&["commit", "-qm", "checkout attributes"]);
+        let p = pool(&r, CleanupPolicy::Warm);
+        let lease = p.acquire(Default::default()).unwrap();
+        let path = lease.info().worktree_path.clone();
+        assert_eq!(fs::read(path.join("tracked.txt")).unwrap(), expected);
+        fs::write(path.join(".gitattributes"), dirty).unwrap();
+        fs::write(path.join("tracked.txt"), tampered).unwrap();
+        drop(lease);
+        let _lease = p.acquire(Default::default()).unwrap();
+        assert_eq!(fs::read(path.join("tracked.txt")).unwrap(), expected);
+        assert_eq!(
+            fs::read_to_string(path.join(".gitattributes")).unwrap(),
+            original
+        );
+    }
+}
+
+#[test]
+fn reuse_honors_ignored_and_info_attributes_and_repository_checkout_settings() {
+    use std::os::unix::fs::PermissionsExt;
+    for setting in [
+        "ignored-attributes",
+        "info-attributes",
+        "autocrlf",
+        "filemode",
+    ] {
+        let r = Repo::new();
+        if setting == "ignored-attributes" {
+            fs::write(r.path.join(".gitignore"), "ignored/\n.gitattributes\n").unwrap();
+            r.git(&["add", ".gitignore"]);
+            r.git(&["commit", "-qm", "ignore local attributes"]);
+        } else if setting == "info-attributes" {
+            fs::write(r.path.join(".git/info/attributes"), "*.txt text eol=crlf\n").unwrap();
+        } else if setting == "autocrlf" {
+            r.git(&["config", "core.autocrlf", "true"]);
+        } else {
+            r.git(&["config", "core.filemode", "false"]);
+        }
+        let p = pool(&r, CleanupPolicy::Warm);
+        let lease = p.acquire(Default::default()).unwrap();
+        let path = lease.info().worktree_path.clone();
+        let file = path.join("tracked.txt");
+        if setting == "ignored-attributes" {
+            fs::write(path.join(".gitattributes"), "*.txt text eol=crlf\n").unwrap();
+        }
+        if setting == "filemode" {
+            fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).unwrap();
+        } else {
+            fs::write(&file, b"baseline\n").unwrap();
+        }
+        drop(lease);
+        let _lease = p.acquire(Default::default()).unwrap();
+        if setting == "filemode" {
+            assert_eq!(fs::metadata(file).unwrap().permissions().mode() & 0o111, 0);
+        } else {
+            assert_eq!(fs::read(file).unwrap(), b"baseline\r\n", "{setting}");
+        }
+    }
+}
+
+#[test]
 fn warm_commit_switch_removes_old_tracked_paths_that_become_ignored() {
     let r = Repo::new();
     fs::create_dir(r.path.join("obsolete")).unwrap();
