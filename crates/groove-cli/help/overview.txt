@@ -1,7 +1,7 @@
 WORKFLOW:
   groove init --capacity 4
   groove acquire --task fix-parser            # prints the path; work there
-  groove exec --task fix-parser -- cargo test
+  # Work and run commands directly in the printed checkout path.
   groove release --save --task fix-parser     # snapshot, then free the slot
 
 INSPECTION AND SETTINGS:
@@ -16,9 +16,6 @@ INSPECTION AND SETTINGS:
   groove config set --capacity 8   grow the pool
   groove destroy --dry-run         preview deletion of an idle pool
   groove completions bash          print a shell completion script
-  groove history --task NAME       past executions, even after release
-  groove storage clean --logs --older-than 30d --dry-run
-                                   preview explicit captured-log cleanup
 
 Stop ALL writers, then release --save (snapshot, then release) or release. To keep
 commits on a branch, create one yourself first; Groove never manages branches.

@@ -11,9 +11,7 @@ minimum-kernel VM coverage is not established. Native macOS CI targets macOS 15;
 minimum-version macOS VM coverage is not established. Other platforms fail to compile
 with an explicit error.
 
-Both platforms use flock and close-on-exec descriptors. Linux uses signalfd and
-abstract Unix sockets; macOS consumes blocked signals with sigwait and uses
-filesystem Unix sockets authenticated with getpeereid.
+Both platforms use flock and close-on-exec descriptors.
 On Linux, NFS, CIFS/SMB, FUSE, SMB2, Coda and AFS are rejected by filesystem type.
 macOS requires local APFS, including case-sensitive APFS; HFS+, network and FUSE
 filesystems are unsupported. Passing
@@ -22,13 +20,6 @@ must be owned by you and not writable by group/others.
 APFS filenames must be valid UTF-8. Names that differ only by case or Unicode
 normalization may collide on the destination filesystem; repositories must use
 names that the selected volume can represent distinctly.
-
-On macOS, control sockets live in the private mode-0700 directory
-`/private/tmp/groove-UID/`, with short names derived from each run's random endpoint.
-This avoids Unix socket path limits for deeply nested repositories and long TMPDIRs.
-Normal exit removes the owned endpoint. Explicit execution recovery or setup retry
-cleans the corresponding stale socket under execution exclusion; an unexpected
-file is preserved and causes an error. Socket files never establish ownership.
 
 SHA-1/SHA-256 and ordinary, linked and bare repositories are supported. Pool
 checkouts reject submodules, sparse checkout, worktree-specific configuration and
@@ -93,16 +84,13 @@ Pass the same `--pool` on later pool commands. Omission always selects `default`
 even from a named checkout; missing pools never fall back to another namespace.
 Labels/keys can be reused independently across pools. Named state lives under
 `<common>/groove/pools/<name>/`; default retains its original layout and keys.
-All linked checkouts share the catalog. History/storage stay scoped to the selected
-pool even after deletion, while snapshots/branches/objects and Git configuration
+All linked checkouts share the catalog. Snapshots, branches, objects and Git configuration
 are shared.
 
 Checkout roots cannot overlap another pool's published or pending root. Deleted
 pools retain their current root claim until reinitialized with a different root.
 Capacity is per pool, so total repository capacity is the sum of the pools; it
-does not bound CPU, processes or storage. `GROOVE_POOL` identifies managed worker
-context. Slot numbers and derived project ports repeat across pools; choose distinct
-project port ranges or derive workflow-specific behavior explicitly.
+does not bound CPU, processes or storage.
 
 ## Deleting and recreating a pool
 
@@ -132,8 +120,8 @@ artifact entries cause an error before removal starts.
 
 Deletion removes configured workspaces, exact native registrations and disposable
 artifact caches. Permanent locks, journals, saved-release receipts, execution history/logs,
-branches, snapshots and the checkout root itself survive. `history`, `storage` and
-`snapshot` remain available; logs/history use their existing explicit cleanup rules.
+branches, snapshots and the checkout root itself survive. Snapshot commands remain
+available. Legacy logs and history are retained without cleanup commands.
 No Git object collection is run. Keeping a small coordination area is intentional:
 deleting permanent locks could create two independent owners for the same path.
 
@@ -160,13 +148,13 @@ groove show --slot wt-0001
 ```
 
 `list` lists durable reservations. `list --slots` includes available, reserved,
-locked, quarantined and unhealthy slots, plus task labels, acquisition times and
-execution records. These are nontransactional observations; PIDs/age never prove
+locked, quarantined and unhealthy slots, plus task labels and acquisition times. These are nontransactional observations; PIDs/age never prove
 ownership or stopped writers. A live in-process library lease need not appear
 in `list`.
 
-Use [managed execution](execution.md) for deadlines, cancellation, stop and captured
-logs. External editors, watchers and commands remain your responsibility.
+Run commands directly in the reserved checkout. Your runner or terminal owns
+cancellation, timeouts and logs. Stop external editors, watchers and commands
+before release.
 `Lease::run_worker` waits only for its direct child; retained descriptors can keep
 a slot busy indefinitely. Closing a descriptor while continuing to write creates
 the opposite risk. Never explicitly unlock until all writers stop.
@@ -186,19 +174,13 @@ Worktrees share Git objects, refs and configuration. Branches created by agents
 remain in the repository; Groove does not manage/delete them. Coordinate shared
 state changes and avoid branch-name collisions. Worktrees are not security sandboxes.
 Snapshots survive slot reuse but remain local; ordinary branch pushes do not back
-them up. Task logs, request journals and saved-release receipts have no automatic expiry.
-Use `groove storage show` for logical usage and `groove storage clean --logs
---older-than 30d --dry-run` to preview explicit captured-log removal. Cleanup
-retains history; `history delete RUN_ID` separately forgets a terminal run after
-its logs are cleaned. Neither operation removes workspaces, caches, snapshots,
-request journals or saved-release receipts. See [execution](execution.md#history-and-explicit-log-cleanup).
+them up. Request journals and saved-release receipts have no automatic expiry.
 
 ## Recovery
 
 Inspect the affected reservation with `list --slots` or `show` and follow the
-reported next action. Command `--help` owns error-specific recovery instructions;
-[execution recovery](execution.md#crashes-and-recovery) explains how to stop
-managed/orphaned writers. Retry a lost acquisition with its original key and
+reported next action. Command `--help` owns error-specific recovery instructions.
+Retry a lost acquisition with its original key and
 inputs; retry a saved release with its original lease ID and pool. Never infer
 ownership from labels, PIDs or age.
 
@@ -228,13 +210,18 @@ Managed-path symlink and registration checks protect cooperating workflows, not
 malicious same-user directory races. SIGKILL tests establish process-crash
 recovery, not storage/power-loss guarantees. See [testing](testing.md).
 
-## Prepared environments
+## Running project commands
 
-Use [project configuration](project.md) for explicit setup, compatible independent
-artifact copies, stable environment/ports, named recipes and agent argv adapters.
-`config project --example` prints a starter without writing it. `show --details`
-and `list --details` opt into local Git facts; ordinary inspection shows recorded
-setup state, reasons and explicit next actions. `show --task LABEL` requires one
-active match and shows the workspace path; inspecting never reserves it.
+Groove does not read `.groove.toml` or run setup profiles, recipes or agents.
+Use the reserved checkout directly with your terminal or agent runner.
+`show --details` and `list --details` opt into local Git facts.
+
+## Upgrading from managed execution
+
+Before upgrading, use the previous Groove version to stop managed commands.
+For orphaned runs, independently stop every writer and recover with that version.
+Legacy execution locks and records still block release, saved release and deletion;
+never delete them to force reuse. Completed logs, history and artifacts remain on
+disk. This version provides no run-history or log-cleanup commands.
 
 Repository compatibility is listed under [requirements](#requirements).

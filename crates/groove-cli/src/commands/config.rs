@@ -1,4 +1,4 @@
-//! `groove config`: pool settings, project definition, shell helpers and preferences.
+//! `groove config`: pool settings and preferences.
 
 use super::Context;
 use crate::{
@@ -6,10 +6,8 @@ use crate::{
     output::{fields, Output},
     preferences::{self, Change},
 };
-use groove_core::{PoolUpdate, Project, Result};
+use groove_core::{PoolUpdate, Result};
 use serde_json::json;
-
-const PROJECT_EXAMPLE: &str = include_str!("../../templates/project.toml");
 
 pub fn run(context: &Context<'_>, command: &ConfigCommand) -> Result<Output> {
     match command {
@@ -33,18 +31,6 @@ pub fn run(context: &Context<'_>, command: &ConfigCommand) -> Result<Output> {
                 fields(&serde_json::to_value(&result.pool)?, 1)
             );
             Output::text(result, text)
-        }
-        ConfigCommand::Project { example: true } => {
-            Output::raw(json!({ "text": PROJECT_EXAMPLE }), PROJECT_EXAMPLE)
-        }
-        ConfigCommand::Project { example: false } => {
-            let (path, project) = Project::discover(context.repo, context.git_timeout)?;
-            let fingerprint = project.fingerprint()?;
-            Output::fields(json!({
-                "project_path": path,
-                "fingerprint": fingerprint,
-                "project": project,
-            }))
         }
         ConfigCommand::Global(command) => {
             let result = match command {

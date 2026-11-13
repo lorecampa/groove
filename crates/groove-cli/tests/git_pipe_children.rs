@@ -1,6 +1,6 @@
 mod support;
 
-use groove_core::{ErrorCode, ExecutionSignals, Pool, PoolOptions};
+use groove_core::{ErrorCode, Pool, PoolOptions};
 use std::{
     fs,
     io::{self, Read, Write},
@@ -136,7 +136,15 @@ fn await_group_exit(group: u32) {
 fn check_pipe_descendants(stream: &str) {
     // Linux adopts orphaned fixture descendants here so the test can reap them;
     // macOS delegates adoption to its system reaper. This runs in an isolated process.
-    ExecutionSignals::enable_subreaper().unwrap();
+    #[cfg(target_os = "linux")]
+    {
+        // SAFETY: this isolated fixture process adopts its own orphaned children.
+        assert_eq!(
+            // SAFETY: this isolated fixture process adopts its own orphaned children.
+            unsafe { libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) },
+            0
+        );
+    }
     for leader_exits in [true, false] {
         let repo = Repo::new();
         Pool::init(

@@ -24,10 +24,3 @@ path = "fuzz_targets/identifiers.rs"
 test = false
 doc = false
 bench = false
-
-[[bin]]
-name = "project"
-path = "fuzz_targets/project.rs"
-test = false
-doc = false
-bench = false

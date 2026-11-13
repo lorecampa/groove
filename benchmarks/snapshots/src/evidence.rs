@@ -108,21 +108,9 @@ pub(crate) fn observation(case: &Case, evidence: Evidence) -> Result<Observation
                 "source_preserved",
             ],
         ),
-        Workload::WorkspaceSetup { .. } => (
-            vec![("setup_miss", 1), ("setup_hit", 1)],
-            &[
-                "cache_miss",
-                "cache_hit",
-                "artifact_contents",
-                "step_skipped",
-                "released",
-                "source_preserved",
-            ],
-        ),
         Workload::WorkspaceConcurrency { workers } => (
             vec![
                 ("acquire", workers),
-                ("exec", workers),
                 ("release", workers),
                 ("full_pool_rejection", 1),
             ],
@@ -142,7 +130,6 @@ pub(crate) fn observation(case: &Case, evidence: Evidence) -> Result<Observation
                 ("pool_init", pools),
                 ("first_acquire", pools * workers_per_pool),
                 ("acquire", pools * workers_per_pool),
-                ("exec", pools * workers_per_pool),
                 ("release", pools * workers_per_pool),
                 ("full_pool_rejection", pools),
                 ("pool_catalog", 1),
@@ -365,7 +352,6 @@ mod tests {
                 ("pool_init", 2),
                 ("first_acquire", 4),
                 ("acquire", 4),
-                ("exec", 4),
                 ("release", 4),
                 ("full_pool_rejection", 2),
                 ("pool_catalog", 1),

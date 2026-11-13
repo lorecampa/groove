@@ -13,7 +13,7 @@ cp fuzz/Cargo.lock "$scratch/Cargo.lock"
 # cargo-fuzz does not expose --locked. Prefetch the locked graph, build offline,
 # and reject any lockfile change. Corpus mutations stay outside the checkout.
 cargo fetch --locked --manifest-path fuzz/Cargo.toml
-for target in identifiers project; do
+for target in identifiers; do
   cp -R "fuzz/corpus/$target" "$scratch/$target"
   CARGO_NET_OFFLINE=true cargo +nightly-2026-11-12 fuzz run "$target" "$scratch/$target" -- \
     "-max_total_time=$duration" -max_len=65536 -timeout=10

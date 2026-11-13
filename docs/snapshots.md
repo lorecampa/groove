@@ -9,7 +9,7 @@ defaults and examples. This guide explains capture, recovery and retention.
 
 For a pooled task, `groove release --save --task NAME` saves and pins a snapshot before
 releasing its checkout. It retains protection on capture failure and a durable
-retry receipt on success; see [release --save and recovery](execution.md#checkpoint-and-release).
+retry receipt on success; see [reservation retries and recovery](../skills/groove/references/recovery.md).
 
 ```sh
 groove snapshot save "before refactor"

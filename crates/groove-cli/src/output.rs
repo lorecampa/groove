@@ -1,6 +1,6 @@
 //! Response rendering: the versioned JSON envelope, human-readable text and exit codes.
 
-use groove_core::{Error, ErrorCode, ExecResult, Preparation, PreparationStatus};
+use groove_core::{Error, ErrorCode};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::io::{self, Write};
@@ -60,10 +60,6 @@ impl Output {
         output.raw = true;
         Ok(output)
     }
-    pub fn with_status(mut self, status: u8) -> Self {
-        self.status = status;
-        self
-    }
 }
 
 /// CLI exit category for an error code; see the overview help.
@@ -79,23 +75,6 @@ pub fn error_status(code: ErrorCode) -> u8 {
         ErrorCode::RecoveryFailed | ErrorCode::PoolUnhealthy => 6,
         _ => 7,
     }
-}
-
-/// Exit status for a setup attempt: zero when ready, else the failing step's status.
-pub fn preparation_status(preparation: &Preparation) -> u8 {
-    if preparation.status == PreparationStatus::Ready {
-        return 0;
-    }
-    if let Some(signal) = preparation.cancelled {
-        return (128 + signal).clamp(0, 255) as u8;
-    }
-    preparation
-        .steps
-        .last()
-        .and_then(|step| step.execution.as_ref())
-        .map(ExecResult::shell_status)
-        .filter(|status| *status != 0)
-        .unwrap_or(EXIT_OUTPUT_FAILED)
 }
 
 fn envelope(request_id: Option<&str>, body: Value) -> Value {
@@ -194,7 +173,7 @@ fn error_hint(error: &Error, args: Option<&crate::args::Args>) -> Option<String>
             "Export any wanted residual files from the reported path before deletion, including ignored caches (snapshots exclude them). Then preview `groove destroy --discard-changes --dry-run` and repeat without --dry-run to acknowledge their loss. Released tasks cannot save new files through a release retry.",
         ),
         ErrorCode::InvalidLease if error.retryable => Some(
-            "The execution lock may be held by maintenance or a worker. Retry the same operation with the original lease ID after contention clears. Inspect `groove show` with your selector; only stop/recover a managed execution if one is recorded. Never remove locks or protection.",
+            "Another operation holds a reservation lock. Retry with the original lease ID after contention clears. Never remove locks or protection.",
         ),
         ErrorCode::PoolExhausted | ErrorCode::AcquireTimeout => Some(
             "Run `groove list --slots` to inspect reservations. Wait for an owner to finish, or retry acquire with `--wait-ms 30000`. Reservations never expire automatically.",
@@ -209,13 +188,13 @@ fn error_hint(error: &Error, args: Option<&crate::args::Args>) -> Option<String>
             "Run `groove list` to find the active task and lease ID, then check your selector. A released or reassigned lease cannot select its successor.",
         ),
         ErrorCode::InvalidLease => Some(
-            "Inspect `groove list --slots` and `groove show` with your selector. If a managed run is present, request `groove stop` with that selector; for orphan recovery, stop every writer first and follow `groove recover --help`. Never delete lock or protection files.",
+            "Inspect `groove list --slots` and `groove show` with your selector. Legacy execution records must be resolved using the previous Groove version before upgrading. Never delete lock or protection files.",
         ),
         ErrorCode::UnsavedChanges => Some(
             "Preserve the changes before releasing. Stop all writers, then use `groove release --save` with the same --task or --lease-id to save a snapshot and release the workspace.",
         ),
         ErrorCode::WorkspaceInUse => Some(
-            "Stop the reported processes and all other workspace writers, then retry. For a managed run, use `groove stop` with the same selector and inspect until its execution record clears.",
+            "Stop the reported processes and all other workspace writers, then retry.",
         ),
         ErrorCode::PoolUnhealthy | ErrorCode::RecoveryFailed => Some(
             "Run `groove list --slots` and inspect the reported slot failures. Resolve the underlying filesystem or Git problem before retrying; never remove lock or protection files to force reuse.",

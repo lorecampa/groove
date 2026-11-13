@@ -3,7 +3,7 @@
 use crate::{
     locking::{Identity, SlotGuard},
     state::{self, SlotPhase, SlotRecord},
-    Error, ErrorCode, LeaseInfo, Pool, PreparationStatus, Result, SlotId,
+    Error, ErrorCode, LeaseInfo, Pool, Result, SlotId,
 };
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf, time::Duration};
@@ -37,13 +37,9 @@ pub struct SlotInspection {
     pub lease: Option<LeaseInfo>,
     /// Whether an independent lock probe observed an owner.
     pub lock_held: bool,
-    /// Managed execution metadata, including orphaned execution prohibitions.
-    pub execution: Option<crate::ExecutionInfo>,
-    /// Metadata or preparation failure, if any.
+    /// Metadata or checkout failure, if any.
     pub failure: Option<String>,
-    /// Current-generation explicit project readiness, absent when not requested.
-    pub preparation: Option<crate::Preparation>,
-    /// Human-readable explanation derived from observed ownership and readiness.
+    /// Human-readable explanation derived from observed ownership and checkout state.
     pub reason: String,
     /// Suggested explicit next action; never permission for automatic reclamation.
     pub next_action: String,
@@ -80,20 +76,6 @@ pub struct PoolInspection {
     pub slots: Vec<SlotInspection>,
 }
 
-/// Read an optional record: a missing file is `None`, anything else unreadable is an error.
-fn read_optional<T: serde::de::DeserializeOwned>(
-    path: &std::path::Path,
-    limit: u64,
-) -> Result<Option<T>> {
-    match state::read_bounded::<T>(path, limit) {
-        Ok(value) => Ok(Some(value)),
-        Err(error) if error.code == ErrorCode::IoError && !path.try_exists().unwrap_or(true) => {
-            Ok(None)
-        }
-        Err(error) => Err(error),
-    }
-}
-
 /// Collects the first metadata failure seen while observing a slot.
 #[derive(Default)]
 struct Failure(Option<String>);
@@ -111,43 +93,23 @@ impl Failure {
 }
 
 /// Explanation and next step for an observed slot.
-fn advice(
-    status: &SlotStatus,
-    execution: bool,
-    preparation: Option<PreparationStatus>,
-) -> (&'static str, &'static str) {
-    match (status, execution, preparation) {
-        (SlotStatus::Unhealthy | SlotStatus::Quarantined, _, _) => (
+fn advice(status: &SlotStatus) -> (&'static str, &'static str) {
+    match status {
+        SlotStatus::Unhealthy | SlotStatus::Quarantined => (
             "Workspace metadata or checkout needs attention",
-            "Inspect the failure; retain reservations and recover only after stopping writers",
+            "Inspect the failure; retain reservations until all writers stop",
         ),
-        (_, true, _) => (
-            "Managed execution is active or awaiting orphan recovery",
-            "Inspect logs; stop the execution, or recover it after all writers stop",
+        SlotStatus::Reserved => (
+            "Reserved checkout",
+            "Work in the checkout; preserve results and stop all writers before release",
         ),
-        (_, _, Some(PreparationStatus::Preparing)) => (
-            "Project setup is running or was interrupted",
-            "Inspect setup; stop it if live, or explicitly retry after writer recovery",
-        ),
-        (_, _, Some(PreparationStatus::Ready)) => (
-            "Project setup completed for this reservation; named commands revalidate its definition",
-            "Run a task; release after preserving results and stopping writers",
-        ),
-        (_, _, Some(PreparationStatus::Failed)) => (
-            "Project setup failed; the reservation remains protected",
-            "Inspect setup logs and explicitly retry, or preserve results and release",
-        ),
-        (SlotStatus::Reserved, _, None) => (
-            "Reserved checkout; project setup has not been requested",
-            "Explicitly run setup or a task; release after saving results and stopping writers",
-        ),
-        (SlotStatus::Locked, _, None) => (
+        SlotStatus::Locked => (
             "A descriptor owner is using or preparing this workspace",
             "Wait for its owner; metadata and age never authorize reclaiming it",
         ),
-        (SlotStatus::Available, _, None) => (
-            "Available for a new task; preparation runs on acquisition",
-            "Acquire before editing or executing project commands",
+        SlotStatus::Available => (
+            "Available for a new task",
+            "Acquire before editing the checkout",
         ),
     }
 }
@@ -243,28 +205,9 @@ impl Pool {
                 }
             }
         }
-        let execution = failure
-            .keep(read_optional::<crate::ExecutionInfo>(
-                &self.repo.execution_path(slot),
-                crate::preparation::RECORD_LIMIT,
-            ))
-            .flatten();
-        let preparation = failure
-            .keep(read_optional::<crate::Preparation>(
-                &self.preparation_path(slot),
-                crate::preparation::RECORD_LIMIT,
-            ))
-            .flatten()
-            .filter(|preparation| {
-                if preparation.schema_version != state::SCHEMA_VERSION {
-                    failure.note("Unsupported setup metadata");
-                    return false;
-                }
-                protected
-                    && lease
-                        .as_ref()
-                        .is_some_and(|lease| lease.lease_id == preparation.lease_id)
-            });
+        if let Err(error) = self.require_execution_clear(slot) {
+            failure.note(&error.message);
+        }
         let status = if failure.0.is_some() {
             SlotStatus::Unhealthy
         } else if lock_held {
@@ -280,20 +223,14 @@ impl Pool {
             SlotStatus::Available
         };
         let failure = failure.0.or_else(|| record.and_then(|r| r.failure));
-        let (reason, next_action) = advice(
-            &status,
-            execution.is_some(),
-            preparation.as_ref().map(|p| p.status),
-        );
+        let (reason, next_action) = advice(&status);
         SlotInspection {
             slot_id: slot.clone(),
             status,
             worktree_path: self.config.worktree_root.join(slot.as_str()),
             lease,
             lock_held,
-            execution,
             failure,
-            preparation,
             reason: reason.into(),
             next_action: next_action.into(),
             git: None,

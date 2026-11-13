@@ -16,8 +16,7 @@ operational commands run. Help remains available with broken preferences.
 EXPERIMENTAL FEATURES:
 experimental.features is a TOML array of individual feature names, default [].
 Set it with `config global set 'experimental.features=["NAME"]'`, or unset it
-to remove user opt-ins. The project file accepts the same [experimental] table.
-User and project opt-ins are additive; listing a name in both sources is valid.
+to remove user opt-ins.
 There is no switch to enable all future experiments. No names are registered yet.
 Names contain 1-64 lowercase ASCII letters, digits or hyphens, starting with a letter.
 Unknown or removed names fail with UNSUPPORTED_CONFIGURATION; upgrade to a
@@ -42,7 +41,7 @@ $XDG_STATE_HOME/groove/logs (or ~/.local/state/groove/logs). TOML paths must be
 absolute and do not expand ~. logging.level accepts
 error/warn/info/debug/trace and is independent of -v/--quiet. GROOVE_LOG_DIR and
 GROOVE_LOG_ENABLED=true|false override file settings. Retention applies to CLI
-diagnostics, not managed-worker logs; use history/storage for those.
+diagnostics.
 
 `set` accepts TOML literals or bare strings, validates updates together and saves
 atomically, preserving comments. `unset` restores defaults. Size/count/age limits

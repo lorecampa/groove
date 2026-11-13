@@ -36,8 +36,8 @@
       ]
     },
     {
-      "id": "workspace-multi-pool", "version": 1,
-      "purpose": "First registration and warm acquire/execute/release throughput across named pools sharing Git administration, with independent repeated task labels/keys and catalog verification.",
+      "id": "workspace-multi-pool", "version": 2,
+      "purpose": "First registration and warm acquire/release throughput across named pools sharing Git administration, with independent repeated task labels/keys and catalog verification.",
       "environment": "cli-linux-amd64-v4",
       "sampling": {"blocks": 10, "warmup_blocks": 1},
       "estimated_minutes": [1, 5],
@@ -47,7 +47,7 @@
       ]
     },
     {
-      "id": "workspace-deletion", "version": 1,
+      "id": "workspace-deletion", "version": 2,
       "purpose": "Preview, ambiguity rejection, pool deletion/retry and reinitialization for lazy, populated, dirty and external cached checkouts; verify retained results/locks and an untouched protected sibling.",
       "environment": "cli-linux-amd64-v4",
       "sampling": {"blocks": 10, "warmup_blocks": 1},
@@ -115,18 +115,8 @@
       ]
     },
     {
-      "id": "workspace-setup", "version": 1,
-      "purpose": "Explicit setup and copy-cache publication/seeding of 256 small files plus one 4 MiB artifact, with independently verified contents.",
-      "environment": "cli-linux-amd64-v4",
-      "sampling": {"blocks": 10, "warmup_blocks": 1},
-      "estimated_minutes": [1, 5],
-      "cases": [
-        {"id": "copy-cache", "files": 1000, "contents": {"kind": "unique"}, "workload": {"kind": "workspace-setup", "artifact_files": 256, "artifact_file_bytes": 4096, "artifact_binary_bytes": 4194304}}
-      ]
-    },
-    {
-      "id": "workspace-concurrency", "version": 1,
-      "purpose": "Warm acquire/no-op managed execution/release throughput, per-worker latency and full-pool contention at fixed worker counts.",
+      "id": "workspace-concurrency", "version": 2,
+      "purpose": "Warm acquire/release throughput, per-worker latency and full-pool contention at fixed worker counts.",
       "environment": "cli-linux-amd64-v4",
       "sampling": {"blocks": 10, "warmup_blocks": 1},
       "estimated_minutes": [1, 5],

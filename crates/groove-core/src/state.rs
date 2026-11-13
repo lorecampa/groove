@@ -27,7 +27,7 @@ pub(crate) struct Config {
     pub admin_identity: Identity,
     /// Permanent slot ownership lock identities.
     pub slots: BTreeMap<crate::SlotId, Identity>,
-    /// Permanent managed-execution lock identities, one per slot.
+    /// Permanent legacy execution lock identities, one per slot.
     pub execution_locks: BTreeMap<crate::SlotId, Identity>,
 }
 
@@ -157,3 +157,13 @@ pub(crate) fn checkpoint(name: &str) {
 }
 #[cfg(not(feature = "test-hooks"))]
 pub(crate) fn checkpoint(_: &str) {}
+
+/// Lowercase hexadecimal for deterministic namespace and request hashes.
+pub(crate) fn hex(bytes: impl AsRef<[u8]>) -> String {
+    use std::fmt::Write;
+    let mut result = String::with_capacity(bytes.as_ref().len() * 2);
+    for byte in bytes.as_ref() {
+        write!(result, "{byte:02x}").expect("writing to a String cannot fail");
+    }
+    result
+}

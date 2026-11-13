@@ -1,16 +1,16 @@
 # Configuration compatibility
 
-User preferences and project definitions are persistent interfaces. New binaries
-must continue to read supported older files, preserving the meaning of explicit
-stable settings. This promise does not imply that older binaries understand new
+User preferences are a persistent interface. New binaries must continue to read
+supported older files, preserving the meaning of explicit stable settings.
+This promise does not imply that older binaries understand new
 options or can safely share a pool with newer writers. User preferences remain
-unversioned; project files keep their independent format version. Neither is the
-CLI response version or the durable pool/record version.
+unversioned, independently of the CLI response and durable pool/record versions.
+Project execution configuration is no longer read;
+see the removal notice in the changelog.
 
 Use each `config` command's installed help for syntax and defaults. The
-[user schema](../schemas/user-v1.schema.json) and
-[project schema](../schemas/project-v1.schema.json) describe their TOML data
-models; the loaders also enforce semantic constraints. JSON Schema default
+[user schema](../schemas/user-v1.schema.json) describes its TOML data
+model; the loader also enforces semantic constraints. JSON Schema default
 annotations document defaults but do not populate missing fields.
 
 ## Evolution and retirement
@@ -33,7 +33,7 @@ graduation and removal; it starts empty. Tests use fixture-only feature names,
 which are never accepted by production binaries.
 
 Implement a real experiment's gate and its regression coverage with its registry
-entry. Resolve user and project requests through the shared resolver before
+entry. Resolve user preference requests through the shared resolver before
 testing a registered feature definition. Requests are additive across sources;
 omission never opts into an experimental capability. Ordinary unknown keys,
 malformed names and duplicate entries remain errors. Unsupported requested names

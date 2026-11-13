@@ -2,7 +2,6 @@
 
 mod completions;
 mod config;
-mod history;
 mod lease;
 mod pool;
 mod snapshot;
@@ -72,7 +71,6 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
             task,
             request_key,
             wait_ms,
-            setup,
         } => lease::acquire(
             context,
             lease::AcquireRequest {
@@ -81,26 +79,7 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
                 request_key: request_key.clone(),
                 wait: Duration::from_millis(*wait_ms),
             },
-            setup,
         ),
-        Command::Exec {
-            lease,
-            limits,
-            setup,
-            recipe,
-            agent,
-            command,
-        } => lease::exec(
-            context,
-            lease,
-            limits,
-            setup,
-            recipe.as_deref(),
-            agent.as_deref(),
-            command,
-        ),
-        Command::Stop { lease } => lease::stop(context, lease),
-        Command::Recover { lease } => lease::recover(context, lease),
         Command::Release {
             lease,
             save,
@@ -126,12 +105,5 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
         Command::Completions { shell } => completions::run(*shell),
         Command::Snapshot(command) => snapshot::run(context, command),
         Command::Config(command) => config::run(context, command),
-        Command::History {
-            task,
-            lease_id,
-            page,
-            command,
-        } => history::history(context, task.clone(), *lease_id, page, command.as_ref()),
-        Command::Storage(command) => history::storage(context, command),
     }
 }

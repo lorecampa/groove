@@ -61,11 +61,6 @@ pub(crate) enum Workload {
         ignored_files: usize,
         ignored_file_bytes: usize,
     },
-    WorkspaceSetup {
-        artifact_files: usize,
-        artifact_file_bytes: usize,
-        artifact_binary_bytes: usize,
-    },
     WorkspaceConcurrency {
         workers: usize,
     },
@@ -143,23 +138,14 @@ impl Case {
                 "first/clean/dirty reuse and backward/forward commit changes; {} cleanup; {ignored_files} ignored files ({:.1} MiB)",
                 cleanup.name(), (ignored_files * ignored_file_bytes) as f64 / 1048576.0
             ),
-            Workload::WorkspaceSetup {
-                artifact_files,
-                artifact_file_bytes,
-                artifact_binary_bytes,
-            } => format!(
-                "cache miss/hit, {} artifacts, {:.1} MiB",
-                artifact_files + 1,
-                (artifact_files * artifact_file_bytes + artifact_binary_bytes) as f64 / 1048576.0
-            ),
             Workload::WorkspaceConcurrency { workers } => format!(
-                "{workers} simultaneous acquire/execute/release workers and full-pool rejection"
+                "{workers} simultaneous acquire/release workers and full-pool rejection"
             ),
             Workload::WorkspaceMultiPool { pools, workers_per_pool } => format!(
-                "{pools} independent pools with {workers_per_pool} workers each; first/warm acquisition, execution, release and catalog"
+                "{pools} independent pools with {workers_per_pool} workers each; first/warm acquisition, release and catalog"
             ),
             Workload::WorkspaceDeletion { slots, materialized, dirty, external, artifact_files, .. } => format!(
-                "delete {slots} {} slots, {} residue, {} checkout root, {artifact_files} cache files; retain protected sibling, snapshots/history/locks and reinitialize",
+                "delete {slots} {} slots, {} residue, {} checkout root, {artifact_files} cache files; retain protected sibling, snapshots/locks and reinitialize",
                 if materialized { "materialized" } else { "lazy" }, if dirty { "dirty" } else { "clean" }, if external { "external" } else { "default" }
             ),
         };
@@ -211,12 +197,7 @@ impl Case {
         } else {
             0
         };
-        let artifact = if let Workload::WorkspaceSetup {
-            artifact_files,
-            artifact_file_bytes,
-            artifact_binary_bytes,
-        }
-        | Workload::WorkspaceDeletion {
+        let artifact = if let Workload::WorkspaceDeletion {
             artifact_files,
             artifact_file_bytes,
             artifact_binary_bytes,
@@ -237,7 +218,7 @@ pub(crate) fn validate(profile: &Profile) -> Result<()> {
     require(
         !profile.id.is_empty()
             && profile.id != "all"
-            && profile.version == 1
+            && profile.version > 0
             && !profile.purpose.is_empty()
             && profile.environment == crate::fixture::lock()["environment_id"],
         "Invalid profile provenance/version",
@@ -322,18 +303,6 @@ pub(crate) fn validate(profile: &Profile) -> Result<()> {
                     "Invalid deletion cache fixture",
                 )?;
             }
-            Workload::WorkspaceSetup {
-                artifact_files,
-                artifact_file_bytes,
-                artifact_binary_bytes,
-            } => require(
-                *artifact_files > 0
-                    && *artifact_files <= 10000
-                    && *artifact_file_bytes > 0
-                    && *artifact_file_bytes <= 1024 * 1024
-                    && *artifact_binary_bytes <= 64 * 1024 * 1024,
-                "Invalid setup artifacts",
-            )?,
             _ => (),
         }
         if let Contents::Binary { bytes } = case.contents {

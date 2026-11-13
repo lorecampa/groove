@@ -28,8 +28,12 @@
               "storage": {
                 "description": "Present with pools --disk-usage. Logical bytes; null for interrupted pools whose storage cannot be inspected.",
                 "anyOf": [
-                  {"$ref": "#/$defs/storage_result/properties/storage"},
-                  {"type": "null"}
+                  {
+                    "$ref": "#/$defs/storage_usage"
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
               },
               "name": {
@@ -155,165 +159,6 @@
         }
       }
     },
-    "preparation": {
-      "type": "object",
-      "required": [
-        "schema_version",
-        "lease_id",
-        "profile",
-        "fingerprint",
-        "status",
-        "steps",
-        "cache_hit",
-        "seeded_bytes",
-        "seeded_files",
-        "control_name",
-        "started_at_unix_ms"
-      ],
-      "properties": {
-        "schema_version": {
-          "const": 1
-        },
-        "lease_id": {
-          "$ref": "#/$defs/uuid"
-        },
-        "profile": {
-          "type": "string"
-        },
-        "fingerprint": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{64}$"
-        },
-        "status": {
-          "enum": [
-            "preparing",
-            "ready",
-            "failed"
-          ]
-        },
-        "step": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "steps": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": [
-              "name",
-              "skipped",
-              "execution"
-            ],
-            "properties": {
-              "name": {
-                "type": "string"
-              },
-              "skipped": {
-                "type": "boolean"
-              },
-              "execution": {
-                "anyOf": [
-                  {
-                    "type": "null"
-                  },
-                  {
-                    "$ref": "#/$defs/execution_result/properties/execution"
-                  }
-                ]
-              }
-            }
-          }
-        },
-        "cache_key": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "cache_hit": {
-          "type": "boolean"
-        },
-        "seeded_bytes": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "seeded_files": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "error": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "cancelled": {
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "started_at_unix_ms": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "completed_at_unix_ms": {
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "control_name": {
-          "description": "Opaque platform-local supervisor endpoint name; use groove stop to request cancellation.",
-          "type": "string"
-        }
-      }
-    },
-    "preparation_result": {
-      "type": "object",
-      "required": [
-        "preparation"
-      ],
-      "not": {
-        "required": [
-          "lease_id"
-        ]
-      },
-      "properties": {
-        "preparation": {
-          "$ref": "#/$defs/preparation"
-        }
-      }
-    },
-    "project_result": {
-      "type": "object",
-      "required": [
-        "project_path",
-        "project",
-        "fingerprint"
-      ],
-      "properties": {
-        "project_path": {
-          "type": "string"
-        },
-        "project": {
-          "type": "object",
-          "required": [
-            "schema_version"
-          ],
-          "properties": {
-            "schema_version": {
-              "const": 1
-            }
-          }
-        },
-        "fingerprint": {
-          "type": "string"
-        }
-      }
-    },
     "error": {
       "properties": {
         "hint": {
@@ -343,13 +188,6 @@
         "details": {
           "type": "object",
           "properties": {
-            "program": {
-              "type": "string"
-            },
-            "run_id": {
-              "type": "string",
-              "format": "uuid"
-            },
             "path": {
               "type": "string"
             },
@@ -415,9 +253,6 @@
             },
             "safety_snapshot_id": {
               "$ref": "#/$defs/uuid"
-            },
-            "preparation": {
-              "$ref": "#/$defs/preparation"
             },
             "secondary_error": {
               "type": "string"
@@ -489,107 +324,6 @@
         "message",
         "retryable",
         "details"
-      ],
-      "type": "object"
-    },
-    "execution_info": {
-      "properties": {
-        "control_name": {
-          "description": "Opaque platform-local supervisor endpoint name; use groove stop to request cancellation.",
-          "type": "string"
-        },
-        "leader_pid": {
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "lease_id": {
-          "$ref": "#/$defs/uuid"
-        },
-        "program": {
-          "type": "string"
-        },
-        "run_id": {
-          "$ref": "#/$defs/uuid"
-        },
-        "schema_version": {
-          "const": 1
-        },
-        "started_at_unix_ms": {
-          "minimum": 0,
-          "type": "integer"
-        },
-        "stderr_path": {
-          "type": "string"
-        },
-        "stdout_path": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "schema_version",
-        "lease_id",
-        "run_id",
-        "program",
-        "started_at_unix_ms",
-        "leader_pid",
-        "control_name",
-        "stdout_path",
-        "stderr_path"
-      ],
-      "type": "object"
-    },
-    "execution_result": {
-      "properties": {
-        "execution": {
-          "properties": {
-            "exit_code": {
-              "type": [
-                "integer",
-                "null"
-              ]
-            },
-            "lease_id": {
-              "$ref": "#/$defs/uuid"
-            },
-            "run": {
-              "$ref": "#/$defs/execution_info"
-            },
-            "signal": {
-              "type": [
-                "integer",
-                "null"
-              ]
-            },
-            "termination": {
-              "enum": [
-                "exited",
-                "timed_out",
-                "cancelled",
-                "output_limited"
-              ]
-            },
-            "cancel_signal": {
-              "type": [
-                "integer",
-                "null"
-              ]
-            }
-          },
-          "required": [
-            "lease_id",
-            "run",
-            "termination",
-            "exit_code",
-            "signal",
-            "cancel_signal"
-          ],
-          "type": "object"
-        }
-      },
-      "required": [
-        "execution"
       ],
       "type": "object"
     },
@@ -667,7 +401,7 @@
       "properties": {
         "storage": {
           "description": "Present with show --disk-usage in the pool view; logical bytes, excluding shared Git objects and snapshots.",
-          "$ref": "#/$defs/storage_result/properties/storage"
+          "$ref": "#/$defs/storage_usage"
         },
         "inspection": {
           "properties": {
@@ -679,26 +413,6 @@
             "slots": {
               "items": {
                 "properties": {
-                  "execution": {
-                    "anyOf": [
-                      {
-                        "type": "null"
-                      },
-                      {
-                        "$ref": "#/$defs/execution_info"
-                      }
-                    ]
-                  },
-                  "preparation": {
-                    "anyOf": [
-                      {
-                        "type": "null"
-                      },
-                      {
-                        "$ref": "#/$defs/preparation"
-                      }
-                    ]
-                  },
                   "reason": {
                     "type": "string"
                   },
@@ -779,7 +493,6 @@
                   "worktree_path",
                   "lease",
                   "lock_held",
-                  "execution",
                   "failure"
                 ],
                 "type": "object"
@@ -801,9 +514,6 @@
     },
     "lease": {
       "properties": {
-        "preparation": {
-          "$ref": "#/$defs/preparation"
-        },
         "acquired_at_unix_ms": {
           "minimum": 0,
           "type": "integer"
@@ -885,17 +595,6 @@
         "pristine",
         "warm"
       ]
-    },
-    "recover_result": {
-      "properties": {
-        "execution_recovered": {
-          "$ref": "#/$defs/execution_info"
-        }
-      },
-      "required": [
-        "execution_recovered"
-      ],
-      "type": "object"
     },
     "release": {
       "properties": {
@@ -1017,32 +716,6 @@
         }
       ]
     },
-    "stop_result": {
-      "oneOf": [
-        {
-          "type": "object",
-          "required": [
-            "stop_requested"
-          ],
-          "properties": {
-            "stop_requested": {
-              "$ref": "#/$defs/execution_info"
-            }
-          }
-        },
-        {
-          "type": "object",
-          "required": [
-            "preparation_stop_requested"
-          ],
-          "properties": {
-            "preparation_stop_requested": {
-              "$ref": "#/$defs/preparation"
-            }
-          }
-        }
-      ]
-    },
     "text": {
       "properties": {
         "text": {
@@ -1066,20 +739,30 @@
                 "features": {
                   "type": "array",
                   "uniqueItems": true,
-                  "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"}
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,63}$"
+                  }
                 }
               },
-              "required": ["features"]
+              "required": [
+                "features"
+              ]
             },
             "worktrees": {
               "type": "object",
               "properties": {
                 "root": {
-                  "type": ["string", "null"],
+                  "type": [
+                    "string",
+                    "null"
+                  ],
                   "pattern": "^/"
                 }
               },
-              "required": ["root"],
+              "required": [
+                "root"
+              ],
               "additionalProperties": false
             },
             "logging": {
@@ -1179,395 +862,6 @@
         }
       }
     },
-    "run_history": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "cancel_signal",
-        "duration_ms",
-        "ended_at_unix_ms",
-        "exit_code",
-        "failure",
-        "lease_id",
-        "logs",
-        "origin",
-        "outcome",
-        "program",
-        "run_id",
-        "schema_version",
-        "signal",
-        "slot_id",
-        "started_at_unix_ms",
-        "stderr_path",
-        "stdout_path",
-        "task",
-        "termination"
-      ],
-      "properties": {
-        "schema_version": {
-          "const": 1
-        },
-        "run_id": {
-          "$ref": "#/$defs/uuid"
-        },
-        "slot_id": {
-          "$ref": "#/$defs/slot"
-        },
-        "lease_id": {
-          "$ref": "#/$defs/uuid"
-        },
-        "task": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "program": {
-          "type": "string"
-        },
-        "origin": {
-          "oneOf": [
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "kind"
-              ],
-              "properties": {
-                "kind": {
-                  "const": "command"
-                }
-              }
-            },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "kind",
-                "profile",
-                "step"
-              ],
-              "properties": {
-                "kind": {
-                  "const": "setup"
-                },
-                "profile": {
-                  "type": "string"
-                },
-                "step": {
-                  "type": "string"
-                }
-              }
-            },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "kind",
-                "name"
-              ],
-              "properties": {
-                "kind": {
-                  "const": "recipe"
-                },
-                "name": {
-                  "type": "string"
-                }
-              }
-            },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "kind",
-                "name"
-              ],
-              "properties": {
-                "kind": {
-                  "const": "agent"
-                },
-                "name": {
-                  "type": "string"
-                }
-              }
-            },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "kind"
-              ],
-              "properties": {
-                "kind": {
-                  "const": "unknown"
-                }
-              }
-            }
-          ]
-        },
-        "started_at_unix_ms": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "ended_at_unix_ms": {
-          "anyOf": [
-            {
-              "type": "integer",
-              "minimum": 0
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "duration_ms": {
-          "anyOf": [
-            {
-              "type": "integer",
-              "minimum": 0
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "outcome": {
-          "enum": [
-            "unresolved",
-            "completed",
-            "spawn_failed",
-            "recovered"
-          ]
-        },
-        "termination": {
-          "anyOf": [
-            {
-              "enum": [
-                "exited",
-                "timed_out",
-                "cancelled",
-                "output_limited"
-              ]
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "exit_code": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "signal": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "cancel_signal": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "failure": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "logs": {
-          "enum": [
-            "present",
-            "removing",
-            "removed"
-          ]
-        },
-        "stdout_path": {
-          "type": "string"
-        },
-        "stderr_path": {
-          "type": "string"
-        }
-      }
-    },
-    "history_result": {
-      "oneOf": [
-        {
-          "$ref": "#/$defs/history_list_result"
-        },
-        {
-          "$ref": "#/$defs/history_show_result"
-        },
-        {
-          "$ref": "#/$defs/history_delete_result"
-        }
-      ]
-    },
-    "storage_result": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "storage"
-      ],
-      "properties": {
-        "storage": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "artifact_bytes",
-            "history_bytes",
-            "log_bytes",
-            "runs",
-            "untracked_log_bytes",
-            "untracked_runs",
-            "workspace_bytes"
-          ],
-          "properties": {
-            "log_bytes": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "history_bytes": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "untracked_log_bytes": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "untracked_runs": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "artifact_bytes": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "workspace_bytes": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "runs": {
-              "type": "integer",
-              "minimum": 0
-            }
-          }
-        }
-      }
-    },
-    "cleanup_result": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "cleanup"
-      ],
-      "properties": {
-        "cleanup": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "dry_run",
-            "entries"
-          ],
-          "properties": {
-            "dry_run": {
-              "type": "boolean"
-            },
-            "entries": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "error_code",
-                  "log_bytes",
-                  "reason",
-                  "run_id",
-                  "status"
-                ],
-                "properties": {
-                  "run_id": {
-                    "$ref": "#/$defs/uuid"
-                  },
-                  "log_bytes": {
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  "status": {
-                    "enum": [
-                      "removed",
-                      "would_remove",
-                      "skipped",
-                      "failed"
-                    ]
-                  },
-                  "reason": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "error_code": {
-                    "anyOf": [
-                      {
-                        "enum": [
-                          "INVALID_ARGUMENT",
-                          "UNSUPPORTED_CONFIGURATION",
-                          "POOL_EXHAUSTED",
-                          "ACQUIRE_TIMEOUT",
-                          "NOT_INITIALIZED",
-                          "CONFIG_CONFLICT",
-                          "INVALID_REVISION",
-                          "INVALID_LEASE",
-                          "LEASE_MISMATCH",
-                          "RECOVERY_FAILED",
-                          "POOL_UNHEALTHY",
-                          "IO_ERROR",
-                          "GIT_ERROR",
-                          "PROTOCOL_ERROR",
-                          "UNSAVED_CHANGES",
-                          "WORKSPACE_IN_USE"
-                        ]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "snapshot_one_result": {
       "type": "object",
       "required": [
@@ -1641,42 +935,46 @@
         }
       }
     },
-    "history_list_result": {
+    "storage_usage": {
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "runs"
+        "artifact_bytes",
+        "history_bytes",
+        "log_bytes",
+        "runs",
+        "untracked_log_bytes",
+        "untracked_runs",
+        "workspace_bytes"
       ],
       "properties": {
+        "log_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "history_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "untracked_log_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "untracked_runs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "artifact_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "workspace_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
         "runs": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/run_history"
-          }
-        }
-      }
-    },
-    "history_show_result": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "run"
-      ],
-      "properties": {
-        "run": {
-          "$ref": "#/$defs/run_history"
-        }
-      }
-    },
-    "history_delete_result": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "deleted_run_id"
-      ],
-      "properties": {
-        "deleted_run_id": {
-          "$ref": "#/$defs/uuid"
+          "type": "integer",
+          "minimum": 0
         }
       }
     }
@@ -1730,15 +1028,6 @@
               "$ref": "#/$defs/slot_result"
             },
             {
-              "$ref": "#/$defs/execution_result"
-            },
-            {
-              "$ref": "#/$defs/stop_result"
-            },
-            {
-              "$ref": "#/$defs/recover_result"
-            },
-            {
               "$ref": "#/$defs/saved_release_result"
             },
             {
@@ -1746,21 +1035,6 @@
             },
             {
               "$ref": "#/$defs/lease_result"
-            },
-            {
-              "$ref": "#/$defs/preparation_result"
-            },
-            {
-              "$ref": "#/$defs/project_result"
-            },
-            {
-              "$ref": "#/$defs/history_result"
-            },
-            {
-              "$ref": "#/$defs/storage_result"
-            },
-            {
-              "$ref": "#/$defs/cleanup_result"
             }
           ]
         }
@@ -1831,10 +1105,6 @@
     "config global unset": [
       "user_config"
     ],
-    "config project": [
-      "project_result",
-      "text"
-    ],
     "config set": [
       "pool_result"
     ],
@@ -1844,21 +1114,8 @@
     "destroy": [
       "destruction_result"
     ],
-    "exec": [
-      "execution_result",
-      "preparation_result"
-    ],
     "help": [
       "text"
-    ],
-    "history": [
-      "history_list_result"
-    ],
-    "history delete": [
-      "history_delete_result"
-    ],
-    "history show": [
-      "history_show_result"
     ],
     "init": [
       "init"
@@ -1869,9 +1126,6 @@
     ],
     "pools": [
       "pools_result"
-    ],
-    "recover": [
-      "recover_result"
     ],
     "release": [
       "release",
@@ -1901,17 +1155,8 @@
     "snapshot show": [
       "snapshot_one_result"
     ],
-    "stop": [
-      "stop_result"
-    ],
     "version": [
       "text"
-    ],
-    "storage show": [
-      "storage_result"
-    ],
-    "storage clean": [
-      "cleanup_result"
     ]
   }
 }

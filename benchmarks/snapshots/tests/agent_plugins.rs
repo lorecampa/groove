@@ -25,7 +25,6 @@ fn plugin_install_payload_contains_the_complete_portable_skill_as_real_files() {
     }
     for path in [
         "plugins/groove/skills/groove/SKILL.md",
-        "plugins/groove/skills/groove/references/project.md",
         "plugins/groove/skills/groove/references/recovery.md",
     ] {
         assert!(fs::symlink_metadata(root.join(path)).unwrap().is_file());

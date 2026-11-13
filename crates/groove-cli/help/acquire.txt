@@ -2,7 +2,6 @@ EXAMPLES:
   groove acquire --task fix-parser
   groove acquire --task fix-parser --request-key issue-42-attempt-1
   groove acquire --task 'investigate flake' --base main --wait-ms 5000
-  groove acquire --task fix-parser --setup dev
 
 Reserves a cleaned, verified checkout of --base (default HEAD) until it is
 explicitly released. HEAD resolves where you run the command, so from a linked
@@ -25,7 +24,3 @@ Retries: with --request-key, repeating the same key, base and task
 returns the same reservation, even across restarts. Changed inputs and
 completed keys are rejected; keys never expire, so use a new key per task.
 Without a key, run `groove list` BEFORE retrying a lost response.
-
---setup runs a reviewed .groove.toml profile in the new checkout. The
-reservation stays protected if setup fails; the error names its lease so you
-can inspect, retry with `groove exec --setup PROFILE --retry`, or release.

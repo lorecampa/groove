@@ -107,32 +107,6 @@ fn historical_user_files_keep_their_effective_values_without_rewriting() {
 }
 
 #[test]
-fn historical_project_files_keep_their_effective_values_and_match_the_schema() {
-    let schema: Value =
-        serde_json::from_str(include_str!("../schemas/project-v1.schema.json")).unwrap();
-    let validator = jsonschema::validator_for(&schema).unwrap();
-    for name in ["minimal", "partial", "full"] {
-        let input = fixture(&format!("project-{name}.toml"));
-        // Validate the user's sparse input too, not just the default-filled output.
-        let raw: toml::Value = toml::from_str(&input).unwrap();
-        validator
-            .validate(&serde_json::to_value(raw).unwrap())
-            .unwrap();
-        let project = groove_core::Project::parse(&input).unwrap();
-        let actual = serde_json::to_value(&project).unwrap();
-        assert_eq!(actual, expected(&format!("project-{name}.json")), "{name}");
-        validator.validate(&actual).unwrap();
-        let repo = support::Repo::new();
-        let path = repo.path.join(".groove.toml");
-        fs::write(&path, &input).unwrap();
-        assert_eq!(run(&repo.path, &["config", "project"])["project"], actual);
-        assert_eq!(fs::read_to_string(path).unwrap(), input);
-        assert!(!repo.path.join("MUST_NOT_RUN").exists());
-        assert!(!repo.state().exists());
-    }
-}
-
-#[test]
 fn preference_updates_preserve_the_reviewed_toml_document() {
     let home = tempfile::tempdir().unwrap();
     let path = install(home.path(), &fixture("edit-before.toml"));
@@ -165,25 +139,6 @@ fn preference_updates_preserve_the_reviewed_toml_document() {
 }
 
 #[test]
-fn published_project_example_is_exact_and_valid_without_execution() {
-    let home = tempfile::tempdir().unwrap();
-    let example = include_str!("../templates/project.toml");
-    assert_eq!(
-        run(home.path(), &["config", "project", "--example"])["text"],
-        example
-    );
-    // Use a fresh process without the harness's --json for the human contract.
-    let output = support::command(home.path(), env!("CARGO_BIN_EXE_groove"))
-        .env("XDG_CONFIG_HOME", home.path())
-        .args(["config", "project", "--example"])
-        .output()
-        .unwrap();
-    assert!(output.status.success());
-    assert_eq!(output.stdout, example.as_bytes());
-    groove_core::Project::parse(example).unwrap();
-}
-
-#[test]
 fn configuration_rejections_keep_their_error_categories_and_original_bytes() {
     let cases = expected("../rejections.json");
     for case in cases.as_array().unwrap() {
@@ -195,23 +150,17 @@ fn configuration_rejections_keep_their_error_categories_and_original_bytes() {
         reject(home.path(), &["list"], code);
         assert_eq!(fs::read_to_string(&path).unwrap(), input);
         assert!(!home.path().join("state").exists());
-        let project_error = groove_core::Project::parse(input).unwrap_err();
-        assert_eq!(project_error.code.as_str(), code);
 
         if let Some(valid) = case["schema_valid"].as_bool() {
             let raw: toml::Value = toml::from_str(input).unwrap();
             let raw = serde_json::to_value(raw).unwrap();
-            for text in [
-                include_str!("../schemas/user-v1.schema.json"),
-                include_str!("../schemas/project-v1.schema.json"),
-            ] {
-                let schema: Value = serde_json::from_str(text).unwrap();
-                assert_eq!(
-                    jsonschema::validator_for(&schema).unwrap().is_valid(&raw),
-                    valid,
-                    "{case}"
-                );
-            }
+            let schema: Value =
+                serde_json::from_str(include_str!("../schemas/user-v1.schema.json")).unwrap();
+            assert_eq!(
+                jsonschema::validator_for(&schema).unwrap().is_valid(&raw),
+                valid,
+                "{case}"
+            );
         }
     }
 }
@@ -226,16 +175,6 @@ fn empty_experiments_preserve_legacy_output_fingerprints_and_editability() {
         expected("user-minimal.json")
     );
     assert_eq!(fs::read_to_string(&path).unwrap(), input);
-    let empty = groove_core::Project::parse("").unwrap();
-    let configured = groove_core::Project::parse(&input).unwrap();
-    assert_eq!(
-        configured.fingerprint().unwrap(),
-        empty.fingerprint().unwrap()
-    );
-    assert_eq!(
-        serde_json::to_value(configured).unwrap(),
-        expected("project-minimal.json")
-    );
     run(
         home.path(),
         &["config", "global", "set", "experimental.features=[]"],
@@ -290,21 +229,5 @@ fn stable_configuration_types_versions_and_constraints_remain_strict() {
             "INVALID_ARGUMENT",
         );
         assert_eq!(fs::read_to_string(path).unwrap(), input);
-    }
-    assert_eq!(
-        groove_core::Project::parse("schema_version = 2")
-            .unwrap_err()
-            .code,
-        groove_core::ErrorCode::UnsupportedConfiguration
-    );
-    for input in [
-        "schema_version = '1'",
-        "[workspace]\nport_base = -1",
-        "[recipes.test]\ncommand = []",
-    ] {
-        assert_eq!(
-            groove_core::Project::parse(input).unwrap_err().code,
-            groove_core::ErrorCode::InvalidArgument
-        );
     }
 }

@@ -1,4 +1,4 @@
-//! Focused workspace workloads with explicit setup and independent result checks.
+//! Focused workspace reservation workloads and independent result checks.
 use crate::{
     evidence::Evidence,
     harness::{command, fingerprint},
@@ -74,11 +74,6 @@ fn payload(bytes: usize, seed: u64) -> Vec<u8> {
 }
 pub(crate) fn prepare(runner: &Runner, repo: &Path, case: &Case) -> Result<()> {
     let artifacts = match case.workload {
-        Workload::WorkspaceSetup {
-            artifact_files,
-            artifact_file_bytes,
-            artifact_binary_bytes,
-        } => Some((artifact_files, artifact_file_bytes, artifact_binary_bytes)),
         Workload::WorkspaceDeletion {
             artifact_files,
             artifact_file_bytes,
@@ -102,24 +97,8 @@ pub(crate) fn prepare(runner: &Runner, repo: &Path, case: &Case) -> Result<()> {
         manifest.extend_from_slice(crate::util::hash(&bytes).as_bytes());
         fs::write(source.join("large.bin"), bytes)?;
         fs::write(repo.join("artifact-input"), crate::util::hash(&manifest))?;
-        fs::write(
-            repo.join(".groove.toml"),
-            r#"schema_version = 1
-[caches.artifact]
-paths = ["ignored"]
-inputs = ["artifact-input"]
-key = "workspace-setup-v1"
-mode = "copy"
-[setup.dev]
-cache = "artifact"
-[[setup.dev.steps]]
-name = "artifact"
-command = ["/bin/bash", "-c", "mkdir -p ignored; cp -p artifact-source/* ignored/"]
-when = "cache_miss"
-"#,
-        )?;
         runner.git(repo, ["add", "-A"])?;
-        runner.git(repo, ["commit", "-qm", "setup-profile-v1"])?;
+        runner.git(repo, ["commit", "-qm", "deletion-artifacts-v1"])?;
         runner.git(repo, ["repack", "-ad", "--depth=50", "--window=10"])?;
     }
     Ok(())
@@ -246,47 +225,6 @@ pub(crate) fn measure(
             evidence.checked("pristine_checkout");
             evidence.checked("cleanup_policy");
         }
-        Workload::WorkspaceSetup {
-            artifact_files,
-            artifact_file_bytes,
-            artifact_binary_bytes,
-        } => {
-            for (task, hit, operation) in
-                [("miss", false, "setup_miss"), ("hit", true, "setup_hit")]
-            {
-                let (lease, _) = call(runner, binary, repo, &["acquire", "--task", task])?;
-                let (prepared, time) = call(
-                    runner,
-                    binary,
-                    repo,
-                    &["exec", "--task", task, "--setup", "dev"],
-                )?;
-                require(
-                    prepared["preparation"]["status"] == "ready"
-                        && prepared["preparation"]["cache_hit"] == hit,
-                    "Unexpected setup/cache outcome",
-                )?;
-                require(
-                    prepared["preparation"]["steps"][0]["skipped"] == hit,
-                    "Cache-hit step was not skipped or cache-miss step did not execute",
-                )?;
-                if hit {
-                    require(
-                        prepared["preparation"]["seeded_files"] == (artifact_files + 1)
-                            && prepared["preparation"]["seeded_bytes"]
-                                == (artifact_files * artifact_file_bytes + artifact_binary_bytes),
-                        "Cache seeding counters differ from fixture",
-                    )?;
-                }
-                artifact_contents(repo, &lease, artifact_files + 1)?;
-                evidence.record(operation, time)?;
-                release(runner, binary, repo, task, false)?;
-            }
-            evidence.checked("cache_miss");
-            evidence.checked("cache_hit");
-            evidence.checked("artifact_contents");
-            evidence.checked("step_skipped");
-        }
         Workload::WorkspaceConcurrency { workers } => {
             concurrent(runner, binary, repo, workers, &mut evidence)?
         }
@@ -396,22 +334,10 @@ fn concurrent(
     let start = Instant::now();
     let completed = parallel(workers, |i| {
         let task = format!("worker-{i}");
-        let (executed, time) = call(
-            runner,
-            binary,
-            repo,
-            &["exec", "--task", &task, "--", "/usr/bin/true"],
-        )?;
-        require(
-            executed["execution"]["termination"] == "exited"
-                && executed["execution"]["exit_code"] == 0,
-            "Managed worker did not succeed",
-        )?;
-        Ok((time, release(runner, binary, repo, &task, false)?))
+        release(runner, binary, repo, &task, false)
     })?;
     evidence.batch_seconds = Some(acquire_seconds + start.elapsed().as_secs_f64());
-    for (executed, released) in completed {
-        evidence.record("exec", executed)?;
+    for released in completed {
         evidence.record("release", released)?;
     }
     evidence.checked("successful_workers");
@@ -558,39 +484,11 @@ fn multi_pool(
     let completed = parallel(total, |i| {
         let pool = &names[i / workers];
         let task = format!("worker-{}", i % workers);
-        let (executed, time) = named(
-            runner,
-            binary,
-            repo,
-            pool,
-            &[
-                "exec",
-                "--task",
-                &task,
-                "--",
-                "/bin/sh",
-                "-c",
-                "printf %s \"$GROOVE_POOL\"",
-            ],
-        )?;
         let (_, released) = named(runner, binary, repo, pool, &["release", "--task", &task])?;
-        Ok((executed, time, released))
+        Ok(released)
     })?;
     evidence.batch_seconds = Some(acquire_seconds + started.elapsed().as_secs_f64());
-    for (i, (executed, time, released)) in completed.into_iter().enumerate() {
-        require(
-            executed["execution"]["termination"] == "exited"
-                && executed["execution"]["exit_code"] == 0,
-            "Named-pool worker failed",
-        )?;
-        let log = executed["execution"]["run"]["stdout_path"]
-            .as_str()
-            .ok_or_else(|| Error::Invalid("Missing worker log".into()))?;
-        require(
-            fs::read_to_string(log)? == names[i / workers],
-            "Worker received another pool's environment",
-        )?;
-        evidence.record("exec", time)?;
+    for released in completed {
         evidence.record("release", released)?;
     }
     evidence.checked("successful_workers");
@@ -701,16 +599,15 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
             )?;
             pristine(runner, repo, &lease)?;
             if artifact_files > 0 {
-                let (setup, _) = call(
-                    runner,
-                    binary,
-                    repo,
-                    &["exec", "--task", &format!("slot-{i}"), "--setup", "dev"],
-                )?;
-                require(
-                    setup["preparation"]["status"] == "ready",
-                    "Deletion cache setup failed",
-                )?;
+                let target = path(&lease)?.join("ignored");
+                fs::create_dir_all(&target)?;
+                let legacy = repo.join(".git/groove/artifacts").join("a".repeat(64));
+                fs::create_dir_all(&legacy)?;
+                for entry in fs::read_dir(repo.join("artifact-source"))? {
+                    let entry = entry?;
+                    fs::copy(entry.path(), target.join(entry.file_name()))?;
+                    fs::copy(entry.path(), legacy.join(entry.file_name()))?;
+                }
                 artifact_contents(repo, &lease, artifact_files + 1)?;
             }
             leases.push(lease);
@@ -718,22 +615,8 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
     }
     let selected = crate::fixture::spec().path(0);
     let original = fs::read(repo.join(&selected))?;
-    let (saved, history, receipt) = if let Some(first) = leases.first() {
+    let (saved, receipt) = if let Some(first) = leases.first() {
         fs::write(path(first)?.join(&selected), b"saved task result")?;
-        call(
-            runner,
-            binary,
-            repo,
-            &[
-                "exec",
-                "--task",
-                "slot-0",
-                "--",
-                "/bin/sh",
-                "-c",
-                "printf retained-log",
-            ],
-        )?;
         let (finished, _) = call(
             runner,
             binary,
@@ -744,19 +627,17 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
             finished["snapshot"]["pinned"] == true,
             "Finished result was not pinned",
         )?;
-        let (history, _) = call(runner, binary, repo, &["history"])?;
         fs::write(path(first)?.join(&selected), &original)?;
         for i in 1..slots {
             release(runner, binary, repo, &format!("slot-{i}"), false)?;
         }
         (
             finished["snapshot"].clone(),
-            Some(history),
             first["lease_id"].as_str().map(String::from),
         )
     } else {
         let (saved, _) = call(runner, binary, repo, &["snapshot", "save"])?;
-        (saved["snapshot"].clone(), None, None)
+        (saved["snapshot"].clone(), None)
     };
     for lease in &leases {
         if dirty {
@@ -938,24 +819,6 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
             &["acquire", "--task", "slot-0", "--request-key", "delete-0"],
             "INVALID_LEASE",
             5,
-        )?;
-    }
-    if let Some(history) = history {
-        let (retained, _) = named(runner, binary, repo, "default", &["history"])?;
-        require(
-            retained == history,
-            "Deletion/reinit changed retained history",
-        )?;
-        let runs = retained["runs"]
-            .as_array()
-            .ok_or_else(|| Error::Invalid("Missing retained runs".into()))?;
-        require(
-            runs.iter().any(|r| {
-                r["stdout_path"]
-                    .as_str()
-                    .is_some_and(|p| fs::read(p).is_ok_and(|bytes| bytes == b"retained-log"))
-            }),
-            "Retained log contents were lost",
         )?;
     }
     require(

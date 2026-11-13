@@ -1,8 +1,6 @@
 EXAMPLES:
   groove config show
   groove config set --capacity 8 --cleanup warm
-  groove config project
-  groove config project --example > .groove.toml
   groove config global show
   groove config global set logging.max_files=50 logging.directory=/abs/logs
   groove config global set logging.level=trace
@@ -14,8 +12,3 @@ Growth preserves existing reservations and locks; shrinking is unsupported.
 Cleanup changes apply to future acquisitions; in-flight preparation may finish
 with the old policy.
 Updates publish atomically and unchanged values report updated: false.
-
-`project` validates the checkout's .groove.toml without running anything;
---example prints a starter to review before committing.
-Project experimental.features accepts individual opt-ins with the same lifecycle
-as user preferences (see below). It defaults to []; no names are registered yet.

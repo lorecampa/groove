@@ -246,7 +246,7 @@ mod tests {
                 format!("{prefix} {}", command.get_name())
             };
             paths.insert(name.clone());
-            if command.get_subcommands().next().is_none() || name == "history" {
+            if command.get_subcommands().next().is_none() {
                 assert!(
                     mapping.contains_key(&name),
                     "missing output contract for {name}"

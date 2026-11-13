@@ -2,9 +2,20 @@
 
 ## Unreleased
 
+### Removed
+
+- Remove managed task execution: `exec`, `stop`, `recover`, setup profiles,
+  recipes, agent launchers, artifact seeding, `.groove.toml` configuration,
+  run history and log cleanup. Run commands directly in a reserved checkout.
+  The corresponding core APIs and JSON result types are removed while the
+  development protocol remains v1. Legacy execution locks and records still
+  block reuse; stop/recover outstanding runs with the previous Groove version
+  before upgrading. Existing logs, history and artifacts remain on disk;
+  read-only sizes remain available through `pools/show --disk-usage`.
+
 ### Added
 
-- Named experimental-feature configuration for user preferences and project files,
+- Named experimental-feature configuration for user preferences,
   with explicit opt-in, retained graduated names, and errors for unknown/removed
   capabilities. The initial registry is empty. User preferences now have a
   published TOML data-model schema.
@@ -40,7 +51,7 @@
 - Avoid redundant reservation metadata clones, defer unused error summaries,
   and reduce allocations in benchmark hashes and terminal log fields.
 - Mark pure query methods and error builders as `must_use`, and avoid per-byte
-  allocations when encoding cache keys, control names and release checksums.
+  allocations when encoding request keys and release checksums.
 - Agent onboarding configures persistent harness instructions once, so users
   do not need to request Groove separately for each task. The setup prompt uses
   personal configuration unless shared project policy is requested.
@@ -51,8 +62,6 @@
 
 - Warm reuse removes previously tracked files when switching to a commit that
   deletes and ignores those paths, while preserving unrelated ignored caches.
-- Shell-style execution status conversion saturates extreme signal values in
-  public or deserialized results instead of overflowing.
 
 ## [0.2.1] - 2026-11-13
 

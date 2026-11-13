@@ -195,42 +195,6 @@ fn pool_selection_is_explicit_scoped_and_schema_conformant() {
     let ambiguity = cli(&repo, &["destroy", "--discard-changes"]);
     assert_eq!(ambiguity.status.code(), Some(2));
     assert_eq!(checked(&ambiguity)["error"]["code"], "INVALID_ARGUMENT");
-    assert_success(&cli(
-        &repo,
-        &[
-            "--pool",
-            "frontend",
-            "exec",
-            "--task",
-            "same",
-            "--",
-            "sh",
-            "-c",
-            "printf %s \"$GROOVE_POOL\"",
-        ],
-    ));
-    let history = cli(&repo, &["--pool", "frontend", "history"]);
-    assert!(history.status.success());
-    assert_eq!(
-        checked(&history)["result"]["runs"]
-            .as_array()
-            .unwrap()
-            .len(),
-        1
-    );
-    let history = checked(&history);
-    assert_eq!(
-        std::fs::read_to_string(
-            history["result"]["runs"][0]["stdout_path"]
-                .as_str()
-                .unwrap()
-        )
-        .unwrap(),
-        "frontend"
-    );
-    let history = cli(&repo, &["--pool", "backend", "history"]);
-    assert!(history.status.success());
-    assert_eq!(checked(&history)["result"]["runs"], serde_json::json!([]));
     // Snapshot selection follows its source checkout and remains repository-wide.
     let backend_path = std::path::Path::new(b["result"]["worktree_path"].as_str().unwrap());
     let snapshot = support::groove_in(backend_path)
@@ -295,18 +259,6 @@ fn pool_selection_is_explicit_scoped_and_schema_conformant() {
         shown["result"]["lease"]["lease_id"],
         b["result"]["lease_id"]
     );
-    assert_success(&cli(
-        &repo,
-        &[
-            "--pool",
-            "frontend",
-            "storage",
-            "clean",
-            "--logs",
-            "--older-than",
-            "0s",
-        ],
-    ));
 }
 
 #[test]

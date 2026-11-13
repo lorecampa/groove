@@ -2,8 +2,7 @@
 mod support;
 use groove_core::{
     snapshot::{SaveOptions, Snapshots},
-    AcquireOptions, DestroyOptions, ErrorCode, ExecOptions, HistoryFilter, Pool, PoolOptions,
-    PoolUpdate, ReservationOptions,
+    AcquireOptions, DestroyOptions, ErrorCode, Pool, PoolOptions, PoolUpdate, ReservationOptions,
 };
 use std::{
     fs,
@@ -35,10 +34,9 @@ fn destroy(repo: &Repo, discard_changes: bool) -> groove_core::Result<groove_cor
 }
 
 #[test]
-fn deletion_retains_results_history_and_permanent_locks_across_smaller_reinit() {
-    if !support::in_subprocess(
-        "deletion_retains_results_history_and_permanent_locks_across_smaller_reinit",
-    ) {
+fn deletion_retains_results_and_permanent_locks_across_smaller_reinit() {
+    if !support::in_subprocess("deletion_retains_results_and_permanent_locks_across_smaller_reinit")
+    {
         return;
     }
     let repo = Repo::new();
@@ -58,31 +56,12 @@ fn deletion_retains_results_history_and_permanent_locks_across_smaller_reinit() 
             1
         }
     );
-    // Put history on both slots so one remains outside a smaller replacement pool.
-    let run = old
-        .exec(
-            reserved.lease_id,
-            ExecOptions {
-                command: vec!["sh".into(), "-c".into(), "printf saved-log".into()],
-                ..Default::default()
-            },
-        )
-        .unwrap();
-    assert!(run.succeeded());
     fs::write(reserved.worktree_path.join("tracked.txt"), "saved result").unwrap();
     let finish = old
         .finish(reserved.lease_id, SaveOptions::default())
         .unwrap();
     let slot = first.info().slot_id.clone();
     let second = first.into_protected().unwrap();
-    old.exec(
-        second.lease_id,
-        ExecOptions {
-            command: vec!["true".into()],
-            ..Default::default()
-        },
-    )
-    .unwrap();
     old.release_lease(second.lease_id).unwrap();
     let inodes: Vec<_> = fs::read_dir(repo.state().join("locks"))
         .unwrap()
@@ -120,11 +99,6 @@ fn deletion_retains_results_history_and_permanent_locks_across_smaller_reinit() 
         assert_eq!(fs::metadata(path).unwrap().ino(), *ino);
     }
     let retained = Pool::open_retained(&repo.path, Duration::from_secs(10)).unwrap();
-    let histories = retained.history(&HistoryFilter::default()).unwrap();
-    assert_eq!(histories.len(), 2);
-    assert!(histories
-        .iter()
-        .any(|h| fs::read_to_string(&h.stdout_path).unwrap() == "saved-log"));
     assert_eq!(
         retained
             .finish(reserved.lease_id, SaveOptions::default())
@@ -178,22 +152,6 @@ fn deletion_retains_results_history_and_permanent_locks_across_smaller_reinit() 
         .code,
         ErrorCode::InvalidLease
     );
-    let retained = Pool::open_retained(&repo.path, Duration::from_secs(10)).unwrap();
-    let cleanup = retained.clean_logs(Duration::ZERO, false).unwrap();
-    assert!(
-        cleanup
-            .entries
-            .iter()
-            .all(|e| e.status == groove_core::CleanupStatus::Removed),
-        "{cleanup:?}"
-    );
-    for h in histories {
-        retained.history_delete(h.run_id).unwrap();
-    }
-    assert!(retained
-        .history(&HistoryFilter::default())
-        .unwrap()
-        .is_empty());
     assert_eq!(new.capacity(), 1);
     assert!(repo.state().join(format!("locks/{slot}.lock")).exists());
 }
@@ -526,52 +484,6 @@ fn hidden_edits_and_unreferenced_commits_are_never_silently_discarded() {
             .unwrap()
             .as_str(),
         oid
-    );
-}
-
-#[test]
-fn prepared_pools_remove_only_validated_stale_setup_endpoints() {
-    if !support::in_subprocess("prepared_pools_remove_only_validated_stale_setup_endpoints") {
-        return;
-    }
-    let repo = Repo::new();
-    fs::write(
-        repo.path.join(".groove.toml"),
-        "schema_version=1\n[[setup.dev.steps]]\nname='ready'\ncommand=['true']\n",
-    )
-    .unwrap();
-    repo.git(&["add", ".groove.toml"]);
-    repo.git(&["commit", "-qm", "setup"]);
-    let p = pool(&repo, 1);
-    let lease = p.reserve(Default::default()).unwrap();
-    let ready = p
-        .prepare(lease.lease_id, "dev", Default::default())
-        .unwrap();
-    assert_eq!(ready.status, groove_core::PreparationStatus::Ready);
-    p.release_lease(lease.lease_id).unwrap();
-    let path = repo.state().join("slots/wt-0001.setup.json");
-    let original = fs::read(&path).unwrap();
-    let mut malformed: serde_json::Value = serde_json::from_slice(&original).unwrap();
-    malformed["control_name"] = "foreign-endpoint".into();
-    fs::write(&path, serde_json::to_vec(&malformed).unwrap()).unwrap();
-    assert_eq!(
-        destroy(&repo, true).unwrap_err().code,
-        ErrorCode::ConfigConflict
-    );
-    assert!(repo.slot(1).exists());
-    fs::write(&path, original).unwrap();
-    assert!(destroy(&repo, false).unwrap().deleted);
-    assert_eq!(
-        p.history(&HistoryFilter::default()).unwrap_err().code,
-        ErrorCode::NotInitialized
-    );
-    assert_eq!(
-        Pool::open_retained(&repo.path, Duration::from_secs(10))
-            .unwrap()
-            .history(&HistoryFilter::default())
-            .unwrap()
-            .len(),
-        1
     );
 }
 
