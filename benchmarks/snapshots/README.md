@@ -86,6 +86,12 @@ independent Rust calculation. It needs `cc`, GNU make and ccache 4.7+ on the hos
 the pinned Debian image installs ccache 4.7.5 (Debian package
 `4.8+really4.7.5-1`). Builds need no downloads.
 
+Version 2 interleaves the three strategies each round, using all six permutations
+over six measured rounds. Each strategy occupies each order position twice; the
+actual schedule is recorded and checked by `inspect`. Warmup rounds are discarded.
+The grouped version-1 prototype remains distinguishable by its profile hash/version.
+Existing profiles keep their sequential case order and binary AB/BA sampling.
+
 Each repetition starts with an empty cache and measures six successive tasks:
 first use, repeated input, changed header, changed compiler flags, return to the
 original commit/flags, and loss of disposable cache/output. The source checkout
@@ -108,9 +114,10 @@ validation intervals; total task time also includes release. Independent oracles
 tool queries, cache counters, storage scans and fixture/cache-loss preparation are
 outside timing. Output and external-cache storage report logical and allocated
 regular-file bytes. These checks warm filesystem caches; no OS-cold claim is made.
-The profile keeps the normal paired order, warmups, raw samples and intervals.
-It compares workflow strategies through separate cases, not a Groove runtime
-optimization or a guarantee for every build system.
+With a baseline binary, normal paired AB/BA sampling and intervals compare binaries.
+Cache counters remain informational rather than receiving speed verdicts. Strategy
+medians are descriptive; this profile does not assign a paired strategy-level speedup
+verdict or establish a result for every build system.
 
 ```sh
 cargo run -p groove-bench --locked -- check workspace-build --host

@@ -27,6 +27,11 @@ pub(crate) struct Profile {
 pub(crate) struct Sampling {
     pub(crate) blocks: u32,
     pub(crate) warmup_blocks: u32,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub(crate) balanced_cases: bool,
+}
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -242,6 +247,40 @@ pub(crate) fn validate(profile: &Profile) -> Result<()> {
         "Invalid sampling policy",
     )?;
     require(!profile.cases.is_empty(), "Empty profile")?;
+    if profile.sampling.balanced_cases {
+        require(
+            profile.cases.len() == 3 && profile.sampling.blocks.is_multiple_of(6),
+            "Balanced build sampling needs three strategies and complete six-round cycles",
+        )?;
+        for strategy in [
+            BuildStrategy::Pristine,
+            BuildStrategy::ExternalCache,
+            BuildStrategy::Warm,
+        ] {
+            require(
+                profile.cases.iter().any(|case| {
+                    matches!(case.workload,
+                Workload::WorkspaceBuild { strategy: selected, .. } if selected == strategy)
+                }),
+                "Balanced build sampling needs each strategy exactly once",
+            )?;
+        }
+        let reference = &profile.cases[0];
+        let Workload::WorkspaceBuild {
+            units: expected, ..
+        } = reference.workload
+        else {
+            unreachable!("three strategies checked above")
+        };
+        require(
+            profile.cases.iter().all(|case| {
+                case.files == reference.files
+                    && matches!(case.workload,
+            Workload::WorkspaceBuild { units, .. } if units == expected)
+            }),
+            "Balanced strategies must use the same build fixture",
+        )?;
+    }
     let mut cases = BTreeSet::new();
     for case in &profile.cases {
         require(

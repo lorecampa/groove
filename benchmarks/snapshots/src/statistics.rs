@@ -106,7 +106,9 @@ pub(crate) fn summarize(blocks: &[Block], paired: bool, canonical: bool) -> Resu
             let (low, high) = (estimates[99], estimates[3899]);
             let threshold = before.abs() * 0.05;
             let higher_better = name.ends_with("_per_second");
-            let verdict = if blocks.len() < 6 {
+            let verdict = if name.ends_with("_cache_hits") || name.ends_with("_cache_misses") {
+                "informational"
+            } else if blocks.len() < 6 {
                 "inconclusive"
             } else if low > threshold {
                 if higher_better {
@@ -168,6 +170,23 @@ mod tests {
                 },
             })
             .collect()
+    }
+    #[test]
+    fn cache_counters_are_evidence_instead_of_speed_verdicts() {
+        let mut data = blocks(0.0);
+        for block in &mut data {
+            block.baseline.as_mut().unwrap().metrics = BTreeMap::from([
+                ("repeat_cache_hits".into(), 32.0),
+                ("repeat_cache_misses".into(), 0.0),
+            ]);
+            block.candidate.metrics = BTreeMap::from([
+                ("repeat_cache_hits".into(), 16.0),
+                ("repeat_cache_misses".into(), 16.0),
+            ]);
+        }
+        let result = summarize(&data, true, true).unwrap();
+        assert_eq!(result["repeat_cache_hits"]["verdict"], "informational");
+        assert_eq!(result["repeat_cache_misses"]["verdict"], "informational");
     }
     #[test]
     fn paired_effect_survives_overlapping_ranges_and_small_samples_are_inconclusive() {

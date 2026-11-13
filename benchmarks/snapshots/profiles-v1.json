@@ -3,10 +3,10 @@
   "fixture_version": 1,
   "profiles": [
     {
-      "id": "workspace-build", "version": 1,
-      "purpose": "Time to verified offline build output over 10k source-shaped paths and 32 real C compilation units: pristine, pristine with an external ccache, and warm residue. Repeat, source/flag changes, return to A and cache loss; measure acquire/build/validation/release and total task time.",
+      "id": "workspace-build", "version": 2,
+      "purpose": "Time to verified offline build output over 10k source-shaped paths and 32 real C compilation units: pristine, pristine with an external ccache, and warm residue in balanced case order. Repeat, source/flag changes, return to A and cache loss; measure acquire/build/validation/release and total task time.",
       "environment": "cli-linux-amd64-v4",
-      "sampling": {"blocks": 6, "warmup_blocks": 1},
+      "sampling": {"blocks": 6, "warmup_blocks": 1, "balanced_cases": true},
       "estimated_minutes": [4, 20],
       "cases": [
         {"id": "pristine", "files": 10000, "contents": {"kind": "unique"}, "workload": {"kind": "workspace-build", "strategy": "pristine", "units": 32}},

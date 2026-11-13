@@ -157,9 +157,19 @@ fn build_profile_verifies_outputs_and_rejects_forged_raw_evidence() {
         .unwrap()
         .status
         .success());
-    let mut forged = original;
+    let mut forged = original.clone();
     forged["cases"]["workspace-build/external-cache"]["blocks"][0]["candidate"]["detail"]
         ["build"]["phases"][1]["hits"] = 0.into();
+    fs::write(&report, serde_json::to_vec(&forged).unwrap()).unwrap();
+    assert!(!bench()
+        .arg("inspect")
+        .arg(&report)
+        .output()
+        .unwrap()
+        .status
+        .success());
+    let mut forged = original;
+    forged["case_schedule"]["workspace-build"][0] = serde_json::json!(["warm", "warm", "warm"]);
     fs::write(&report, serde_json::to_vec(&forged).unwrap()).unwrap();
     assert!(!bench()
         .arg("inspect")

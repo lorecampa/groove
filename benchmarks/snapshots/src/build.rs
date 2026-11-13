@@ -24,6 +24,18 @@ pub(crate) const PHASES: [&str; 6] = [
     "return",
     "cache_removed",
 ];
+/// All permutations put each strategy in each position twice per six rounds.
+pub(crate) fn case_order(round: u32) -> [usize; 3] {
+    const ORDER: [[usize; 3]; 6] = [
+        [0, 1, 2],
+        [1, 2, 0],
+        [2, 0, 1],
+        [2, 1, 0],
+        [1, 0, 2],
+        [0, 2, 1],
+    ];
+    ORDER[round as usize % ORDER.len()]
+}
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct BuildEvidence {
@@ -458,6 +470,32 @@ pub(crate) fn metrics(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn strategy_schedule_balances_positions_without_repeating_a_permutation() {
+        let orders: std::collections::BTreeSet<_> = (0..6).map(case_order).collect();
+        assert_eq!(orders.len(), 6);
+        for order in &orders {
+            assert_eq!(
+                order
+                    .iter()
+                    .copied()
+                    .collect::<std::collections::BTreeSet<_>>(),
+                std::collections::BTreeSet::from([0, 1, 2])
+            );
+        }
+        for strategy in 0..3 {
+            for position in 0..3 {
+                assert_eq!(
+                    orders
+                        .iter()
+                        .filter(|order| order[position] == strategy)
+                        .count(),
+                    2
+                );
+            }
+        }
+    }
 
     #[test]
     #[ignore = "requires cc, GNU make and ccache; real concurrent offline builds"]
