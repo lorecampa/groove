@@ -19,92 +19,9 @@ to your terminal.
 
 ## Install shell completions (optional)
 
-Completions let you press Tab after `groove ` to discover commands and options.
-Use the instructions for the shell in which you will run Groove; an agent's
-execution shell may differ from your interactive terminal. See
-`groove completions --help` for all supported shells and output details.
-
-Run the completion commands below exactly as shown, without `--json`, so the
-saved files can be loaded by your shell.
-
-### Zsh (including Oh My Zsh)
-
-Generate the completion file:
-
-```sh
-mkdir -p ~/.zsh/completions
-groove completions zsh > ~/.zsh/completions/_groove
-```
-
-Add this line to your Zsh startup file (`~/.zshrc`, or `$ZDOTDIR/.zshrc` if you
-use `ZDOTDIR`), before the existing `compinit` call:
-
-```zsh
-fpath=("$HOME/.zsh/completions" $fpath)
-```
-
-With Oh My Zsh, put it before `source $ZSH/oh-my-zsh.sh`; Oh My Zsh runs
-`compinit` for you. If your configuration does not initialize completions, add
-these lines after the `fpath` line:
-
-```zsh
-autoload -Uz compinit
-compinit
-```
-
-Keep an existing initialization; do not add a second `compinit` call. Open a
-new terminal, type `groove ` and press Tab. To check registration in that new
-Zsh session, run:
-
-```zsh
-print -r -- ${_comps[groove]}
-```
-
-It should print `_groove`.
-
-### Bash
-
-```sh
-mkdir -p ~/.local/share/bash-completion/completions
-groove completions bash > ~/.local/share/bash-completion/completions/groove
-```
-
-Add the following line once to `~/.bashrc`:
-
-```bash
-source "$HOME/.local/share/bash-completion/completions/groove"
-```
-
-Ensure interactive login shells also load `~/.bashrc` from your existing Bash
-login startup file (usually `~/.bash_profile`). Open a new terminal, type
-`groove ` and press Tab. `complete -p groove` should show its registered function.
-
-### Fish
-
-```fish
-mkdir -p ~/.config/fish/completions
-groove completions fish > ~/.config/fish/completions/groove.fish
-```
-
-If you customize `XDG_CONFIG_HOME`, use `$XDG_CONFIG_HOME/fish/completions`
-instead. Fish loads this file automatically. Open a new terminal, type
-`groove ` and press Tab; `complete -C 'groove '` should list suggestions.
-
-### Upgrades and agent setup
-
-After upgrading Groove, rerun the generation command for your shell. It
-overwrites the generated file; the startup configuration only needs adding once.
-Completions cover commands, options and fixed choices, not live task names or
-lease IDs.
-
-Agents performing this setup should inspect the user's existing shell
-configuration, preserve customizations and avoid duplicate entries. Generate
-the script, check startup-file syntax (for example, `zsh -n ~/.zshrc`), and verify
-completion registration in the intended shell. A clean shell with manually set
-paths only checks the generated script, not the user's startup configuration.
-If verification needs a new interactive terminal, say so rather than claiming
-it is already active in the user's current terminal. Report the generated file
-and any startup-file changes. Do not execute commands selected by completion.
+Run `groove completions --help` for shell setup and verification, including
+Oh My Zsh. Inspect existing startup files before editing and verify in the user's
+interactive shell. Regenerate the completion script after upgrading Groove.
 
 ## Choose your agent
 

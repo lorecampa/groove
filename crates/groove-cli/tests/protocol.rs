@@ -41,29 +41,28 @@ fn preference_defaults_in_help_can_be_used_as_a_real_configuration() {
     let original = run(&["config", "global", "show"]);
     assert_success(&original);
     let expected = check(&original)["result"]["config"].clone();
-    for command in [
-        vec!["config", "--help"],
-        vec!["config", "global", "--help"],
-        vec!["config", "global", "set", "--help"],
-    ] {
-        let output = run(&command);
-        assert_success(&output);
-        let response = check(&output);
-        let help = response["result"]["text"].as_str().unwrap();
-        let defaults = help
-            .split_once("PREFERENCE DEFAULTS (TOML, before environment overrides):\n")
-            .unwrap()
-            .1
-            .split_once("\nJSON OUTPUT CONTRACT")
-            .unwrap()
-            .0;
-        let directory = config_home.join("groove");
-        std::fs::create_dir_all(&directory).unwrap();
-        std::fs::write(directory.join("config.toml"), defaults).unwrap();
-        let configured = run(&["config", "global", "show"]);
-        assert_success(&configured);
-        assert_eq!(check(&configured)["result"]["config"], expected);
-    }
+    let output = run(&["config", "global", "--help"]);
+    assert_success(&output);
+    let response = check(&output);
+    let help = response["result"]["text"].as_str().unwrap();
+    let defaults = help
+        .split_once("PREFERENCE DEFAULTS (TOML, before environment overrides):\n")
+        .unwrap()
+        .1
+        .split_once("\nOUTPUT CONTRACT:")
+        .unwrap()
+        .0;
+    let directory = config_home.join("groove");
+    std::fs::create_dir_all(&directory).unwrap();
+    std::fs::write(directory.join("config.toml"), defaults).unwrap();
+    let configured = run(&["config", "global", "show"]);
+    assert_success(&configured);
+    assert_eq!(check(&configured)["result"]["config"], expected);
+    let leaf = run(&["config", "global", "set", "--help"]);
+    let leaf = check(&leaf);
+    let leaf = leaf["result"]["text"].as_str().unwrap();
+    assert!(leaf.contains("groove config global --help"));
+    assert!(!leaf.contains("PREFERENCE DEFAULTS"));
 }
 
 #[test]
@@ -131,22 +130,25 @@ fn command_help_exposes_its_output_fields_without_repository_or_preferences() {
         for field in fields {
             assert!(human.contains(field), "{args:?}: missing {field}");
         }
-        for rule in [
-            "JSON OUTPUT CONTRACT",
-            "error: object",
-            "retryable: boolean",
-            "request_id",
-            "exit status",
-            "api_version",
-        ] {
+        for rule in ["groove --help", "error: object", "retryable: boolean"] {
             assert!(human.contains(rule), "{args:?}: missing {rule}");
         }
+        assert!(!human.contains("JSON OUTPUT CONTRACT"));
+        assert!(!human.contains("ERROR EXIT CODES:"));
         let json = check(&run(&args, true));
         assert_eq!(json["result"]["text"], human);
     }
     let root = run(&["--help"], false);
     assert!(root.status.success());
     let root = String::from_utf8(root.stdout).unwrap();
+    for rule in [
+        "JSON OUTPUT CONTRACT",
+        "request_id",
+        "exit status",
+        "api_version",
+    ] {
+        assert!(root.contains(rule), "root help: missing {rule}");
+    }
     for mapping in ["2: INVALID_ARGUMENT", "3: POOL_EXHAUSTED", "7: IO_ERROR"] {
         assert!(root.contains(mapping));
     }

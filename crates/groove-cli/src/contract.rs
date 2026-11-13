@@ -22,7 +22,7 @@ fn decorate(mut command: clap::Command, path: &str, schema: &Value) -> clap::Com
         .get_after_help()
         .map(ToString::to_string)
         .unwrap_or_default();
-    if path == "config" || path == "config global" || path.starts_with("config global ") {
+    if path == "config global" {
         text.push_str(include_str!("../help/config-global.txt"));
         text.push_str("\nPREFERENCE DEFAULTS (TOML, before environment overrides):\n");
         text.push_str(
@@ -30,7 +30,16 @@ fn decorate(mut command: clap::Command, path: &str, schema: &Value) -> clap::Com
                 .expect("built-in preferences must serialize as TOML"),
         );
     }
-    text.push_str(include_str!("../help/json.txt"));
+    if path.starts_with("config global ") {
+        text.push_str("\nSee groove config global --help for preference keys and defaults.\n");
+    }
+    if path.is_empty() {
+        text.push_str(include_str!("../help/json.txt"));
+    } else {
+        text.push_str(
+            "\nOUTPUT CONTRACT:\nSee groove --help for global output rules and exit codes.\n",
+        );
+    }
     let mut definitions = BTreeSet::new();
     if !path.is_empty() {
         if let Some(commands) = schema["x-groove-command-results"].as_object() {
@@ -52,17 +61,19 @@ fn decorate(mut command: clap::Command, path: &str, schema: &Value) -> clap::Com
     } else {
         text.push_str("Run groove COMMAND --help for that command's result fields and types.\n");
     }
-    text.push_str("\nERROR EXIT CODES:\n");
-    for value in schema["$defs"]["error"]["properties"]["code"]["enum"]
-        .as_array()
-        .into_iter()
-        .flatten()
-    {
-        if let Ok(code) = serde_json::from_value::<ErrorCode>(value.clone()) {
-            text.push_str(&format!("  {}: {code}\n", output::error_status(code)));
+    if path.is_empty() {
+        text.push_str("\nERROR EXIT CODES:\n");
+        for value in schema["$defs"]["error"]["properties"]["code"]["enum"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            if let Ok(code) = serde_json::from_value::<ErrorCode>(value.clone()) {
+                text.push_str(&format!("  {}: {code}\n", output::error_status(code)));
+            }
         }
+        text.push_str("  7: stdout could not be written\n");
     }
-    text.push_str("  7: stdout could not be written\n");
     command = command.after_help(text);
     let children: Vec<_> = command
         .get_subcommands()

@@ -145,7 +145,9 @@ schemas and conformance tests with behavior changes, and link to them instead of
 copying their reference tables.
 Use `config project --example` for the project configuration example and the
 benchmark CLI's `profiles` command for its catalog. Keep workflow instructions
-in the portable skill and validation commands in `scripts/check.sh`. Do not add
+in the portable skill and validation commands in `scripts/check.sh`. Root help
+owns global-flag and output rules; command help covers command-specific behavior.
+Keep prose concrete and remove filler and repetition. Do not add
 checked-in run reports, readiness claims, test inventories or copies of generated
 examples/defaults. Put validation evidence in the relevant PR or CI run. Keep
 design rationale, safety boundaries, contributor policy and release history here;

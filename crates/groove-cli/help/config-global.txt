@@ -37,9 +37,9 @@ worktrees.root replaces the default $HOME/.worktrees parent used by new pools:
 overrides it with an exact pool path. Changing/unsetting this preference never
 relocates existing pools; use config show to inspect a pool's recorded path.
 
-The defaults below omit optional worktrees.root and logging.directory:
-set it to an absolute path; unset it for $XDG_STATE_HOME/groove/logs (or
-~/.local/state/groove/logs). TOML paths do not expand ~. logging.level accepts
+logging.directory selects the CLI diagnostic directory; unset it for
+$XDG_STATE_HOME/groove/logs (or ~/.local/state/groove/logs). TOML paths must be
+absolute and do not expand ~. logging.level accepts
 error/warn/info/debug/trace and is independent of -v/--quiet. GROOVE_LOG_DIR and
 GROOVE_LOG_ENABLED=true|false override file settings. Retention applies to CLI
 diagnostics, not managed-worker logs; use history/storage for those.

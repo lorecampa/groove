@@ -42,15 +42,10 @@ stdout/stderr go to private files under
 the selected pool's `task-logs/<run-id>/` directory, outside the reusable checkout.
 The pool state directory is `<GIT_COMMON_DIR>/groove/` for `default` and
 `<GIT_COMMON_DIR>/groove/pools/<name>/` for a named pool.
-Both streams are also mirrored live to Groove's stderr in human and JSON modes;
-`--quiet` suppresses mirroring without changing captured files or execution status.
-Worker bytes are not classified by log level. Child buffering can delay output;
-cross-stream ordering is unspecified. Terminal delivery is bounded and best-effort
-so a slow or failed reader cannot prevent timeout or cancellation. Consult the
-saved files for complete output within `--max-log-bytes`.
-The result (text or `--json`) contains both paths. Arguments are not persisted in execution
-metadata; worker output may contain sensitive data. Task logs are separate from
-[CLI diagnostic logs](logging.md) and have no automatic retention policy.
+The result contains both log paths. See [output delivery and diagnostic
+logs](logging.md) for live output and retention. Child buffering can delay live
+output. Arguments are not persisted in execution metadata; worker output may
+contain sensitive data. Task logs have no automatic retention policy.
 
 Output monitoring is periodic: temporary disk usage can exceed the retained-byte
 limit. There is no aggregate disk quota across executions.
@@ -60,8 +55,8 @@ the running command. The supervisor terminates its process
 group even when the direct child exits first, then checks teardown before clearing
 the execution record. A failed teardown keeps both prohibitions in place.
 
-An execution response can have `ok:true` and a nonzero worker result. The
-generated output contract in `groove exec --help` explains worker exit statuses
+An execution response can have `ok:true` and a nonzero worker result.
+`groove exec --help` explains worker exit statuses
 and termination outcomes. The reservation remains protected after every outcome.
 Cancellation observed before launch records a cancelled run with no leader PID;
 no worker starts. Its empty captured logs and terminal history remain available.

@@ -10,11 +10,7 @@ Without a selector, shows pool settings and every slot. With --task or
 --details reads bounded local Git status (staged, modified, untracked); with a
 selector, only that workspace is checked. Nothing contacts a remote.
 
---disk-usage adds human-readable workspace, artifact-cache, log and history sizes
-to the pool view (no --task, --lease-id or --slot selector). Combine with --details
-to include Git status too. JSON adds storage with exact integer byte counts.
-This explicitly scans files, including ignored build outputs, and may take time;
-interactive stderr shows a spinner unless --json or --quiet is used. Redirected
-stderr has no animation. Without --disk-usage no storage scan runs.
-Sizes are a changing observation of logical file bytes, not allocated/reclaimable
-blocks. Shared Git objects and snapshots are excluded; symlinks are not followed.
+--disk-usage adds workspace, cache, log and history sizes to the pool view;
+it cannot be used with a reservation or slot selector. The scan includes ignored
+files and can take time on large pools. Sizes are logical file bytes; shared Git
+objects and snapshots are excluded. Combine with --details for Git status.

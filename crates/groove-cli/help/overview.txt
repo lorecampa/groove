@@ -5,7 +5,8 @@ WORKFLOW:
   groove release --save --task fix-parser     # snapshot, then free the slot
 
 INSPECTION AND SETTINGS:
-  groove pools                     all pool namespaces and lifecycle states
+  groove pools                     pool namespaces and lifecycle states
+  groove pools --disk-usage         compare pool storage sizes
   groove --pool frontend init --capacity 3 --cleanup warm
                                    create a separate workflow pool
   groove list                      active reservations
@@ -16,7 +17,6 @@ INSPECTION AND SETTINGS:
   groove destroy --dry-run         preview deletion of an idle pool
   groove completions bash          print a shell completion script
   groove history --task NAME       past executions, even after release
-  groove storage show              logical storage usage
   groove storage clean --logs --older-than 30d --dry-run
                                    preview explicit captured-log cleanup
 
@@ -33,6 +33,9 @@ Destroy requires an explicit selection when several pools exist; see pools --hel
 Linux or macOS 13+, Git 2.40+, local storage (APFS on macOS).
 Run groove COMMAND --help for examples,
 defaults and recovery rules.
+
+Slow queries show a spinner on interactive stderr. JSON and quiet mode disable
+animation.
 
 Version output records the source revision (or unknown without source metadata).
 Source archives can supply GROOVE_BUILD_REVISION as a full commit ID at build time.

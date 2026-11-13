@@ -5,11 +5,8 @@ for preference keys, defaults, overrides and configuration repair. Effective
 settings and their environment overrides are available through
 `groove config global show` without a repository.
 
-Stdout carries command results; stderr carries diagnostics and live worker
-output, including in JSON mode. Keep the streams separate when parsing JSON.
-`--quiet` suppresses live worker output without changing captured files or the
-execution result. Worker streams contain arbitrary bytes, and ordering between
-stdout and stderr is unspecified. Terminal delivery is bounded and best effort;
+Worker streams contain arbitrary bytes, and ordering between stdout and stderr
+is unspecified. Terminal delivery is bounded and best effort;
 a slow consumer cannot block worker supervision. Captured worker files are the
 source for complete output within the configured per-stream limit.
 
