@@ -88,6 +88,10 @@
 
 - Release package smoke tests keep isolated user storage outside the fixture
   checkout and disable background spare preparation before fixture teardown.
+- Release preparation updates the standalone fuzz dependency and lockfile,
+  restoring both graphs if preparation fails.
+- Independent pool-growth crash scenarios each run in their own bounded test
+  process, retaining concurrency and recovery assertions under loaded scheduling.
 
 - Warm reuse removes previously tracked files when switching to a commit that
   deletes and ignores those paths, while preserving unrelated ignored caches.
