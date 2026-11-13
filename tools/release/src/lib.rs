@@ -151,28 +151,10 @@ impl Release {
             Path::new(field("worktree_path")?).is_dir(),
             "Acquire did not create a worktree",
         )?;
-        let execution = groove(args![
-            "exec",
-            "--lease-id",
-            field("lease_id")?,
-            "--grace-ms",
-            "0",
-            "--",
+        runner.run(
+            Path::new(field("worktree_path")?),
             "git",
-            "rev-parse",
-            "--is-inside-work-tree"
-        ])?;
-        require(
-            execution["execution"]["termination"] == "exited"
-                && execution["execution"]["exit_code"] == 0,
-            "Packaged managed execution failed",
-        )?;
-        let stdout = execution["execution"]["run"]["stdout_path"]
-            .as_str()
-            .ok_or_else(|| Error::Invalid("Missing captured stdout path".into()))?;
-        require(
-            fs::read(stdout)? == b"true\n",
-            "Packaged worker did not run in its worktree",
+            args!["rev-parse", "--is-inside-work-tree"],
         )?;
         groove(args!["release", "--lease-id", field("lease_id")?])?;
         require(

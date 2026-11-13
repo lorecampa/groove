@@ -144,7 +144,7 @@ impl Repository {
             })
             .collect();
         let digest = Sha256::digest(utf8(&self.common)?.as_bytes());
-        let id = crate::project::hex(&digest[..16]);
+        let id = crate::state::hex(&digest[..16]);
         let root = base
             .join(format!("{project}-{id}"))
             .join(self.name.as_str());

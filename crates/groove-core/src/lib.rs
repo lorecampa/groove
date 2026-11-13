@@ -10,8 +10,7 @@
 //!   slot; dropping it closes the descriptor without cleanup.
 //!
 //! Callers must preserve results and stop every writer before release; the next
-//! acquisition cleans the slot. [`Pool::exec`] runs managed commands without ever
-//! releasing a reservation, and [`Pool::finish`] pins a local checkpoint first.
+//! acquisition cleans the slot. [`Pool::finish`] pins a local checkpoint first.
 //!
 //! ```no_run
 //! use groove_core::{snapshot::SaveOptions, Pool, PoolOptions, ReservationOptions};
@@ -37,14 +36,12 @@
 compile_error!(
     "groove-core supports Linux and macOS: ownership requires Unix descriptor locks and process supervision"
 );
-mod cache;
 mod destruction;
 mod error;
 mod execution;
 pub mod experimental;
 mod finish;
 mod git;
-mod history;
 mod identifiers;
 mod inspection;
 mod lease;
@@ -53,8 +50,6 @@ mod locking;
 mod namespace;
 mod platform;
 mod pool;
-mod preparation;
-mod project;
 mod quiescence;
 mod recovery;
 mod repository;
@@ -70,26 +65,14 @@ mod types;
 
 pub use destruction::{DestroyOptions, DestroyResult};
 pub use error::{CapacityFailure, Error, ErrorCode, ErrorDetails, GitFailure, Result};
-pub use execution::{
-    ExecOptions, ExecResult, ExecutionInfo, ExecutionObserver, ExecutionSignals, OutputStream,
-    Termination,
-};
 pub use finish::FinishResult;
-pub use history::{HistoryFilter, LogState, RunHistory, RunId, RunOrigin, RunOutcome};
 pub use identifiers::{CommitOid, LeaseId, PoolId, PoolName, SlotId};
 pub use inspection::{PoolInspection, SlotInspection, SlotStatus, WorkspaceGitStatus};
 pub use lease::Lease;
 pub use lifecycle::Phase as PoolPhase;
 pub use namespace::PoolSummary;
 pub use pool::Pool;
-pub use preparation::{
-    NamedCommand, Preparation, PreparationOptions, PreparationStatus, SetupStepResult, StopRequest,
-};
-pub use project::{
-    CacheMode, CacheProfile, CommandRecipe, Project, SetupRecipe, SetupStep, StepWhen,
-    WorkspaceConfig,
-};
 pub use quiescence::{ProcessUse, WorkspaceProcess};
 pub use reservation::ReservationOptions;
-pub use storage::{CleanupEntry, CleanupStatus, LogCleanup, StorageUsage};
+pub use storage::StorageUsage;
 pub use types::*;

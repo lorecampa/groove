@@ -1,31 +1,22 @@
-# Diagnostics and captured output
+# Diagnostics
 
 Use `groove --help` for terminal verbosity and `groove config global --help`
 for preference keys, defaults, overrides and configuration repair. Effective
 settings and their environment overrides are available through
 `groove config global show` without a repository.
 
-Worker streams contain arbitrary bytes, and ordering between stdout and stderr
-is unspecified. Terminal delivery is bounded and best effort;
-a slow consumer cannot block worker supervision. Captured worker files are the
-source for complete output within the configured per-stream limit.
-
-## Two independent log lifetimes
+Stdout carries command results; stderr carries diagnostics, including in JSON mode.
+Keep the streams separate when parsing JSON. Terminal delivery is bounded and best effort.
 
 CLI diagnostic events use JSON Lines under `$XDG_STATE_HOME/groove/logs`, falling
 back to `~/.local/state/groove/logs`. File severity is independent of terminal
 verbosity. Per-invocation files have bounded retention; active files are locked
 and skipped, so retention targets are not a strict aggregate quota.
 
-Managed-worker stdout/stderr instead lives under the selected pool's
-`task-logs/`, outside reusable checkouts. Diagnostic retention does not remove
-these files. Use history/storage commands for their explicit cleanup; see
-[execution](execution.md#history-and-explicit-log-cleanup).
-
 ## Privacy and failure boundaries
 
 Diagnostic events omit raw argument vectors, Git output, file contents and
-environment dumps. Worker output may contain secrets. Log destinations must be
+environment dumps. Log destinations must be
 owned by the current user and cannot traverse symlinks or be writable by others;
 existing directory permissions are not changed.
 

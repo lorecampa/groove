@@ -24,7 +24,7 @@ untracked files. Both forms refuse with WORKSPACE_IN_USE if other processes have
 their working directory, executable or open files in the workspace (your own shell
 is ignored). The process check only sees your processes and is best effort.
 --force skips these checks; with --save it still saves and pins the snapshot.
-It never bypasses a running `groove exec`, which must be stopped first.
+It never bypasses descriptor ownership or legacy execution protection.
 
 If the checkout was deleted (rm -rf, git worktree remove), normal release and
 release --save fail with RECOVERY_FAILED because nothing can be inspected or

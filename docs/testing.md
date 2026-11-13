@@ -21,7 +21,7 @@ A test should survive a refactor that preserves that guarantee.
   can pass because setup failed for an unrelated reason.
 - For CLI tests, assert the versioned schema, expected success/error result,
   exit category and stdout/stderr rules. Schema validity alone does not prove the
-  requested command worked. Worker exit codes intentionally differ from Groove errors.
+  requested command worked.
 - Use independent expectations: restore and inspect files, apply a result with Git,
   or compare with a small specification model. A serialize/deserialize roundtrip
   alone can miss matching defects on both sides; also check the published format.
@@ -89,7 +89,7 @@ stdout/stderr to temporary files (at most 1 MiB per stream is read back), avoidi
 pipe backpressure and waits for inherited pipe writers. It owns the direct child
 through completion/unwind and kills/reaps that child on drop. It does not stop
 arbitrary detached descendants: tests spawning writers must arrange their teardown
-using the managed-execution protocol or an explicit bounded handshake.
+using an explicit bounded handshake.
 
 `TestChild::checkpoint` checks early exit, applies a total connection/read deadline
 and validates the checkpoint name. `harness.rs` exercises early exit, missing and
@@ -105,9 +105,7 @@ their short-lived reservation descriptors. `fork_inheritance.rs` deliberately
 holds the pre-exec boundary and verifies rejection/preservation before exec and release
 after descriptor closure while the child remains alive, for both slot and execution
 descriptors, including blocked release --save and successful checkpoint preservation after
-exec. Preparation fixtures also run concurrently in separate processes: unrelated
-fork/exec can otherwise keep a just-dropped execution guard alive and correctly
-make an immediate setup attempt report contention. Keep explicit contention and
+exec. Keep explicit contention and
 surviving-child tests; fixture isolation is not a substitute for them. Some older
 fixtures use a mutex and therefore do not establish concurrent fixture scheduling.
 
@@ -202,14 +200,7 @@ scale checks and container/production-CLI opt-ins. Use its `profiles` command to
 inspect workloads and requirements. Normal correctness tests do not establish
 large-repository latency or concurrent throughput.
 
-Reflink artifact tests need reflink-capable disposable storage. Point
-`GROOVE_TEST_REFLINK_ROOT` there and run:
-
-```sh
-cargo test -p groove-core --test preparation --locked -- --ignored reflink
-```
-
-Report this separate run before claiming reflink coverage. `GROOVE_TEST_ROOT`
+`GROOVE_TEST_ROOT`
 selects ordinary fixture storage; macOS uses short temporary paths to fit Unix
 socket limits. Platform tests establish only the OS/filesystem versions actually
 run, not minimum-version compatibility automatically.
@@ -217,5 +208,4 @@ run, not minimum-version compatibility automatically.
 SIGKILL is not power loss or storage corruption. Filesystem rejection checks do
 not certify flock/fsync. Minimum-kernel VM coverage, malicious same-user path
 races, every Git configuration and broad editor/watcher compatibility remain
-unestablished. Process groups cover cooperative descendants only. External
-writers must stop before release/checkpoint.
+unestablished. External writers must stop before release/checkpoint.

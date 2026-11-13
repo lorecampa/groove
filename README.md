@@ -61,7 +61,7 @@ From a Git repository with at least one commit:
 ```sh
 groove init --capacity 4
 groove acquire --task fix-parser
-groove exec --task fix-parser -- cargo test
+# Work and run tests directly in the printed checkout path.
 groove release --save --task fix-parser
 ```
 
@@ -96,7 +96,6 @@ recovery instructions:
 ```sh
 groove --help
 groove acquire --help
-groove exec --help
 groove destroy --help
 ```
 
@@ -108,9 +107,6 @@ retain the lease ID for subsequent retries; see the [portable skill](skills/groo
 ## Guides
 
 - [Agent skill](skills/groove/SKILL.md): workspace selection, retries and handoff.
-- [Project setup](docs/project.md): explicit setup steps, caches and named commands
-  in `.groove.toml`.
-- [Execution and recovery](docs/execution.md): worker ownership, cancellation and logs.
 - [Operations](docs/operations.md): pools, deletion, shared state and supported repositories.
 - [Snapshots](docs/snapshots.md): capture, recovery and retention.
 - `groove COMMAND --help`: inputs, JSON output contracts and recovery for integrations.

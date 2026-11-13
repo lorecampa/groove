@@ -1,8 +1,8 @@
 mod support;
 use groove_core::{
     snapshot::{SaveOptions, Snapshots},
-    CleanupPolicy, DestroyOptions, ErrorCode, ExecOptions, HistoryFilter, Pool, PoolName,
-    PoolOptions, PoolUpdate, ReservationOptions,
+    CleanupPolicy, DestroyOptions, ErrorCode, Pool, PoolName, PoolOptions, PoolUpdate,
+    ReservationOptions,
 };
 use std::{fs, os::unix::fs::MetadataExt};
 use support::Repo;
@@ -38,14 +38,6 @@ fn growth_reuses_retired_slots_without_losing_results_or_releasing_successors() 
             })
             .collect();
         let retired = leases.iter().find(|l| l.slot_id.number() == 2).unwrap();
-        old.exec(
-            retired.lease_id,
-            ExecOptions {
-                command: vec!["sh".into(), "-c".into(), "printf retained-log".into()],
-                ..Default::default()
-            },
-        )
-        .unwrap();
         fs::write(
             retired.worktree_path.join("tracked.txt"),
             b"retained result",
@@ -143,10 +135,6 @@ fn growth_reuses_retired_slots_without_losing_results_or_releasing_successors() 
                 .code,
             ErrorCode::InvalidLease
         );
-        let history = current.history(&HistoryFilter::default()).unwrap();
-        assert_eq!(history.len(), 1);
-        assert_eq!(history[0].lease_id, retired.lease_id);
-        assert_eq!(fs::read(&history[0].stdout_path).unwrap(), b"retained-log");
         let recovery = repo.temp.path().join("recovered-result");
         let snapshots = Snapshots::open(&repo.path, groove_core::DEFAULT_GIT_TIMEOUT).unwrap();
         assert!(snapshots.show(&finished.snapshot.id).unwrap().pinned);

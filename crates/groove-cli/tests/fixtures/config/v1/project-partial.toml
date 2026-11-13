@@ -1,8 +1,0 @@
-schema_version = 1
-
-[[setup.dev.steps]]
-name = "prepare"
-command = ["touch", "MUST_NOT_RUN"]
-
-[recipes.test]
-command = ["touch", "MUST_NOT_RUN"]

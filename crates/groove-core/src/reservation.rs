@@ -107,7 +107,7 @@ fn key_reused() -> Error {
 
 impl Pool {
     fn request_path(&self, key: &str) -> PathBuf {
-        let digest = crate::project::hex(Sha256::digest(key.as_bytes()));
+        let digest = crate::state::hex(Sha256::digest(key.as_bytes()));
         self.repo
             .root
             .join("requests")
@@ -139,7 +139,7 @@ impl Pool {
 
     /// Permanent lock serializing reservations that share one task label.
     fn label_lock_path(&self, task: &str) -> PathBuf {
-        let digest = crate::project::hex(Sha256::digest(task.as_bytes()));
+        let digest = crate::state::hex(Sha256::digest(task.as_bytes()));
         self.repo
             .root
             .join("requests")

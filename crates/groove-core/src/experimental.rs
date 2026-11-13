@@ -49,7 +49,7 @@ pub struct Feature {
 /// names or a switch that automatically enables all future experiments.
 pub const FEATURES: &[Feature] = &[];
 
-/// Opt-in requests shared by user preferences and `.groove.toml`.
+/// Opt-in requests for named experimental features.
 ///
 /// Missing configuration means no experimental opt-in. Deserialization checks
 /// syntax; call [`Self::validate`] or [`Self::resolve`] before using requests.

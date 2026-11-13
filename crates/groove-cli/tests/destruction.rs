@@ -23,7 +23,7 @@ fn check(output: &std::process::Output) -> Value {
 }
 
 #[test]
-fn destroy_contract_includes_preview_rejection_history_and_generation_preconditions() {
+fn destroy_contract_includes_preview_rejection_and_generation_preconditions() {
     let repo = Repo::new();
     let output = cli(&repo, &["destroy", "--help"]);
     assert!(output.status.success());
@@ -42,18 +42,6 @@ fn destroy_contract_includes_preview_rejection_history_and_generation_preconditi
     assert_eq!(busy.status.code(), Some(4));
     assert_eq!(check(&busy)["error"]["code"], "CONFIG_CONFLICT");
     assert!(std::path::Path::new(path).exists());
-    assert_success(&cli(
-        &repo,
-        &[
-            "exec",
-            "--task",
-            "retained",
-            "--",
-            "sh",
-            "-c",
-            "printf retained-output",
-        ],
-    ));
     assert_success(&cli(&repo, &["release", "--task", "retained"]));
     let preview = cli(&repo, &["destroy", "--dry-run"]);
     assert!(preview.status.success());
@@ -73,16 +61,6 @@ fn destroy_contract_includes_preview_rejection_history_and_generation_preconditi
         check(&again)["result"]["destruction"]["already_deleted"],
         true
     );
-    let history = cli(&repo, &["history"]);
-    assert!(history.status.success());
-    assert_eq!(
-        check(&history)["result"]["runs"].as_array().unwrap().len(),
-        1
-    );
-    assert_success(&cli(
-        &repo,
-        &["storage", "clean", "--logs", "--older-than", "0s"],
-    ));
     assert_success(&cli(&repo, &["init", "--capacity", "2"]));
     let stale = cli(&repo, &["destroy", "--pool-id", id]);
     assert_eq!(stale.status.code(), Some(4));

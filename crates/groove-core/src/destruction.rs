@@ -451,11 +451,10 @@ impl Pool {
                 let name = item.file_name();
                 let name = name.to_string_lossy();
                 if name.ends_with(".protected.json") || name.ends_with(".execution.json") {
-                    return Err(conflict("Finish/release reservations and stop/recover executions before deleting the pool", &item.path()));
+                    return Err(conflict("Release reservations before deleting the pool; legacy executions must be resolved with the previous Groove version", &item.path()));
                 }
             }
         }
-        let mut setup_endpoints = Vec::new();
         for slot in &result.slots {
             let path = root.join(slot.as_str());
             repository::no_symlinks(&path)?;
@@ -470,20 +469,6 @@ impl Pool {
                 }
             } else if !initializing {
                 return Err(conflict("Missing slot metadata", &record_path));
-            }
-            let setup_path = repo.root.join("slots").join(format!("{slot}.setup.json"));
-            if exists(&setup_path)? {
-                let setup: crate::Preparation =
-                    state::read_bounded(&setup_path, crate::preparation::RECORD_LIMIT)?;
-                let prefix = format!("groove-setup-{}-", setup.lease_id);
-                if setup.schema_version != state::SCHEMA_VERSION
-                    || !setup.control_name.strip_prefix(&prefix).is_some_and(|id| {
-                        uuid::Uuid::parse_str(id).is_ok_and(|uuid| uuid.to_string() == id)
-                    })
-                {
-                    return Err(conflict("Invalid setup control record", &setup_path));
-                }
-                setup_endpoints.push(setup.control_name);
             }
             if exists(&path)? {
                 if initializing {
@@ -546,9 +531,6 @@ impl Pool {
         lifecycle::write(&repo, &record)?;
         result.pool_id = Some(record.pool_id);
         state::checkpoint("pool-deleting");
-        for endpoint in setup_endpoints {
-            crate::platform::control::cleanup_endpoint(&endpoint)?;
-        }
         for slot in &result.slots {
             crate::recovery::remove_owned(&repo, &root.join(slot.as_str()))?;
             state::checkpoint("pool-slot-removed");

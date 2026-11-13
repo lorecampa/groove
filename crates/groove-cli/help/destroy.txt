@@ -12,7 +12,7 @@ the catalog. --pool-id checks a generation inside the selected namespace.
 
 Release every reservation and stop ALL writers first. Live lease and
 execution descriptors, protected reservations and orphaned execution records
-always refuse deletion. Use stop/recover before release where necessary. Run
+always refuse deletion. Resolve legacy executions with the previous Groove version. Run
 destroy from outside every directory being removed, including your shell's cwd.
 
 Deletion removes every configured checkout, its exact Git worktree registration,
@@ -29,8 +29,8 @@ uses bounded Git output; an inspection failure never authorizes removal.
 
 Permanent locks, request-key tombstones, saved-release receipts, execution history/logs,
 branches and snapshots remain. Checkout root directories (including external
-roots) and unknown files in them remain. History, storage and snapshot commands
-remain available; log cleanup/history deletion retain their existing rules.
+roots) and unknown files in them remain. Snapshot commands remain available.
+Legacy logs/history are retained without a cleanup command.
 
 An interrupted deletion blocks normal pool use. Retry destroy with the same
 --discard-changes policy to resume. Retrying a completed deletion succeeds.

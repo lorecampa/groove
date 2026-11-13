@@ -10,7 +10,7 @@ mod terminal;
 
 use args::{Args, Command};
 use clap::{error::ErrorKind, FromArgMatches};
-use groove_core::{Error, ErrorCode, ExecutionSignals};
+use groove_core::{Error, ErrorCode};
 use output::Format;
 use std::{process::ExitCode, time::Duration};
 
@@ -113,29 +113,11 @@ fn reject(raw: &[std::ffi::OsString], error: &clap::Error) -> u8 {
 }
 
 fn run(args: &Args) -> u8 {
-    // Block cancellation before starting the terminal delivery thread.
-    let signals = if args.command.supervises_workers() {
-        ExecutionSignals::block().and_then(|guard| {
-            ExecutionSignals::enable_subreaper()?;
-            Ok(Some(guard))
-        })
-    } else {
-        Ok(None)
-    };
     let terminal = terminal::Terminal::new(terminal::Verbosity {
         verbose: args.verbose,
         quiet: args.quiet,
     });
-    match signals {
-        Ok(_signals) => run_command(args, &terminal),
-        Err(error) => output::emit_error(
-            requested_format(args.json),
-            args.request_id.as_deref(),
-            &error,
-            &terminal,
-            Some(args),
-        ),
-    }
+    run_command(args, &terminal)
 }
 
 fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {

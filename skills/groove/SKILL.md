@@ -16,16 +16,14 @@ stdout. Before first using a command, read
 `groove --json snapshot restore --help`). The JSON response stores the help
 screen in `result.text`. Command help defines syntax, result fields/types and
 errors. Use the installed contract to parse JSON responses.
-Check both the exit status and `ok` before reading `result`; managed commands
-can return `ok:true` with a nonzero worker status.
+Check both the exit status and `ok` before reading `result`.
 
 Installing this skill does not require Groove for every repository or authorize
 pushing, merging, discarding work or changing repository policy.
 
 Use your runner's existing delegation and messaging tools when available. Sharing
 a pool does not connect separately launched agents' conversations. The runner or
-coordinator supplies task scheduling, communication and result integration;
-`groove exec` optionally adds managed execution, logs and cancellation.
+coordinator supplies task scheduling, communication, command execution and result integration.
 
 ## Establish your assignment first
 
@@ -36,11 +34,10 @@ coordinator supplies task scheduling, communication and result integration;
   it. Report results and stop your writers before returning to the coordinator.
   Separately assigned tasks can have their own reservations.
 
-Managed workers receive `GROOVE_LEASE_ID`, `GROOVE_POOL`, `GROOVE_WORKTREE` and
-`GROOVE_TASK`. Treat them as assignment context, not proof of ownership. Match
-context with the coordinator's assignment and `groove show --lease-id ID` before
-using it. Inspection, directory location, PIDs and metadata do not grant ownership.
-If the assignment is ambiguous, inspect and report it rather than guessing.
+Assigned workers use the checkout, lease ID and pool supplied by their coordinator.
+Match that assignment with `groove show --lease-id ID` before using it. Inspection,
+directory location, PIDs and metadata do not grant ownership. If the assignment is
+ambiguous, inspect and report it rather than guessing.
 
 Carry the same explicit `--pool NAME` on **every pool command**, including
 retries. Omission always means `default`; neither cwd nor `GROOVE_POOL` selects
@@ -67,15 +64,8 @@ to bypass contention.
    editing context safely, hand off/relaunch in that checkout before editing.
    Read the checkout's project instructions. HEAD starts detached; Groove does
    not create branches. Git refs/configuration are shared across worktrees.
-4. Use the retained lease ID for follow-up commands. For bounded workers/logs:
-
-   ```sh
-   groove --json --pool default exec --lease-id LEASE_ID --timeout-ms 600000 -- cargo test
-   ```
-
-   `LEASE_ID` means the actual returned identifier. An assigned worker already
-   inside a managed `exec` runs its commands directly; do not nest managed runs
-   on the same reservation. `exec --agent` selects argv, not agent configuration.
+4. Work and run commands directly in the returned checkout using your runner or
+   terminal. Keep the reservation until every writer has stopped and results are preserved.
 
 On `POOL_EXHAUSTED` or `ACQUIRE_TIMEOUT`, wait/retry with the same acquisition
 identity (for example `--wait-ms 5000`). Never create overflow worktrees, enlarge
@@ -83,21 +73,16 @@ capacity or remove protection to make progress. If a bounded wait still cannot
 make progress, report contention with the retained retry inputs instead of
 spinning indefinitely.
 
-For reviewed project setup, recipes or agent adapters, read
-[references/project.md](references/project.md) before running them.
-
 ## Preserve and hand off
 
 An assigned worker reports its changes, checks and remaining processes, then
-returns without releasing the reservation. It must not release from inside its
-own managed execution: the coordinator waits for that execution to end first.
+returns without releasing the reservation. The coordinator waits for all assigned work to stop before release.
 
 A coordinator finishing the task must:
 
 1. Stop and wait for every worker, test, watcher and dev server, including
    external writers. Move coordinator terminals outside the checkout before
-   finishing. `groove stop --lease-id ID` requests
-   managed cancellation; inspect until the execution clears.
+   finishing. Use your runner or terminal to stop commands; Groove does not supervise them.
 2. Export any required ignored artifacts; snapshots exclude ignored files.
 3. Preserve the result and release:
 
@@ -113,12 +98,12 @@ of finishing. Once released, never use the old path: the next task can erase it.
 Without `--save`, `release` does not save a snapshot. Nothing is merged or pushed automatically.
 
 `WORKSPACE_IN_USE` means inspect/stop writers, not use `--force`. Failed saving
-or teardown means **leave protection intact** and report the recovery needed.
+or writer shutdown means **leave protection intact** and report the recovery needed.
 Never delete locks, protection or execution records. Reservations never expire.
 
 ## Retry, recover and report
 
-For a lost response, conflicting label, blocked `release --save` or orphan execution,
+For a lost response, conflicting label or blocked `release --save`,
 read [references/recovery.md](references/recovery.md). Retry finalization with
 its original **lease ID and pool**, never a reusable task label. Stale IDs cannot
 release a successor; saved-release receipts survive slot reuse.

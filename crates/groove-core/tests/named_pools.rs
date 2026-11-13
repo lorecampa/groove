@@ -1,8 +1,8 @@
 mod support;
 use groove_core::{
     snapshot::{SaveOptions, Snapshots},
-    CleanupPolicy, DestroyOptions, ErrorCode, ExecOptions, HistoryFilter, Pool, PoolName,
-    PoolOptions, PoolPhase, PoolUpdate, ReservationOptions, DEFAULT_GIT_TIMEOUT,
+    CleanupPolicy, DestroyOptions, ErrorCode, Pool, PoolName, PoolOptions, PoolPhase, PoolUpdate,
+    ReservationOptions, DEFAULT_GIT_TIMEOUT,
 };
 use std::{
     fs,
@@ -47,8 +47,8 @@ fn remove(repo: &Repo, value: &str) -> groove_core::DestroyResult {
 }
 
 #[test]
-fn pools_isolate_capacity_labels_request_keys_settings_and_history() {
-    if !support::in_subprocess("pools_isolate_capacity_labels_request_keys_settings_and_history") {
+fn pools_isolate_capacity_labels_request_keys_and_settings() {
+    if !support::in_subprocess("pools_isolate_capacity_labels_request_keys_and_settings") {
         return;
     }
     let repo = Repo::new();
@@ -84,30 +84,6 @@ fn pools_isolate_capacity_labels_request_keys_settings_and_history() {
         back.settings().unwrap().cleanup_policy,
         CleanupPolicy::Pristine
     );
-    for (p, id, expected) in [
-        (&front, f.lease_id, "frontend"),
-        (&back, b.lease_id, "backend"),
-        (&default, d.lease_id, "default"),
-    ] {
-        p.exec(
-            id,
-            ExecOptions {
-                command: vec![
-                    "sh".into(),
-                    "-c".into(),
-                    "printf %s \"$GROOVE_POOL\"".into(),
-                ],
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        let history = p.history(&HistoryFilter::default()).unwrap();
-        assert_eq!(history.len(), 1);
-        assert_eq!(
-            fs::read_to_string(&history[0].stdout_path).unwrap(),
-            expected
-        );
-    }
     front.release_lease(f.lease_id).unwrap();
     assert_eq!(
         front.reserve(options()).unwrap_err().code,
@@ -122,16 +98,6 @@ fn pools_isolate_capacity_labels_request_keys_settings_and_history() {
     assert_eq!(
         default.lease_by_task("same-task").unwrap().lease_id,
         d.lease_id
-    );
-    let retained =
-        Pool::open_retained_named(&repo.path, &name("frontend"), DEFAULT_GIT_TIMEOUT).unwrap();
-    retained
-        .clean_logs(std::time::Duration::ZERO, false)
-        .unwrap();
-    let history = back.history(&HistoryFilter::default()).unwrap();
-    assert_eq!(
-        fs::read_to_string(&history[0].stdout_path).unwrap(),
-        "backend"
     );
     assert_eq!(back.settings().unwrap().pool_name, name("backend"));
 }
@@ -330,60 +296,6 @@ fn named_snapshots_share_results_and_reject_stale_handles_and_all_pool_destinati
     assert_eq!(
         fs::read_to_string(b.worktree_path.join("tracked.txt")).unwrap(),
         "keep backend"
-    );
-}
-
-#[test]
-fn caches_are_pool_specific_even_with_identical_compatibility_keys() {
-    if !support::in_subprocess("caches_are_pool_specific_even_with_identical_compatibility_keys") {
-        return;
-    }
-    let repo = Repo::new();
-    fs::write(repo.path.join(".groove.toml"), "schema_version=1\n[caches.deps]\npaths=['ignored/deps']\ninputs=['tracked.txt']\nkey='same-toolchain'\n[setup.dev]\ncache='deps'\n[[setup.dev.steps]]\nname='seed'\ncommand=['sh','-c','mkdir -p ignored/deps; printf %s \"$GROOVE_POOL\" > ignored/deps/value']\nwhen='cache_miss'\n").unwrap();
-    repo.git(&["add", ".groove.toml"]);
-    repo.git(&["commit", "-qm", "pool cache fixture"]);
-    let front = create(&repo, "frontend");
-    let back = create(&repo, "backend");
-    let mut key = None;
-    for (pool, expected) in [(&front, "frontend"), (&back, "backend")] {
-        let first = pool.reserve(Default::default()).unwrap();
-        let setup = pool
-            .prepare(first.lease_id, "dev", Default::default())
-            .unwrap();
-        assert_eq!(setup.status, groove_core::PreparationStatus::Ready);
-        assert!(!setup.cache_hit);
-        if let Some(key) = &key {
-            assert_eq!(setup.cache_key.as_ref(), Some(key));
-        } else {
-            key = setup.cache_key;
-        }
-        assert_eq!(
-            fs::read_to_string(first.worktree_path.join("ignored/deps/value")).unwrap(),
-            expected
-        );
-        pool.release_lease(first.lease_id).unwrap();
-        let next = pool.reserve(Default::default()).unwrap();
-        assert!(
-            pool.prepare(next.lease_id, "dev", Default::default())
-                .unwrap()
-                .cache_hit
-        );
-        assert_eq!(
-            fs::read_to_string(next.worktree_path.join("ignored/deps/value")).unwrap(),
-            expected
-        );
-        pool.release_lease(next.lease_id).unwrap();
-    }
-    remove(&repo, "frontend");
-    let b = back.reserve(Default::default()).unwrap();
-    assert!(
-        back.prepare(b.lease_id, "dev", Default::default())
-            .unwrap()
-            .cache_hit
-    );
-    assert_eq!(
-        fs::read_to_string(b.worktree_path.join("ignored/deps/value")).unwrap(),
-        "backend"
     );
 }
 

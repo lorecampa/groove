@@ -34,7 +34,6 @@ fn profiles_are_discoverable_and_workload_overrides_are_rejected() {
         "snapshot-scale",
         "snapshot-binary",
         "workspace-reuse",
-        "workspace-setup",
         "workspace-concurrency",
         "workspace-multi-pool",
         "workspace-deletion",
@@ -120,7 +119,6 @@ fn routine_profiles_verify_raw_evidence_and_preserve_host_configuration() {
             "snapshot-binary",
             "workspace-reuse",
             "workspace-conversions",
-            "workspace-setup",
             "workspace-concurrency",
             "workspace-multi-pool",
             "workspace-deletion",
@@ -149,7 +147,7 @@ fn routine_profiles_verify_raw_evidence_and_preserve_host_configuration() {
     assert_eq!(value["schema_version"], 4);
     assert_eq!(value["status"], "passed");
     assert_eq!(value["environment"]["canonical"], false);
-    assert_eq!(value["cases"].as_object().unwrap().len(), 22);
+    assert_eq!(value["cases"].as_object().unwrap().len(), 21);
     assert_eq!(fs::read_dir(&scratch).unwrap().count(), 0);
     let inspected = bench().arg("inspect").arg(&report).output().unwrap();
     assert!(inspected.status.success());
@@ -178,7 +176,7 @@ fn routine_profiles_verify_raw_evidence_and_preserve_host_configuration() {
         .status
         .success());
     let mut changed = value.clone();
-    changed["profiles"]["workspace-setup"]["definition"]["sampling"]["blocks"] =
+    changed["profiles"]["workspace-reuse"]["definition"]["sampling"]["blocks"] =
         serde_json::json!(99);
     fs::write(&report, serde_json::to_vec(&changed).unwrap()).unwrap();
     assert!(!bench()
@@ -192,7 +190,7 @@ fn routine_profiles_verify_raw_evidence_and_preserve_host_configuration() {
     changed["cases"]
         .as_object_mut()
         .unwrap()
-        .remove("workspace-setup/copy-cache");
+        .remove("workspace-reuse/pristine");
     fs::write(&report, serde_json::to_vec(&changed).unwrap()).unwrap();
     assert!(!bench()
         .arg("inspect")
@@ -213,7 +211,7 @@ fn paired_profile_uses_ab_ba_and_the_profile_sampling_policy() {
     let report = temp.path().join("report.json");
     let cli = release_cli();
     let output = bench()
-        .args(["benchmark", "workspace-setup", "--host", "--binary"])
+        .args(["benchmark", "workspace-reuse", "--host", "--binary"])
         .arg(&cli)
         .arg("--baseline-binary")
         .arg(&cli)
@@ -229,7 +227,7 @@ fn paired_profile_uses_ab_ba_and_the_profile_sampling_policy() {
         String::from_utf8_lossy(&output.stderr)
     );
     let value: Value = serde_json::from_slice(&fs::read(&report).unwrap()).unwrap();
-    let blocks = value["cases"]["workspace-setup/copy-cache"]["blocks"]
+    let blocks = value["cases"]["workspace-reuse/pristine"]["blocks"]
         .as_array()
         .unwrap();
     assert_eq!(blocks.len(), 10);

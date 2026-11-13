@@ -42,7 +42,7 @@ enum Message {
     Finish(mpsc::Sender<()>),
 }
 
-/// A best-effort stderr sink. Never holds up the managed-worker supervisor.
+/// A bounded, best-effort stderr sink for diagnostics.
 #[derive(Debug, Clone)]
 pub struct Terminal {
     sender: SyncSender<Message>,
@@ -99,27 +99,28 @@ impl Terminal {
         let dropped = Arc::new(AtomicBool::new(false));
         let lost = dropped.clone();
         // Failure to create the presentation thread disables stderr mirroring;
-        // execution, captured logs and stdout results remain available.
+        // stdout results and persistent diagnostics remain available.
         let _ = std::thread::Builder::new()
             .name("groove-stderr".into())
             .spawn(move || {
-            while let Ok(message) = receiver.recv() {
-                match message {
-                    Message::Bytes(bytes) => {
-                        if writer.write_all(&bytes).is_err() {
+                while let Ok(message) = receiver.recv() {
+                    match message {
+                        Message::Bytes(bytes) => {
+                            if writer.write_all(&bytes).is_err() {
+                                break;
+                            }
+                        }
+                        Message::Finish(done) => {
+                            if lost.load(Ordering::Relaxed) && !verbosity.quiet {
+                                let _ = writer
+                                    .write_all(b"\nwarning: terminal diagnostics were dropped.\n");
+                            }
+                            let _ = writer.flush();
+                            let _ = done.send(());
                             break;
                         }
                     }
-                    Message::Finish(done) => {
-                        if lost.load(Ordering::Relaxed) && !verbosity.quiet {
-                            let _ = writer.write_all(b"\nwarning: terminal output was dropped; consult captured logs.\n");
-                        }
-                        let _ = writer.flush();
-                        let _ = done.send(());
-                        break;
-                    }
                 }
-            }
             });
         Self {
             sender,
@@ -171,14 +172,6 @@ impl Drop for Spinner {
         if let Some((stop, worker)) = self.0.take() {
             let _ = stop.send(());
             let _ = worker.join();
-        }
-    }
-}
-
-impl groove_core::ExecutionObserver for Terminal {
-    fn output(&self, _stream: groove_core::OutputStream, bytes: &[u8]) {
-        if !self.verbosity.quiet {
-            self.write(bytes);
         }
     }
 }

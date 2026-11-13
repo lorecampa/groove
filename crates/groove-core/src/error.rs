@@ -108,12 +108,6 @@ pub struct CapacityFailure {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct ErrorDetails {
-    /// Executable whose managed spawn failed (arguments are never included).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub program: Option<String>,
-    /// Execution history entry associated with the failure.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub run_id: Option<crate::RunId>,
     /// Filesystem path the failing operation was acting on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<PathBuf>,
@@ -138,9 +132,6 @@ pub struct ErrorDetails {
     /// Safety snapshot captured before a failed restore.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub safety_snapshot_id: Option<String>,
-    /// Setup readiness recorded at the time of the failure.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub preparation: Option<Box<crate::Preparation>>,
     /// Unsaved changes found by a release check.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub changes: Option<crate::WorkspaceGitStatus>,

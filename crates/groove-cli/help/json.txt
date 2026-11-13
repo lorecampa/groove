@@ -6,9 +6,8 @@ JSON OUTPUT CONTRACT (--json):
   request_id is the supplied correlation string, or null. Success has result
   and no error; failure has error and no result. Help/version use result.text.
   Exactly one newline-terminated object is written to stdout. Stderr can contain
-  diagnostics and worker output; --quiet retains errors and captured worker logs.
+  diagnostics; --quiet retains errors.
   Reject unknown api_version values; accept additive fields. The v1 interface is
-  in development. Ordinary success exits 0. Check both ok AND exit status:
-  exec/setup can return ok:true with a nonzero worker status; see exec --help.
+  in development. Success exits 0. Check both ok AND exit status.
   Branch on error.code, not message/hint. retryable:true permits retry after
-  contention clears; details may retain lease/worktree, saved snapshot or run IDs.
+  contention clears; details may retain lease/worktree, saved snapshot IDs.

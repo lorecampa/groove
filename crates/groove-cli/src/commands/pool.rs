@@ -299,8 +299,6 @@ pub fn show(
                 "status": slot.status,
                 "reason": slot.reason,
                 "next_action": slot.next_action,
-                "execution": slot.execution,
-                "preparation": slot.preparation,
                 "git": slot.git,
             }
         });

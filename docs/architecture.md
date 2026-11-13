@@ -27,19 +27,15 @@ assume cooperative same-user processes; worktrees are not security sandboxes.
 
 | Package | Responsibility |
 | --- | --- |
-| `groove-core` | Discovery, allocation, locks, controlled Git, recovery, reservations, execution and snapshots |
+| `groove-core` | Discovery, allocation, locks, controlled Git, recovery, reservations and snapshots |
 | `groove-cli` | Parsing, human and JSON rendering, exit codes, preferences and logging |
 | `groove-release`, `groove-bench` | Unpublished release and benchmark tooling |
 
 Core never prints or installs global logging. It uses blocking operations and
 requires no async runtime.
-Managed execution optionally delivers captured bytes to a nonblocking observer.
-The CLI routes those bytes and filtered diagnostics through a bounded stderr
-queue, keeping presentation backpressure out of worker supervision. File
-diagnostic levels and terminal verbosity are independent; stdout holds results.
+The CLI routes diagnostics through a bounded stderr queue; stdout holds results.
 Core supports Linux and macOS and fails with an explicit `compile_error!` elsewhere.
-`platform` isolates signal consumption, authenticated control endpoints, filesystem
-qualification and reflink creation; `quiescence` has OS-specific process-inspection
+`platform` isolates Git child observation and filesystem qualification; `quiescence` has OS-specific process-inspection
 backends. Descriptor ownership, durable protection and recovery policy are shared.
 
 Browse [the core source](../crates/groove-core/src/) for module ownership;
@@ -60,11 +56,11 @@ change through an atomic settings update.
 [namespace administration](../crates/groove-core/src/namespace.rs) define the
 storage layout. Treat it as coordination state, never as a manual cleanup API.
 Permanent locks, durable reservations, saved-release receipts and request journals
-survive task exit; checkout contents and approved artifact caches are disposable.
+survive task exit; checkout contents and legacy artifact caches are disposable.
 
 Every manifest references the original permanent `<common>/groove/locks/admin.lock`;
 named pools do not create independent Git-administration locks. Pool-local lifecycle
-admission remains separate, so a sibling's live execution or healthy normalization
+admission remains separate, so a sibling's reservation or healthy normalization
 does not need another pool's lifecycle gate. Init holds repository admin exclusion
 while validating and publishing checkout-root intent; equal, nested and existing
 filesystem-alias roots cannot be claimed by another pool. Pending initialization
@@ -72,7 +68,7 @@ and retained deleted pools keep their current claims. A successful reinit with a
 different root relinquishes the previous claim. Names use lowercase ASCII to avoid
 case/normalization aliases, and never contain path separators or traversal.
 
-Labels, request keys/tombstones, slot IDs, execution history, receipts and artifacts
+Labels, request keys/tombstones, slot IDs, legacy execution history, receipts and artifacts
 are pool-scoped. Reusing a key/label in another namespace is independent; stale
 UUIDs never authorize operations there. Config/init/destroy results identify the
 selected name. Catalog observations include ready, initializing, deleting and
@@ -144,8 +140,7 @@ Reinitialization changes the UUID generation, preserves all recorded lock identi
 (including retired manifests) and retains that pool's request tombstones.
 Old `Pool` and managed-slot snapshot handles reject the replacement generation.
 Reinit resets slot diagnostic records while preserving independent receipts/history.
-Retained history/storage APIs also work after deletion and use archived execution
-lock identities when a replacement pool has fewer slots. Interrupted init can be
+Saved-release receipt retries also work after deletion. Interrupted init can be
 cancelled under the same exclusion without materializing checkouts. Legacy ready
 manifests without a lifecycle record remain readable; deletion publishes their
 first generation. All newly initialized pools have lifecycle records. Use one
@@ -230,43 +225,18 @@ Same-generation retries complete interrupted release; a successor rejects stale
 requests. A process holding a live `Lease` keeps its slot locked, so another
 process cannot release that reservation.
 
-## Managed execution and release
+## Saved release and legacy compatibility
 
-Managed execution uses a **separate** per-slot flock: it can run while a library caller retains
-the lease descriptor, and release must obtain both before succeeding. The durable
-execution record is published before spawn. The worker inherits the execution
-descriptor, so a killed supervisor cannot free the live execution lock. Even if
-all descriptors close, the record continues blocking release until explicit
-recovery. The reservation itself remains protected throughout.
+`release --save` ensures durable reuse protection, saves and pins a snapshot,
+persists a receipt, then releases. A saved receipt makes retries stable across
+crashes and slot reuse. Snapshot failure retains the reservation; capture requires
+stopped writers. Release never merges, pushes or publishes task results.
 
-The supervisor owns an unreaped process-group leader until signalling completes,
-then reaps and verifies teardown. The CLI enables Linux subreaper
-behavior; embeddings opt in explicitly. On macOS the system reaper adopts orphaned
-descendants; teardown still waits for the group to disappear, retaining protection
-on failure. Stop requests address the live supervisor over a same-user Unix socket
-named by lease/run UUID (abstract on Linux; a short hashed pathname in a validated
-private directory on macOS); orphan recovery never
-signals a recorded PID. See [execution](execution.md) for the cooperative-process
-boundary and failure cases.
-
-`release --save` obtains the same execution exclusion, ensures durable reuse protection,
-saves and pins a snapshot, persists a receipt, then releases.
-A saved receipt makes retries stable across crashes and slot reuse.
-Snapshot failure retains the reservation; capture still requires stopped writers.
-Neither execution nor release merges, pushes or publishes task results.
-
-`history` persists diagnostic run records beside captured streams. Execution writes
-an unresolved record before spawning and a terminal outcome after teardown/log sync,
-before clearing the slot execution record. Recovery publishes an unknown recovered
-outcome only if the run is still unresolved. History never authorizes slot reuse.
-
-`storage` reuses the permanent execution lock for log removal and history deletion,
-then rereads both execution protection and run state. No additional lock order or
-replaceable lock files are introduced. Cleanup validates owned directories and
-regular singly linked stream files, records `removing`, unlinks only the two known
-stream paths, syncs their directory and records `removed`. Retry completes a partial
-removal. History deletion requires removed logs and refuses unexpected directory
-contents. Neither operation modifies protections, receipts, workspaces or artifacts.
+Groove does not launch or supervise task commands. The runner owns their lifetime.
+Permanent execution locks and records from previous versions remain authoritative
+compatibility barriers: release, saved release and deletion refuse them. Use the
+previous version to stop and recover outstanding executions before upgrading.
+Existing logs, history and artifact data are not discarded on upgrade.
 
 ## Git subprocesses
 
@@ -281,33 +251,7 @@ Ordinary output is bounded to 1 MiB per stream while both streams are drained.
 
 Mutating children inherit relevant ownership/admin descriptors. Timeouts terminate
 the mutation process group and reap the direct child before relinquishing protection.
-`Lease::run_worker` is the lower-level direct-child helper; it does not provide
-all managed-execution guarantees for detached descendants.
+`Lease::run_worker` waits only for its direct child; callers must stop detached descendants.
 
 Platform/configuration exclusions and operator recovery are in
 [operations](operations.md).
-
-## Project readiness and artifact ownership
-
-`project` parses/validates the versioned checkout-local definition. `preparation`
-coordinates explicit setup while retaining the existing execution descriptor for
-cache operations, gaps between commands and publication. Managed workers retain
-that descriptor; no extra PID/time ownership rule is introduced. A separate
-same-user authenticated random local socket accepts setup cancellation.
-
-`slots/<slot>.setup.json` is durable diagnostic state scoped by lease UUID. It is
-never ownership authority. Preparing is published before effects; ready follows
-successful steps and definition/input verification. Interrupted records require
-explicit retry. `exec_named` checks readiness while holding execution exclusion.
-Acquisition without an explicit `--setup` does not run project code or seed artifacts.
-
-`cache` owns allowlist validation, copying, hashing and immutable publication.
-Artifacts have a permanent per-key lock independent of replaceable cache entries.
-Lock order is reservation execution exclusion, then artifact key, then short Git
-operations; another setup never needs the first slot's execution lock. Waits are
-bounded/cancellable. Files are independent copies or reflink clones, never shared
-mutable hardlinks. Publication uses private temporary storage, verification, sync
-and rename. Crashes may leave private staging directories; no background eviction runs.
-
-Saved task results are recovered with snapshot restore into a new checkout.
-See [project workspaces](project.md).

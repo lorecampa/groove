@@ -4,7 +4,7 @@ Groove coordinates cooperative processes running as the repository owner. It is
 not a sandbox: workers inherit the user's environment, credentials and normal
 tool configuration, and worktrees share Git administration. Run untrusted code
 in a separate sandbox or VM with restricted credentials. See [operations](operations.md),
-[execution](execution.md) and the [reporting policy](../SECURITY.md).
+[operations](operations.md) and the [reporting policy](../SECURITY.md).
 
 ## Local security gate
 
@@ -78,8 +78,8 @@ invocation remain available. A workflow file is not evidence of a successful run
 ## Bounded parser fuzzing
 
 The isolated `fuzz/` package is unpublished and has its own audited lockfile.
-Its targets exercise identifier/deserialization path-safety contracts and project
-TOML validation. They never execute project commands or operate on a checkout.
+Its target exercises identifier/deserialization path-safety contracts. It never
+executes project commands or operates on a checkout.
 
 ```sh
 cargo install --locked cargo-fuzz@0.13.2

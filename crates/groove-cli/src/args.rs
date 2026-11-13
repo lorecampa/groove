@@ -1,8 +1,8 @@
 //! Command-line grammar. Every command and option carries help; long help lives in `help/`.
 
 use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
-use groove_core::{LeaseId, PoolId, PoolName, RunId, SlotId};
-use std::{ffi::OsString, path::PathBuf};
+use groove_core::{LeaseId, PoolId, PoolName, SlotId};
+use std::path::PathBuf;
 
 macro_rules! help {
     ($name:literal) => {
@@ -36,7 +36,7 @@ pub struct Args {
     /// Show informational diagnostics; -vv adds debug, -vvv adds trace.
     #[arg(short, long, global = true, action = clap::ArgAction::Count, conflicts_with = "quiet")]
     pub verbose: u8,
-    /// Hide warnings, progress and live worker output; errors and results remain.
+    /// Hide warnings and progress; errors and results remain.
     #[arg(short, long, global = true)]
     pub quiet: bool,
     /// Timeout per Git operation and pool admin/snapshot lock wait, in milliseconds.
@@ -101,7 +101,7 @@ pub enum Command {
         #[arg(long)]
         disk_usage: bool,
     },
-    /// Delete an idle pool's checkouts and caches, retaining snapshots and history.
+    /// Delete an idle pool's checkouts and legacy caches, retaining snapshots.
     #[command(after_help = help!("destroy"))]
     Destroy {
         /// Validate and preview deletion without removing data or changing lifecycle state.
@@ -145,43 +145,6 @@ pub enum Command {
         /// Milliseconds to wait for a free slot; 0 scans once.
         #[arg(long, default_value_t = 0)]
         wait_ms: u64,
-        #[command(flatten)]
-        setup: SetupArgs,
-    },
-    /// Run a command, setup profile, recipe or agent inside a reservation.
-    #[command(after_help = help!("exec"))]
-    Exec {
-        #[command(flatten)]
-        lease: LeaseSelector,
-        #[command(flatten)]
-        limits: ExecLimits,
-        #[command(flatten)]
-        setup: SetupArgs,
-        /// Named project command; its required setup must already be ready.
-        #[arg(long, conflicts_with_all = ["agent", "profile"])]
-        recipe: Option<String>,
-        /// Named project agent, or claude/codex/opencode/gemini/aider.
-        #[arg(long, conflicts_with = "profile")]
-        agent: Option<String>,
-        /// Program and arguments, or extra recipe/agent arguments (after `--`).
-        #[arg(last = true, required_unless_present_any = ["profile", "recipe", "agent"], num_args = 1..)]
-        command: Vec<OsString>,
-    },
-    /// Ask a running exec or setup to stop; the reservation is kept.
-    #[command(
-        after_help = "EXAMPLE:\n  groove stop --task tasks/fix-parser\n\nStopping is asynchronous: run `groove show` until the execution clears.\nIf the supervisor died, stop external writers yourself, then run `groove recover`."
-    )]
-    Stop {
-        #[command(flatten)]
-        lease: LeaseSelector,
-    },
-    /// Clear an orphaned execution record after stopping ALL external writers yourself.
-    #[command(
-        after_help = "EXAMPLE:\n  groove recover --task tasks/fix-parser\n\nOperator action: stop every writer first. A live execution lock rejects recovery;\nmissing PIDs and age never authorize it. The reservation itself is kept."
-    )]
-    Recover {
-        #[command(flatten)]
-        lease: LeaseSelector,
     },
     /// Return a workspace to the pool; optionally save a pinned snapshot first.
     #[command(after_help = help!("release"))]
@@ -198,7 +161,7 @@ pub enum Command {
         #[arg(long, requires = "save", default_value = DEFAULT_MAX_FILE_BYTES)]
         max_file_bytes: u64,
         /// Skip unsaved-change and process checks (with --save, still save changes).
-        /// Never bypasses a running managed execution. Without --save, unsaved
+        /// Without --save, unsaved
         /// contents are discarded on the next acquisition.
         #[arg(long)]
         force: bool,
@@ -232,46 +195,12 @@ pub enum Command {
         #[arg(value_enum)]
         shell: clap_complete::Shell,
     },
-    /// List and inspect executions, including runs from released reservations.
-    #[command(after_help = help!("history"), args_conflicts_with_subcommands = true)]
-    History {
-        /// Match a historical task label (including reused labels).
-        #[arg(long)]
-        task: Option<String>,
-        /// Match a historical reservation generation.
-        #[arg(long)]
-        lease_id: Option<LeaseId>,
-        #[command(flatten)]
-        page: PageArgs,
-        #[command(subcommand)]
-        command: Option<HistoryCommand>,
-    },
-    /// Inspect storage usage and explicitly remove retained execution logs.
-    #[command(subcommand, after_help = help!("storage"))]
-    Storage(StorageCommand),
     /// Save, inspect, restore and delete local checkpoints.
     #[command(subcommand, after_help = help!("snapshot"))]
     Snapshot(SnapshotCommand),
-    /// Pool settings, project definition and user preferences.
+    /// Pool settings and user preferences.
     #[command(subcommand, after_help = help!("config"))]
     Config(ConfigCommand),
-}
-
-#[derive(Subcommand)]
-pub enum HistoryCommand {
-    /// Show a run's outcome, origin, timing and log retention state.
-    Show {
-        /// Run UUID returned by exec or history.
-        run_id: RunId,
-    },
-    /// Permanently forget a terminal run after its logs have been cleaned.
-    #[command(
-        after_help = "First run storage clean --logs. Active or unresolved runs cannot be deleted.\nThis never releases a reservation or deletes saved-release receipts or snapshots."
-    )]
-    Delete {
-        /// Run UUID to forget; deletion cannot be undone.
-        run_id: RunId,
-    },
 }
 
 /// Optional output window; omitted limits preserve the original complete listing.
@@ -296,82 +225,6 @@ impl PageArgs {
             )
             .collect()
     }
-}
-
-#[derive(Subcommand)]
-pub enum StorageCommand {
-    /// Show logical bytes in logs, history, artifact caches and managed workspaces.
-    #[command(
-        after_help = "Counts logical file lengths, not reclaimable disk blocks; symlinks are not followed.\nShared Git objects and snapshots are not estimated. Legacy logs are reported as untracked."
-    )]
-    Show,
-    /// Permanently remove eligible logs, keeping their execution history.
-    #[command(after_help = help!("storage"))]
-    Clean {
-        /// Explicitly select captured stdout/stderr; required, no cleanup target is implicit.
-        #[arg(long, required = true)]
-        logs: bool,
-        /// Minimum time since run completion/recovery: integer plus s, m, h or d; 0s selects all.
-        #[arg(long, default_value = "30d", value_parser = parse_age)]
-        older_than: std::time::Duration,
-        /// Preview eligibility and logical bytes without deleting files or changing history.
-        #[arg(long)]
-        dry_run: bool,
-    },
-}
-
-fn parse_age(value: &str) -> Result<std::time::Duration, String> {
-    let split = value
-        .len()
-        .checked_sub(1)
-        .ok_or("Use an integer and s, m, h or d (e.g. 30d)")?;
-    let (number, unit) = value
-        .split_at_checked(split)
-        .ok_or("Use an integer and s, m, h or d")?;
-    let multiplier = match unit {
-        "s" => 1,
-        "m" => 60,
-        "h" => 3600,
-        "d" => 86400,
-        _ => return Err("Use s, m, h or d (e.g. 30d)".into()),
-    };
-    if number.is_empty() || !number.bytes().all(|b| b.is_ascii_digit()) {
-        return Err("Age must be a nonnegative integer with a unit".into());
-    }
-    number
-        .parse::<u64>()
-        .ok()
-        .and_then(|n| n.checked_mul(multiplier))
-        .map(std::time::Duration::from_secs)
-        .ok_or("Age is too large".into())
-}
-
-/// Explicit project setup options shared by `acquire` and `exec`.
-#[derive(ClapArgs, Debug, Clone, Default)]
-pub struct SetupArgs {
-    /// Run this .groove.toml setup profile; failure keeps the reservation protected.
-    #[arg(long = "setup", id = "profile", value_name = "PROFILE")]
-    pub profile: Option<String>,
-    /// Re-run a failed, interrupted or changed setup from its first step.
-    #[arg(long, requires = "profile")]
-    pub retry: bool,
-    /// Import approved, compatible artifacts from this stopped, prepared checkout.
-    #[arg(long, requires = "profile")]
-    pub cache_source: Option<PathBuf>,
-}
-
-/// Runtime and output bounds for managed execution.
-#[derive(ClapArgs, Debug, Clone)]
-pub struct ExecLimits {
-    /// Maximum runtime in milliseconds; 0 means unlimited, or the recipe/step default.
-    #[arg(long, default_value_t = 0)]
-    pub timeout_ms: u64,
-    /// Grace period between SIGTERM and SIGKILL, at most 60000 ms.
-    #[arg(long, default_value_t = 500, value_parser = clap::value_parser!(u64).range(0..=60_000))]
-    pub grace_ms: u64,
-    /// Bytes kept per output stream; exceeding it stops the worker.
-    #[arg(long, default_value_t = 8 * 1024 * 1024, value_parser = clap::value_parser!(u64).range(1..))]
-    pub max_log_bytes: u64,
 }
 
 #[derive(Subcommand)]
@@ -437,12 +290,6 @@ pub enum ConfigCommand {
         #[arg(long, value_enum)]
         cleanup: Option<Cleanup>,
     },
-    /// Validate and show this checkout's .groove.toml; never runs project commands.
-    Project {
-        /// Print a starter .groove.toml instead; nothing is written.
-        #[arg(long)]
-        example: bool,
-    },
     /// User preferences shared by every repository.
     #[command(subcommand)]
     Global(GlobalCommand),
@@ -478,23 +325,13 @@ impl Command {
             Self::Destroy { .. } => "destroy",
             Self::Init { .. } => "init",
             Self::Acquire { .. } => "acquire",
-            Self::Exec { .. } => "exec",
-            Self::Stop { .. } => "stop",
-            Self::Recover { .. } => "recover",
             Self::Release { .. } => "release",
             Self::List { .. } => "list",
             Self::Show { .. } => "show",
             Self::Completions { .. } => "completions",
             Self::Snapshot(_) => "snapshot",
             Self::Config(_) => "config",
-            Self::History { .. } => "history",
-            Self::Storage(_) => "storage",
         }
-    }
-    /// Whether this invocation may supervise child processes (exec or setup).
-    pub fn supervises_workers(&self) -> bool {
-        matches!(self, Self::Exec { .. })
-            || matches!(self, Self::Acquire { setup, .. } if setup.profile.is_some())
     }
 }
 

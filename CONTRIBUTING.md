@@ -68,7 +68,7 @@ An area prefix such as `core:` or `cli:` is optional. For example:
 
 ```text
 Preserve reservations when snapshot capture fails
-cli: Explain how to recover an orphaned worker
+cli: Explain how to retry a saved release
 Document the local validation workflow
 ```
 
@@ -143,8 +143,7 @@ Markdown command/response tables. Keep the README focused on installation and th
 basic workflow; guides explain concepts and operational boundaries. Update help,
 schemas and conformance tests with behavior changes, and link to them instead of
 copying their reference tables.
-Use `config project --example` for the project configuration example and the
-benchmark CLI's `profiles` command for its catalog. Keep workflow instructions
+Use the benchmark CLI's `profiles` command for its catalog. Keep workflow instructions
 in the portable skill and validation commands in `scripts/check.sh`. Root help
 owns global-flag and output rules; command help covers command-specific behavior.
 Keep prose concrete and remove filler and repetition. Do not add

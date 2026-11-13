@@ -36,7 +36,7 @@ benchmark results or separate results summaries are not checked in.
 `all` selects the complete catalog. Multiple names select precisely those profiles:
 
 ```sh
-cargo run -p groove-bench --locked -- benchmark workspace-reuse workspace-setup
+cargo run -p groove-bench --locked -- benchmark workspace-reuse
 ```
 
 The first container run prepares dependencies and builds release binaries; later
@@ -126,18 +126,16 @@ verify both trees and base HEAD, preservation of existing ignored residue, and
 absence of ignored data in new checkouts. The Git oracle writes only into separate
 object storage, so it cannot repair a broken snapshot or change object-growth data.
 
-Workspace cases inspect actual files, Git state and cleanup policy. Setup cases
-compare every artifact with its independent source and verify hit/miss, skipped
-steps and seeded counters. Concurrent workers must have distinct lease IDs and
+Workspace cases inspect actual files, Git state and cleanup policy. Concurrent workers must have distinct lease IDs and
 paths, succeed, reject excess capacity with the typed CLI error/exit category, and
 release every reservation. Expected failures are asserted rather than discarded.
 Multi-pool workers reuse task labels/request keys across namespaces, verify distinct
-IDs/paths and the selected worker environment, and exhaust each pool independently.
+IDs/paths, and exhaust each pool independently.
 Their first registration measurements are separate from warm batch throughput.
 Deletion cases verify every configured path/native registration is removed and
 permanent lock inodes, snapshot recovery, saved-release receipts, request-key tombstones,
-history/log bytes, root neighbors and a protected sibling survive. The external-cache
-case uses the real setup/cache API; dirty cases add tracked, untracked and ignored
+root neighbors and a protected sibling survive. The external-cache case creates
+legacy artifact fixtures directly; dirty cases add tracked, untracked and ignored
 files using the profile's fixture definition. Fixture
 setup, result preservation and recovery verification are outside deletion timings.
 Reinit uses a new checkout root, retaining the intentionally preserved root neighbor.
@@ -207,7 +205,7 @@ Native macOS/APFS or host exploration selects the same profiles:
 cargo build -p groove-cli --release --locked
 cargo run -p groove-bench --locked -- benchmark workspace-reuse --host
 # Optional native binary paths are execution choices, not workload overrides.
-cargo run -p groove-bench --locked -- benchmark workspace-setup --host \
+cargo run -p groove-bench --locked -- benchmark workspace-reuse --host \
   --binary /absolute/candidate/groove --baseline-binary /absolute/baseline/groove
 ```
 

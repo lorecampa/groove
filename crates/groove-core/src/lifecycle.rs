@@ -156,30 +156,6 @@ pub(crate) fn gate(repo: &Repository, exclusive: bool) -> Result<File> {
 }
 
 impl Pool {
-    pub(crate) fn archived_execution_identity(
-        &self,
-        slot: &crate::SlotId,
-    ) -> Result<locking::Identity> {
-        let mut found = None;
-        for config in retired_configs(&self.repo)? {
-            if let Some(identity) = config.execution_locks.get(slot) {
-                if found.is_some_and(|previous| previous != *identity) {
-                    return Err(Error::new(
-                        ErrorCode::ConfigConflict,
-                        "Retained execution lock identities disagree",
-                    ));
-                }
-                found = Some(*identity);
-            }
-        }
-        found.ok_or_else(|| {
-            Error::new(
-                ErrorCode::ConfigConflict,
-                "Missing retained execution lock identity",
-            )
-        })
-    }
-
     pub(crate) fn operation(&self) -> Result<File> {
         self.admit(false)
     }

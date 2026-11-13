@@ -300,25 +300,15 @@ impl Pool {
         Self::load_mode(repo, git_timeout, false)
     }
 
-    /// Open retained history and storage after deletion, as well as a ready pool.
+    /// Open a ready or deleted pool to retry saved-release receipts.
     ///
-    /// This does not authorize acquiring workspaces or running tasks in a deleted pool.
     /// # Errors
     /// Reports invalid metadata, changed lock identities, unsafe paths and Git/I/O errors.
-    ///
-    /// ```no_run
-    /// # fn main() -> groove_core::Result<()> {
-    /// use groove_core::{HistoryFilter, Pool, DEFAULT_GIT_TIMEOUT};
-    /// let retained = Pool::open_retained("/path/to/repo", DEFAULT_GIT_TIMEOUT)?;
-    /// let runs = retained.history(&HistoryFilter::default())?;
-    /// # let _ = runs;
-    /// # Ok(()) }
-    /// ```
     pub fn open_retained(repo: impl AsRef<Path>, git_timeout: Duration) -> Result<Self> {
         Self::open_retained_named(repo, &crate::PoolName::default(), git_timeout)
     }
 
-    /// Open retained history/storage for a named pool, including after deletion.
+    /// Open a named pool for saved-release retries, including after deletion.
     /// # Errors
     /// See [`Self::open_retained`]; an absent namespace never selects another pool.
     pub fn open_retained_named(

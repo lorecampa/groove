@@ -13,15 +13,12 @@ original pool selection. Never infer ownership from a listing or PID.
 | `WORKSPACE_IN_USE` | Inspect `error.details.processes`, stop the task's writers and wait for them to exit. Detection is best effort and covers your own processes only. |
 | `UNSAVED_CHANGES` on release | Use `release --save` to preserve the task's result, or retain the reservation. Discard only when explicitly requested. |
 | Snapshot failure or lock timeout | Keep the reservation, resolve the reported cause, and retry release --save with the same lease ID. |
-| Orphaned managed execution | Keep protection. Stop external writers; operator recovery is explicit and separate from normal task completion. |
 
-`stop` requests managed cancellation. Process groups cannot contain descendants
-that create new sessions, so inspect external writers as well. For an orphan,
-authorized operators can use `recover --lease-id ID` after stopping writers.
-Recovery does not publish, preserve results or grant another task ownership.
-If you cannot establish that recovery is appropriate, report the retained lease
-and error rather than forcing reuse.
+Legacy execution records or locks from older Groove versions still block reuse.
+Before upgrading, use the previous version to stop managed commands and resolve
+orphaned runs after stopping all external writers. Never delete their records or
+locks to force reuse; retain the reservation if ownership is uncertain.
 
 Never use `--force`, delete metadata, expire reservations or remove permanent
 lock files as an automatic retry strategy. `--force` can discard results and
-skip best-effort process checks; it never bypasses a running managed execution.
+skip best-effort process checks; it never bypasses descriptor ownership or legacy execution protection.

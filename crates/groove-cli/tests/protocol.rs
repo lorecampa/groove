@@ -98,27 +98,11 @@ fn command_help_exposes_its_output_fields_without_repository_or_preferences() {
             ],
         ),
         (
-            vec!["exec"],
-            vec![
-                "exec -> result: execution_result | preparation_result",
-                "termination:",
-                "exit_code:",
-                "preparation:",
-            ],
-        ),
-        (
             vec!["snapshot", "restore"],
             vec![
                 "snapshot restore -> result: snapshot_restore_result",
                 "snapshot_id: uuid",
                 "safety_snapshot_id:",
-            ],
-        ),
-        (
-            vec!["history", "show"],
-            vec![
-                "history show -> result: history_show_result",
-                "run: run_history",
             ],
         ),
     ] {
@@ -180,13 +164,8 @@ fn command_output_types_used_by_help_validate_real_responses() {
     verify("init", &["init", "--capacity", "1"]);
     let lease = verify("acquire", &["acquire", "--task", "contract"]);
     let id = lease["result"]["lease_id"].as_str().unwrap();
-    verify("exec", &["exec", "--lease-id", id, "--", "true"]);
     verify("list", &["list"]);
     verify("show", &["show", "--lease-id", id]);
-    let history = verify("history", &["history"]);
-    let run = history["result"]["runs"][0]["run_id"].as_str().unwrap();
-    verify("history show", &["history", "show", run]);
-    verify("storage show", &["storage", "show"]);
     let finish = verify("release", &["release", "--save", "--lease-id", id]);
     let snapshot = finish["result"]["snapshot"]["id"].as_str().unwrap();
     verify("snapshot show", &["snapshot", "show", snapshot]);
@@ -202,11 +181,6 @@ fn command_output_types_used_by_help_validate_real_responses() {
             destination.to_str().unwrap(),
         ],
     );
-    verify(
-        "storage clean",
-        &["storage", "clean", "--logs", "--older-than", "0s"],
-    );
-    verify("history delete", &["history", "delete", run]);
 }
 
 #[test]
@@ -509,20 +483,10 @@ fn command_help_is_available_without_a_repository_or_valid_config() {
         &["show"],
         &["list"],
         &["completions"],
-        &["history"],
-        &["history", "show"],
-        &["history", "delete"],
-        &["storage"],
-        &["storage", "show"],
-        &["storage", "clean"],
-        &["exec"],
-        &["stop"],
-        &["recover"],
         &["release", "--save"],
         &["config"],
         &["config", "show"],
         &["config", "set"],
-        &["config", "project"],
         &["config", "global"],
         &["config", "global", "path"],
         &["config", "global", "edit"],
@@ -1011,131 +975,6 @@ fn persistent_trace_can_be_enabled_while_terminal_is_quiet() {
 }
 
 #[test]
-fn history_and_storage_commands_preserve_json_contract_and_retention_semantics() {
-    let r = Repo::new();
-    assert_success(&cli(&r, &["init", "--capacity", "1"]));
-    let acquire = cli(&r, &["acquire", "--task", "history-fixture"]);
-    assert_success(&acquire);
-    check(&acquire);
-    let executed = cli(
-        &r,
-        &[
-            "exec",
-            "--task",
-            "history-fixture",
-            "--",
-            "bash",
-            "-c",
-            "printf historic-output; exit 4",
-        ],
-    );
-    assert_eq!(executed.status.code(), Some(4));
-    let run = check(&executed)["result"]["execution"]["run"].clone();
-    let id = run["run_id"].as_str().unwrap();
-    let listed = cli(&r, &["history", "--task", "history-fixture"]);
-    assert_success(&listed);
-    let history = check(&listed);
-    assert_eq!(history["result"]["runs"].as_array().unwrap().len(), 1);
-    assert_eq!(history["result"]["runs"][0]["exit_code"], 4);
-    let shown = cli(&r, &["history", "show", id]);
-    assert_success(&shown);
-    assert_eq!(check(&shown)["result"]["run"]["logs"], "present");
-    let persisted: Value = serde_json::from_slice(
-        &std::fs::read(
-            std::path::Path::new(run["stdout_path"].as_str().unwrap())
-                .parent()
-                .unwrap()
-                .join("run.json"),
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    assert_eq!(
-        persisted,
-        check(&shown)["result"]["run"],
-        "the persisted record must match the published history schema"
-    );
-    let usage = cli(&r, &["storage", "show"]);
-    assert_success(&usage);
-    assert_eq!(check(&usage)["result"]["storage"]["log_bytes"], 15);
-    let preview = cli(
-        &r,
-        &[
-            "storage",
-            "clean",
-            "--logs",
-            "--older-than",
-            "0s",
-            "--dry-run",
-        ],
-    );
-    assert_success(&preview);
-    assert_eq!(
-        check(&preview)["result"]["cleanup"]["entries"][0]["status"],
-        "would_remove"
-    );
-    assert!(std::path::Path::new(run["stdout_path"].as_str().unwrap()).exists());
-    let rejected = cli(&r, &["history", "delete", id]);
-    assert_eq!(rejected.status.code(), Some(2));
-    assert_eq!(check(&rejected)["error"]["code"], "INVALID_ARGUMENT");
-    let human = support::groove_human_in(&r.path)
-        .args(["history", "show", id])
-        .output()
-        .unwrap();
-    assert!(human.status.success());
-    let human = String::from_utf8(human.stdout).unwrap();
-    for value in [
-        id,
-        "exit_code: 4",
-        "outcome: completed",
-        "logs: present",
-        "history-fixture",
-    ] {
-        assert!(human.contains(value), "{human}");
-    }
-    let stdout = std::path::Path::new(run["stdout_path"].as_str().unwrap());
-    let outside = r.temp.path().join("outside-log");
-    std::fs::write(&outside, "external data").unwrap();
-    std::fs::remove_file(stdout).unwrap();
-    std::os::unix::fs::symlink(&outside, stdout).unwrap();
-    let failed = cli(&r, &["storage", "clean", "--logs", "--older-than", "0s"]);
-    assert_eq!(failed.status.code(), Some(7));
-    let report = check(&failed);
-    assert_eq!(report["ok"], true);
-    assert_eq!(
-        report["result"]["cleanup"]["entries"][0]["status"],
-        "failed"
-    );
-    assert!(report["result"]["cleanup"]["entries"][0]["error_code"].is_string());
-    assert_eq!(std::fs::read(&outside).unwrap(), b"external data");
-    std::fs::remove_file(stdout).unwrap();
-    let cleaned = cli(&r, &["storage", "clean", "--logs", "--older-than", "0s"]);
-    assert_success(&cleaned);
-    assert_eq!(
-        check(&cleaned)["result"]["cleanup"]["entries"][0]["status"],
-        "removed"
-    );
-    let shown = cli(&r, &["history", "show", id]);
-    assert_eq!(check(&shown)["result"]["run"]["exit_code"], 4);
-    let deleted = cli(&r, &["history", "delete", id]);
-    assert_success(&deleted);
-    assert_eq!(check(&deleted)["result"]["deleted_run_id"], id);
-    assert_eq!(
-        check(&cli(&r, &["history"]))["result"]["runs"],
-        serde_json::json!([])
-    );
-    for args in [
-        vec!["storage", "clean"],
-        vec!["storage", "clean", "--logs", "--older-than", "yesterday"],
-        vec!["history", "show", "../outside"],
-    ] {
-        let rejected = cli(&r, &args);
-        assert_eq!(rejected.status.code(), Some(2));
-        assert_eq!(check(&rejected)["error"]["code"], "INVALID_ARGUMENT");
-    }
-}
-
-#[test]
 fn copied_advice_keeps_pool_selection_and_destroy_does_not_suggest_saving_released_tasks() {
     let repo = Repo::new();
     let missing = cli(&repo, &["--pool", "review", "list"]);
@@ -1191,9 +1030,7 @@ fn listing_windows_preserve_order_and_reject_zero_limits() {
     let repo = Repo::new();
     assert_success(&cli(&repo, &["init", "--capacity", "1"]));
     let lease = assert_success(&cli(&repo, &["acquire"]));
-    let id = lease["result"]["lease_id"].as_str().unwrap();
     for n in 0..3 {
-        assert_success(&cli(&repo, &["exec", "--lease-id", id, "--", "true"]));
         assert_success(
             &support::groove_in(std::path::Path::new(
                 lease["result"]["worktree_path"].as_str().unwrap(),
@@ -1204,10 +1041,8 @@ fn listing_windows_preserve_order_and_reject_zero_limits() {
             .unwrap(),
         );
     }
-    for (args, field) in [
-        (vec!["history"], "runs"),
-        (vec!["snapshot", "list"], "snapshots"),
-    ] {
+    {
+        let (args, field) = (vec!["snapshot", "list"], "snapshots");
         let all = check(&cli(&repo, &args));
         assert_eq!(all["result"][field].as_array().unwrap().len(), 3);
         let mut page = args.clone();
@@ -1224,15 +1059,24 @@ fn listing_windows_preserve_order_and_reject_zero_limits() {
 }
 
 #[test]
-fn invalid_step_diagnostic_identifies_profile_step_and_name_rule() {
+fn removed_execution_commands_reject_without_creating_pool_state() {
     let repo = Repo::new();
-    std::fs::write(repo.path.join(".groove.toml"), "schema_version = 1\n[setup.dev]\n[[setup.dev.steps]]\nname = 'install dependencies'\ncommand = ['true']\n").unwrap();
-    let out = cli(&repo, &["config", "project"]);
-    assert_eq!(out.status.code(), Some(2));
-    let result = check(&out);
-    assert_eq!(result["error"]["code"], "INVALID_ARGUMENT");
-    let message = result["error"]["message"].as_str().unwrap();
-    for context in ["dev", "install dependencies", "1–64", "ASCII"] {
-        assert!(message.contains(context), "{message}");
+    for args in [
+        vec!["exec", "--task", "task", "--", "true"],
+        vec!["stop", "--task", "task"],
+        vec!["recover", "--task", "task"],
+        vec!["history"],
+        vec!["storage", "show"],
+        vec!["config", "project"],
+        vec!["acquire", "--setup", "dev"],
+        vec!["acquire", "--retry"],
+        vec!["acquire", "--cache-source", "/tmp"],
+    ] {
+        let output = cli(&repo, &args);
+        assert_eq!(output.status.code(), Some(2), "{args:?}: {output:?}");
+        let result = check(&output);
+        assert_eq!(result["ok"], false);
+        assert_eq!(result["error"]["code"], "INVALID_ARGUMENT");
+        assert!(!repo.state().exists(), "{args:?} created pool state");
     }
 }

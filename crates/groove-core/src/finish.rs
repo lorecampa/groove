@@ -40,7 +40,7 @@ impl Lease {
     /// All external writers must have stopped before calling.
     ///
     /// # Errors
-    /// Reports active managed execution, snapshot or release failures. Error details retain a saved snapshot ID.
+    /// Reports legacy execution protection, snapshot or release failures. Error details retain a saved snapshot ID.
     pub fn finish(&mut self, options: SaveOptions) -> Result<FinishResult> {
         let _operation = self.pool.operation()?;
         self.protect_from_reuse()?;

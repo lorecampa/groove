@@ -198,8 +198,8 @@ pub(crate) fn release(
         Ok(record)
     }
     checked(pool, slot, lease_id)?;
-    // Managed execution is serialized independently of the owner's descriptor.
-    // Even a live lease owner cannot explicitly unlock while a managed worker is active.
+    // Preserve the independent legacy execution barrier when releasing a lease.
+    // A live lease owner cannot bypass writers from a previous Groove version.
     let _execution = pool.execution_guard(slot)?;
     pool.require_execution_clear(slot)?;
     // Accept the same generation's released record to finish an interrupted release.

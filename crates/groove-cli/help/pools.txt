@@ -20,8 +20,7 @@ Git objects and snapshots are excluded. Interrupted pools show '-' (storage:null
 Capacity, cleanup, checkout roots, task labels, request keys, caches, history and
 saved-release receipts are scoped to each pool. Keys stay tombstoned across reinit of
 that same pool. Snapshots, branches, Git objects and repository configuration are
-shared. Pools are not security sandboxes; slot numbers and derived project ports
-are pool-local. Managed commands receive GROOVE_POOL for explicit workflow use.
+shared. Pools are not security sandboxes; slot numbers are pool-local.
 
 Destroy requires an explicit --pool NAME when several non-deleted pools exist.
 --pool-id checks a generation inside that namespace; it does not select a pool.
