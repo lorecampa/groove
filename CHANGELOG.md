@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Validate configured filters against the requested tree in a scratch worktree,
+  including subdirectory callers and common-directory workers. Unused global
+  drivers remain harmless; malformed driver names are rejected before checkout.
+  Scratch indexes use repository storage and cannot collide with tracked paths.
 - Count already-prepared checkouts for the current lease before newer releases,
   so sequential releases respect ready_target and retain excess ignored caches.
 - Stop acquisition after the first Git preparation timeout, returning
