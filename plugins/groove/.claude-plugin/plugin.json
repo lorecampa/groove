@@ -1,6 +1,6 @@
 {
   "name": "groove",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "author": { "name": "Groove maintainers" },
   "description": "Reserve, use and safely return reusable Git worktrees with the Groove skill.",
   "license": "MIT OR Apache-2.0",
