@@ -7,6 +7,8 @@ command `--help`, CLI help sources and [schemas](schemas/) for CLI changes,
 [testing](docs/testing.md) for regression coverage and known limitations.
 Follow its test-writing practices: assert intent and observable contracts, choose
 the smallest suitable test layer, and use the documented libraries and process harness.
+Review prose, code comments and structure using the
+[writing and comment guidance](CONTRIBUTING.md#writing-and-comment-review).
 Stop all external writers before release or checkpoint.
 [The portable skill](skills/groove/SKILL.md) describes using the product;
 this file describes developing it.

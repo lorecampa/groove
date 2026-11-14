@@ -11,6 +11,8 @@ Report vulnerabilities through SECURITY.md.
 Describe the concrete problem and resulting behavior for a reviewer without prior
 context. Include a before/after example if helpful and explain significant
 tradeoffs. Link related issues; use "Closes #123" only if this resolves the issue.
+Review prose and comments using CONTRIBUTING.md#writing-and-comment-review;
+preserve technical terms, safety conditions and useful reference structure.
 -->
 
 ## Validation

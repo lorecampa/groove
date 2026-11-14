@@ -3,7 +3,7 @@
 Groove coordinates cooperative processes running as the repository owner. It is
 not a sandbox: workers inherit the user's environment, credentials and normal
 tool configuration, and worktrees share Git administration. Run untrusted code
-in a separate sandbox or VM with restricted credentials. See [operations](operations.md),
+in a separate sandbox or VM with restricted credentials. See
 [operations](operations.md) and the [reporting policy](../SECURITY.md).
 
 ## Local security gate
