@@ -83,7 +83,10 @@ fn rejects_symlink_unknown_schema_and_missing_locks() {
     fs::remove_file(&lock).unwrap();
     symlink(r.path.join("tracked.txt"), &lock).unwrap();
     let p = Pool::open(&r.path).unwrap();
-    assert!(p.acquire(Default::default()).is_err());
+    assert_eq!(
+        p.acquire(Default::default()).unwrap_err().code,
+        groove_core::ErrorCode::PoolUnhealthy
+    );
     assert_eq!(
         fs::read_to_string(r.path.join("tracked.txt")).unwrap(),
         "baseline\n"
@@ -118,15 +121,19 @@ fn rejects_non_utf8_managed_roots() {
 #[test]
 fn invalid_root_does_not_poison_initialization_and_unknown_slot_version_is_preserved() {
     let r = Repo::new();
-    assert!(Pool::init(
-        &r.path,
-        PoolOptions {
-            capacity: 1,
-            worktree_root: Some(r.path.join(".git")),
-            ..Default::default()
-        }
-    )
-    .is_err());
+    assert_eq!(
+        Pool::init(
+            &r.path,
+            PoolOptions {
+                capacity: 1,
+                worktree_root: Some(r.path.join(".git")),
+                ..Default::default()
+            }
+        )
+        .unwrap_err()
+        .code,
+        groove_core::ErrorCode::InvalidArgument
+    );
     Pool::init(
         &r.path,
         PoolOptions {

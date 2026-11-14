@@ -12,6 +12,8 @@
 
 - Test CLI helpers isolate HOME, XDG state/configuration and logging, and core
   snapshot fixtures run with private Git configuration without mutating parallel-test environments.
+- Strengthen snapshot, ownership and protection regressions to assert typed
+  rejection categories alongside the files and reservations that must survive.
 
 - Saved-release retries also recapture work after a crash writes release metadata
   but before durable protection is removed; failed capture keeps reuse blocked.

@@ -162,8 +162,11 @@ fn slot_ids_validate_paths_ranges_and_json_map_keys() {
             serde_json::from_value::<BTreeMap<SlotId, u8>>(serde_json::json!({text: 1})).is_err()
         );
     }
-    assert!(SlotId::new(0).is_err());
-    assert!(SlotId::new(4097).is_err());
+    assert_eq!(SlotId::new(0).unwrap_err().code, ErrorCode::InvalidArgument);
+    assert_eq!(
+        SlotId::new(4097).unwrap_err().code,
+        ErrorCode::InvalidArgument
+    );
 }
 
 #[test]

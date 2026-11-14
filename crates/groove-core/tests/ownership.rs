@@ -37,7 +37,7 @@ fn exhaustion_drop_release_and_stale_generation() {
     );
     lease.release().unwrap();
     assert!(!lease.is_active());
-    assert!(lease.release().is_err());
+    assert_eq!(lease.release().unwrap_err().code, ErrorCode::InvalidLease);
     let mut next = p.acquire(Default::default()).unwrap();
     assert_ne!(info.lease_id, next.info().lease_id);
     next.release().unwrap();
@@ -101,9 +101,12 @@ fn unwinding_closes_lease_and_failed_release_retains_it() {
     let record = r.state().join("slots/wt-0001.json");
     let saved = std::fs::read(&record).unwrap();
     std::fs::write(&record, "malformed").unwrap();
-    assert!(lease.release().is_err());
+    assert_eq!(lease.release().unwrap_err().code, ErrorCode::ProtocolError);
     assert!(lease.is_active());
-    assert!(pool.acquire(Default::default()).is_err());
+    assert_eq!(
+        pool.acquire(Default::default()).unwrap_err().code,
+        ErrorCode::PoolExhausted
+    );
     std::fs::write(record, saved).unwrap();
     lease.release().unwrap();
 }

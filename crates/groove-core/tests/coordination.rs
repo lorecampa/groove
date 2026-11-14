@@ -217,17 +217,23 @@ fn failed_checkpoint_keeps_results_and_reservation_protected() {
         "larger than the capture limit",
     )
     .unwrap();
-    assert!(pool
-        .finish(
+    assert_eq!(
+        pool.finish(
             info.lease_id,
             groove_core::snapshot::SaveOptions {
                 max_file_bytes: 1,
                 ..Default::default()
             }
         )
-        .is_err());
+        .unwrap_err()
+        .code,
+        groove_core::ErrorCode::InvalidArgument
+    );
     assert_eq!(pool.protected_leases().unwrap()[0].lease_id, info.lease_id);
-    assert!(pool.acquire(Default::default()).is_err());
+    assert_eq!(
+        pool.acquire(Default::default()).unwrap_err().code,
+        groove_core::ErrorCode::PoolExhausted
+    );
     assert_eq!(
         fs::read_to_string(info.worktree_path.join("tracked.txt")).unwrap(),
         "larger than the capture limit"
