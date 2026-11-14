@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+
+- A README demo showing ready worktree replenishment, task reservations and saved
+  releases, with an animated preview and MP4 video.
+
 ### Changed
 
 - `-h` prints concise command help with examples and essential safety guidance;
