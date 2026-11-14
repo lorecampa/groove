@@ -28,6 +28,8 @@
   rows omit former task labels, preventing released assignments from looking active.
 - Human slot tables include failure details and suggested next actions, as
   advertised by list help and recovery hints.
+- Linux filesystem validation accepts only documented local types; AFS, 9p,
+  Ceph and unknown types no longer pass an incomplete network blocklist.
 
 - Retrying an interrupted saved release captures the still-reserved workspace
   again before reuse. Completed retries reject deleted or unpinned snapshots.
