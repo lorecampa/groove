@@ -33,6 +33,7 @@ Unreferenced detached commits must first be preserved on a branch or snapshot.
 Index flags that hide edits and interrupted Git operations also block inspection;
 repair them or explicitly acknowledge their loss with --discard-changes. Inspection
 uses bounded Git output; an inspection failure never authorizes removal.
+Warnings from Git status are inspection failures even when Git exits zero.
 
 Permanent locks, request-key tombstones, saved-release receipts, execution history/logs,
 branches and snapshots remain. Checkout root directories (including external
