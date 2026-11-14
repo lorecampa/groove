@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Bound Git failure diagnostics to 16 KiB per stream, including JSON escaping,
+  and distinguish timeout, output-limit, warning and nonzero-exit failures.
 - Prune completed saved-release receipts for missing snapshots during destruction,
   while retaining pending pin cleanup, permanent locks and request-key tombstones.
 - Release external root-owner markers after durable deletion of their last pool,

@@ -28,6 +28,42 @@ fn fifo(path: &std::path::Path) {
     assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
 }
 #[test]
+fn oversized_git_failure_keeps_the_json_error_envelope_small() {
+    let repo = Repo::new();
+    let bin = repo.temp.path().join("failing-git");
+    fs::create_dir(&bin).unwrap();
+    let shim = bin.join("git");
+    fs::write(&shim, "#!/bin/bash\nprintf 'stdout failure %1000000s' x\nprintf 'stderr failure %1000000s' y >&2\nexit 33\n").unwrap();
+    fs::set_permissions(&shim, fs::Permissions::from_mode(0o700)).unwrap();
+    let output = support::groove_in(&repo.path)
+        .env(
+            "PATH",
+            format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()),
+        )
+        .arg("list")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(output.stdout.len() < 100 * 1024, "{}", output.stdout.len());
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let schema: serde_json::Value =
+        serde_json::from_str(include_str!("../schemas/response-v1.schema.json")).unwrap();
+    jsonschema::validator_for(&schema)
+        .unwrap()
+        .validate(&value)
+        .unwrap();
+    assert_eq!(value["error"]["code"], "GIT_ERROR");
+    let git = &value["error"]["details"]["git"];
+    assert_eq!(git["exit_code"], 33);
+    assert_eq!(git["output_truncated"], true);
+    for stream in ["stdout", "stderr"] {
+        let text = git[stream].as_str().unwrap();
+        assert!(text.starts_with(&format!("{stream} failure")));
+        assert!(text.len() <= 16 * 1024);
+    }
+}
+
+#[test]
 fn killed_groove_leaves_mutating_git_child_holding_both_locks() {
     let r = Repo::new();
     Pool::init(
