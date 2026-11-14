@@ -26,6 +26,8 @@
   instead of exiting 101 without a response; durable protections remain intact.
 - Lease inspection identifies inactive history explicitly and available slot
   rows omit former task labels, preventing released assignments from looking active.
+- Human slot tables include failure details and suggested next actions, as
+  advertised by list help and recovery hints.
 
 - Retrying an interrupted saved release captures the still-reserved workspace
   again before reuse. Completed retries reject deleted or unpinned snapshots.

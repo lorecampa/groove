@@ -9,6 +9,29 @@ mod support;
 use serde_json::Value;
 use std::{fs, path::Path, process::Output};
 use support::{assert_success, Repo};
+#[test]
+fn slot_table_exposes_failure_details_and_recovery_actions() {
+    let repo = Repo::new();
+    assert_success(&cli(
+        &repo.path,
+        &["init", "--capacity", "1", "--ready-target", "0"],
+    ));
+    fs::write(repo.state().join("slots/wt-0001.json"), "{broken").unwrap();
+    let output = support::command(&repo.path, support::groove_binary())
+        .env("HOME", repo.temp.path())
+        .env("XDG_CONFIG_HOME", repo.temp.path().join("config"))
+        .args(["list", "--slots"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("FAILURE"));
+    assert!(text.contains("NEXT ACTION"));
+    let inspected = checked(&cli(&repo.path, &["list", "--slots"]));
+    let slot = &inspected["result"]["inspection"]["slots"][0];
+    assert!(text.contains(slot["failure"].as_str().unwrap()));
+    assert!(text.contains(slot["next_action"].as_str().unwrap()));
+}
 
 fn cli(path: &Path, args: &[&str]) -> Output {
     support::groove_in(path).args(args).output().unwrap()
