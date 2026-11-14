@@ -28,6 +28,47 @@ fn check(output: &std::process::Output) -> Value {
 }
 
 #[test]
+#[cfg(feature = "test-hooks")]
+fn unwinding_panics_return_an_error_envelope_and_keep_protection() {
+    let repo = Repo::new();
+    assert_success(&cli(
+        &repo,
+        &[
+            "init",
+            "--capacity",
+            "1",
+            "--ready-target",
+            "0",
+            "--idle-timeout",
+            "never",
+        ],
+    ));
+    // The test-only checkpoint panics if its notification socket is missing,
+    // after durable protection was published but before the command returned.
+    let output = support::groove_in(&repo.path)
+        .args(["--request-id", "panic-request", "acquire"])
+        .env("GROOVE_TEST_CHECKPOINT", "reuse-protected")
+        .env("GROOVE_TEST_SOCKET", repo.temp.path().join("missing.sock"))
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(7));
+    let response = check(&output);
+    assert_eq!(response["request_id"], "panic-request");
+    assert_eq!(response["error"]["code"], "PROTOCOL_ERROR");
+    assert_eq!(response["error"]["retryable"], false);
+    assert_eq!(
+        groove_core::Pool::open(&repo.path)
+            .unwrap()
+            .protected_leases()
+            .unwrap()
+            .len(),
+        1
+    );
+    let exhausted = cli(&repo, &["acquire"]);
+    assert_eq!(check(&exhausted)["error"]["code"], "POOL_EXHAUSTED");
+}
+
+#[test]
 fn preference_defaults_in_help_can_be_used_as_a_real_configuration() {
     let temp = tempfile::tempdir().unwrap();
     let config_home = temp.path().join("config");
