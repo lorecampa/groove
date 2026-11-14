@@ -498,6 +498,27 @@ fn stale_workers_cannot_mutate_a_reinitialized_pool() {
 }
 
 #[test]
+fn corrupt_ready_metadata_does_not_block_another_healthy_slot() {
+    if !support::in_subprocess("corrupt_ready_metadata_does_not_block_another_healthy_slot") {
+        return;
+    }
+    let repo = Repo::new();
+    let pool = pool(&repo, 2, 1);
+    run(&pool);
+    let metadata = repo.state().join("slots/wt-0001.ready.json");
+    fs::write(&metadata, "{broken").unwrap();
+    let work = repo.slot(1).join("precious.txt");
+    fs::write(&work, "preserve").unwrap();
+    let lease = pool.reserve(Default::default()).unwrap();
+    assert_eq!(lease.slot_id.number(), 2);
+    assert_eq!(fs::read(&work).unwrap(), b"preserve");
+    assert_eq!(fs::read(metadata).unwrap(), b"{broken");
+    let error = pool.acquire(Default::default()).unwrap_err();
+    assert_eq!(error.code, ErrorCode::PoolExhausted);
+    assert_eq!(error.details.capacity.unwrap().failed_slots.len(), 1);
+}
+
+#[test]
 fn unsupported_worker_metadata_is_never_overwritten_or_used_to_discard_files() {
     let repo = Repo::new();
     let pool = pool(&repo, 1, 1);
