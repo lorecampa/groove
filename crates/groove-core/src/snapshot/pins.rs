@@ -213,6 +213,33 @@ impl Snapshots {
         )?;
         Ok(())
     }
+
+    pub(super) fn unpin(&self, id: &str) -> Result<()> {
+        let lock = self.lock()?;
+        let snapshot_ref = Self::reference(id)?;
+        let reference = format!("{PINS}{id}");
+        let inventory = self.pin_inventory(&reference, &lock, self.timeout)?;
+        if !inventory.contains_key(&reference) {
+            // Also accept an already deleted snapshot, but never silently accept
+            // dangling symbolic pins omitted by for-each-ref.
+            let oid_len = self.string(&["hash-object", "--stdin"])?.len();
+            return self.verify_absent_pins(&[(reference, oid_len)], &lock);
+        }
+        let (snapshot, oid) = self.load_at(id, &lock)?;
+        let transaction =
+            format!("start\nverify {snapshot_ref} {oid}\ndelete {reference} {oid}\nprepare\n");
+        self.run_env(
+            &["update-ref", "--no-deref", "--stdin"],
+            None,
+            Some(transaction.as_bytes()),
+            Some(&lock),
+            &[],
+            Some(Box::new(|timeout| {
+                self.validate_prepared_pin(&snapshot.id, Some(&oid), &lock, timeout)
+            })),
+        )?;
+        Ok(())
+    }
     pub(super) fn delete_inner(&self, id: &str, force: bool, lock: &SnapshotLock) -> Result<()> {
         let (s, oid) = self.load_at(id, lock)?;
         if s.pinned && !force {

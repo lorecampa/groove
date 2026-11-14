@@ -173,7 +173,24 @@ impl Snapshots {
         timeout: Duration,
         id: &str,
     ) -> Result<Snapshot> {
-        let service = Self {
+        let service = Self::for_repository(repository, timeout);
+        let snapshot = service.show(id)?;
+        if !snapshot.pinned {
+            return Err(invalid("Saved release snapshot is no longer pinned"));
+        }
+        Ok(snapshot)
+    }
+
+    pub(crate) fn unpin_saved_release_snapshot(
+        repository: &repository::Repository,
+        timeout: Duration,
+        id: &str,
+    ) -> Result<()> {
+        Self::for_repository(repository, timeout).unpin(id)
+    }
+
+    fn for_repository(repository: &repository::Repository, timeout: Duration) -> Self {
+        Self {
             root: repository.common.clone(),
             common: repository.common.clone(),
             git_dir: repository.common.clone(),
@@ -181,12 +198,7 @@ impl Snapshots {
             timeout,
             pool: None,
             repository: repository.clone(),
-        };
-        let snapshot = service.show(id)?;
-        if !snapshot.pinned {
-            return Err(invalid("Saved release snapshot is no longer pinned"));
         }
-        Ok(snapshot)
     }
 
     /// Discover a non-bare Git worktree, without initializing a Groove pool.

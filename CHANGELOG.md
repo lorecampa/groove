@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Successful saved-release retries unpin superseded checkpoints while retaining
+  their snapshot refs. A durable cleanup journal resumes retirement after crashes,
+  including after slot reuse; the final checkpoint stays pinned.
 - Exclude the release caller's process group from advisory workspace-user scans,
   allowing pipelines from inside slots. Destruction still checks every process.
 - Accept sign-extended 32-bit Linux filesystem magic numbers. Add the explicit
