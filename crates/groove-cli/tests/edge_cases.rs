@@ -42,6 +42,43 @@ fn failure(output: &Output, exit: i32, code: &str) -> Value {
 }
 
 #[test]
+fn pool_acquisition_rejects_globally_defined_content_filters() {
+    let repo = Repo::new();
+    fs::write(repo.path.join(".gitattributes"), "*.txt filter=audit\n").unwrap();
+    repo.git(&["add", ".gitattributes"]);
+    repo.git(&["commit", "-qm", "filter attributes"]);
+    assert_success(&cli(
+        &repo.path,
+        &["init", "--capacity", "1", "--ready-target", "0"],
+    ));
+    let config = repo.temp.path().join("global.gitconfig");
+    fs::write(
+        &config,
+        "[filter \"audit\"]\nclean = false\nsmudge = false\nrequired = true\n",
+    )
+    .unwrap();
+    let output = support::groove_in(&repo.path)
+        .env("GIT_CONFIG_GLOBAL", &config)
+        .arg("acquire")
+        .output()
+        .unwrap();
+    failure(&output, 2, "UNSUPPORTED_CONFIGURATION");
+    assert!(!repo.slot(1).exists());
+    assert_eq!(
+        fs::read(repo.path.join("tracked.txt")).unwrap(),
+        b"baseline\n"
+    );
+    assert!(
+        assert_success(&cli(&repo.path, &["list"]))["result"]["leases"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    // The filter definition is checked, never executed by isolated maintenance.
+    assert_success(&cli(&repo.path, &["acquire"]));
+}
+
+#[test]
 fn a_deleted_working_directory_is_reported_plainly() {
     let repo = Repo::new();
     assert_success(&cli(&repo.path, &["init", "--capacity", "1"]));
