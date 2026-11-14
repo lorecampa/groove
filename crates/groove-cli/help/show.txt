@@ -12,6 +12,7 @@ show is not proof of an active assignment. Slot views retain lease history but
 mark it with lease_active=false and omit its old task from the current task column.
 --details reads bounded local Git status (staged, modified, untracked); with a
 selector, only that workspace is checked. Nothing contacts a remote.
+Corrupt ready-slot metadata is reported as unhealthy with its failure.
 
 Without a selector, returns at most 50 slots in slot-ID order. Use --limit N,
 --offset N or --unlimited for a different window. --sort task orders task labels

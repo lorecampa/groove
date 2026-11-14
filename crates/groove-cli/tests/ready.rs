@@ -7,6 +7,41 @@ use std::{
 };
 use support::{assert_success, Repo};
 #[test]
+fn inspection_reports_corrupt_ready_metadata_as_unhealthy() {
+    let repo = Repo::new();
+    cli(
+        &repo,
+        &[
+            "init",
+            "--capacity",
+            "2",
+            "--ready-target",
+            "0",
+            "--idle-timeout",
+            "never",
+        ],
+    );
+    let metadata = repo.state().join("slots/wt-0001.ready.json");
+    fs::write(&metadata, b"corrupt ready metadata").unwrap();
+    let list = cli(&repo, &["list", "--slots"]);
+    let first = list["inspection"]["slots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|slot| slot["slot_id"] == "wt-0001")
+        .unwrap();
+    assert_eq!(first["status"], "unhealthy", "{list}");
+    assert!(first["failure"]
+        .as_str()
+        .is_some_and(|message| !message.is_empty()));
+    let shown = cli(&repo, &["show", "--slot", "wt-0001"]);
+    assert_eq!(shown["slot"]["status"], "unhealthy");
+    assert_eq!(shown["slot"]["failure"], first["failure"]);
+    assert_eq!(cli(&repo, &["acquire"])["slot_id"], "wt-0002");
+    assert_eq!(fs::read(metadata).unwrap(), b"corrupt ready metadata");
+}
+
+#[test]
 fn worker_startup_failures_are_recorded_in_configured_logs() {
     let repo = Repo::new();
     let logs = repo.temp.path().join("logs");
