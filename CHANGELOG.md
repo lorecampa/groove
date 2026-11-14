@@ -10,6 +10,9 @@
 
 ### Fixed
 
+- Saved-release retries also recapture work after a crash writes release metadata
+  but before durable protection is removed; failed capture keeps reuse blocked.
+
 - Retrying an interrupted saved release captures the still-reserved workspace
   again before reuse. Completed retries reject deleted or unpinned snapshots.
 - Snapshots reject legacy `crlf` conversion attributes and preserve empty

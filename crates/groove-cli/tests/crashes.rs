@@ -1125,6 +1125,13 @@ fn finish_retry_saves_edits_before_release() {
 }
 
 #[test]
+fn finish_retry_saves_edits_after_partial_release() {
+    retry_unreleased_finish("release-recorded", false, false);
+    retry_unreleased_finish("release-recorded", true, false);
+    retry_unreleased_finish("release-recorded", false, true);
+}
+
+#[test]
 fn finish_retry_replaces_deleted_snapshot() {
     retry_unreleased_finish("finish-before-release", true, false);
 }
