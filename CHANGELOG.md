@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Stop acquisition after the first Git preparation timeout, returning
+  `POOL_UNHEALTHY` with the timeout instead of retrying other slots or rebuilding.
 - Require shared refs to preserve released commits; a slot's private worktree
   and bisect refs no longer satisfy the check. Stop ref enumeration after a match.
 - Scope snapshot attribute checks to saved paths, support byte-preserving text,

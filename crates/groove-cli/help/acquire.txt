@@ -27,6 +27,8 @@ Capacity: a zero --wait-ms scans once; a positive value bounds waiting for a
 free slot (not checkout preparation, which has its own Git timeouts). There is
 no FIFO fairness. On POOL_EXHAUSTED or ACQUIRE_TIMEOUT, wait or inspect with
 `groove list`; never bypass capacity.
+A Git preparation timeout stops the scan immediately with POOL_UNHEALTHY (exit 6).
+Inspect that failure and increase --git-timeout-ms for legitimately slow Git work.
 Recognizable foreign repositories, moved worktrees and conflicting registration
 claims at a slot path refuse preparation. Safely move the occupant back to its
 original location or outside the pool before retrying; preserve its worktree

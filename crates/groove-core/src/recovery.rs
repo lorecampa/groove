@@ -130,6 +130,9 @@ pub(crate) fn prepare(
                 return Ok(RecoveryOutcome::Sanitized);
             }
             Err(error) => {
+                if error.is_git_timeout() {
+                    return Err(error);
+                }
                 tracing::warn!(slot = %slot, path = %path.display(), %error, "In-place preparation failed; rebuilding the owned checkout")
             }
         }
