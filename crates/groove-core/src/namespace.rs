@@ -194,6 +194,7 @@ pub(crate) fn admin(repo: &Repository, timeout: Duration) -> Result<SlotGuard> {
 /// Under repository admin exclusion, check both published and pending roots,
 /// including retained deleted pools. Never authorize overlapping ownership.
 pub(crate) fn validate_root(repo: &Repository, root: &Path) -> Result<()> {
+    validate_external_claim(repo, root)?;
     for other in repositories(repo)?
         .into_iter()
         .filter(|other| other.name != repo.name)
@@ -216,6 +217,51 @@ pub(crate) fn validate_root(repo: &Repository, root: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+const ROOT_CLAIM: &str = ".groove-owner";
+
+fn validate_external_claim(repo: &Repository, root: &Path) -> Result<()> {
+    for ancestor in root.ancestors() {
+        let marker = ancestor.join(ROOT_CLAIM);
+        let conflict = || {
+            Error::new(
+                ErrorCode::ConfigConflict,
+                "Checkout root is claimed by another repository or has an invalid owner marker",
+            )
+            .with_details(|details| details.path = Some(marker.clone()))
+        };
+        match fs::read_link(&marker) {
+            Ok(owner) if owner == repo.namespace_root() => (),
+            Ok(_) => return Err(conflict()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+            Err(error) => return Err(conflict().with_source(error)),
+        }
+    }
+    Ok(())
+}
+
+/// Atomically claim an external root across independent Git repositories. The
+/// immutable symlink stores the canonical repository state path without following it. It
+/// coordinates namespace allocation only and never grants lease ownership.
+pub(crate) fn claim_root(repo: &Repository, root: &Path) -> Result<()> {
+    match std::os::unix::fs::symlink(repo.namespace_root(), root.join(ROOT_CLAIM)) {
+        Ok(()) => state::sync_dir(root),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            validate_external_claim(repo, root)
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+pub(crate) fn root_has_contents(repo: &Repository, root: &Path) -> Result<bool> {
+    validate_external_claim(repo, root)?;
+    for entry in fs::read_dir(root)? {
+        if entry?.file_name() != ROOT_CLAIM {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 pub(crate) fn managed_pool(

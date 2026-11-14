@@ -191,7 +191,13 @@ fn idle_eviction_keeps_target_and_slot_capacity() {
     })
     .unwrap();
     run(&pool);
-    assert_eq!(fs::read_dir(&settings.worktree_root).unwrap().count(), 1);
+    assert_eq!(
+        fs::read_dir(&settings.worktree_root)
+            .unwrap()
+            .filter(|entry| entry.as_ref().unwrap().file_name() != ".groove-owner")
+            .count(),
+        1
+    );
     assert_eq!(pool.settings().unwrap().capacity, 3);
     let leases: Vec<_> = (0..3)
         .map(|_| pool.reserve(Default::default()).unwrap())

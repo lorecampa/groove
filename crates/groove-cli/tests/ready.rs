@@ -184,6 +184,7 @@ fn cli_defaults_prepare_and_replenish_without_a_public_worker_command() {
     let deadline = Instant::now() + Duration::from_secs(20);
     while fs::read_dir(&pool.settings().unwrap().worktree_root)
         .unwrap()
+        .filter(|entry| entry.as_ref().unwrap().file_name() != ".groove-owner")
         .count()
         != 2
     {
@@ -318,6 +319,7 @@ fn killed_preparer_recovers_and_concurrent_worker_cannot_duplicate_preparation()
     assert_eq!(
         fs::read_dir(pool.settings().unwrap().worktree_root)
             .unwrap()
+            .filter(|entry| entry.as_ref().unwrap().file_name() != ".groove-owner")
             .count(),
         1
     );
