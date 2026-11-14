@@ -143,7 +143,7 @@ pub enum Command {
     /// Create a pool of reusable worktree slots for this repository.
     #[command(after_long_help = help!("init"))]
     Init {
-        /// Desired ready, unreserved checkouts (default: pool_defaults.ready_target, 1).
+        /// Desired ready, unreserved checkouts (default: pool_defaults.ready_target, 0).
         #[arg(long)]
         ready_target: Option<usize>,
         /// Evict excess idle checkouts after this duration, e.g. 7d, or never.

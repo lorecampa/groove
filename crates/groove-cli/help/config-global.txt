@@ -57,7 +57,7 @@ and `edit` work with broken settings, and global configuration commands create
 no persistent diagnostic logs so they can repair the logging destination itself.
 
 NEW POOL DEFAULTS:
-pool_defaults.ready_target defaults to 1 (0..4096). pool_defaults.idle_timeout
+pool_defaults.ready_target defaults to 0 (0..4096). pool_defaults.idle_timeout
 is a positive whole duration in s/m/h/d, default 7d, or never to disable eviction.
 For example:
   groove config global set pool_defaults.ready_target=2 pool_defaults.idle_timeout=3d

@@ -7,6 +7,20 @@ use std::{
 };
 use support::{assert_success, Repo};
 #[test]
+fn new_pools_default_to_lazy_checkouts_without_changing_existing_policy() {
+    let repo = Repo::new();
+    let initialized = cli(&repo, &["init", "--capacity", "2"]);
+    assert_eq!(initialized["ready_target"], 0);
+    assert_eq!(initialized["idle_timeout"], "7d");
+    assert!(!repo.slot(1).exists());
+    assert!(!repo.slot(2).exists());
+    cli(&repo, &["config", "set", "--ready-target", "1"]);
+    let pool = Pool::open(&repo.path).unwrap();
+    wait_ready(&pool, 1);
+    assert_eq!(cli(&repo, &["config", "show"])["pool"]["ready_target"], 1);
+}
+
+#[test]
 fn inspection_reports_corrupt_ready_metadata_as_unhealthy() {
     let repo = Repo::new();
     cli(
@@ -202,13 +216,14 @@ exec "$GROOVE_REAL_GIT" "$@"
 }
 
 #[test]
-fn cli_defaults_prepare_and_replenish_without_a_public_worker_command() {
-    if !support::in_subprocess("cli_defaults_prepare_and_replenish_without_a_public_worker_command")
-    {
+fn explicit_ready_target_prepares_and_replenishes_without_a_public_worker_command() {
+    if !support::in_subprocess(
+        "explicit_ready_target_prepares_and_replenishes_without_a_public_worker_command",
+    ) {
         return;
     }
     let repo = Repo::new();
-    let initialized = cli(&repo, &["init", "--capacity", "3"]);
+    let initialized = cli(&repo, &["init", "--capacity", "3", "--ready-target", "1"]);
     assert_eq!(initialized["ready_target"], 1);
     assert_eq!(initialized["idle_timeout"], "7d");
     let pool = Pool::open(&repo.path).unwrap();
@@ -316,7 +331,10 @@ fn initialized(repo: &Repo) -> Pool {
         &repo.path,
         PoolOptions {
             capacity: 2,
-            ready: Some(ReadySettings::default()),
+            ready: Some(ReadySettings {
+                ready_target: 1,
+                ..Default::default()
+            }),
             worktree_root: Some(support::worktree_root(&repo.path, "default")),
             ..Default::default()
         },

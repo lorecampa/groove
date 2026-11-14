@@ -22,19 +22,11 @@ pub struct Config {
     pub experimental: groove_core::experimental::ExperimentalConfig,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PoolDefaults {
     pub ready_target: usize,
     pub idle_timeout: groove_core::IdleTimeout,
-}
-impl Default for PoolDefaults {
-    fn default() -> Self {
-        Self {
-            ready_target: 1,
-            idle_timeout: Default::default(),
-        }
-    }
 }
 impl PoolDefaults {
     fn validate(&self) -> Result<()> {
