@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Skip released slots still used by shells, editors, builds or other observed
+  processes before acquisition mutates them. Report retryable contention rather
+  than quarantining the slot, and use independent healthy capacity when available.
 - Mark release's WORKSPACE_IN_USE refusal retryable, including transient observers,
   while retaining process checks for Groove and Git instead of trusting names.
 - Repair owner permissions on read-only directories during authorized cleanup

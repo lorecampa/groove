@@ -542,6 +542,7 @@ impl Pool {
                 slots.sort_by_key(|(slot, _)| !current.ready_hint(slot));
             }
             let mut busy = 0;
+            let mut observed_processes = Vec::new();
             let mut preparing = false;
             for (slot, expected) in slots {
                 if failed.contains_key(slot) {
@@ -638,14 +639,28 @@ impl Pool {
                     failed.insert(slot.clone(), error.summary());
                     continue;
                 }
-                match recovery::prepare(
-                    &self.repo,
-                    &current.config,
-                    slot,
-                    &guard,
-                    &oid,
-                    options.git_timeout,
-                ) {
+                let validation = recovery::validate_slot_path(&self.repo, &current.config, slot);
+                let path = current.config.worktree_root.join(slot.as_str());
+                if validation.is_ok() && path.try_exists()? {
+                    let processes =
+                        crate::quiescence::all_processes_using(&fs::canonicalize(&path)?)?;
+                    if !processes.is_empty() {
+                        busy += 1;
+                        observed_processes
+                            .extend(processes.into_iter().take(16 - observed_processes.len()));
+                        continue;
+                    }
+                }
+                match validation.and_then(|()| {
+                    recovery::prepare(
+                        &self.repo,
+                        &current.config,
+                        slot,
+                        &guard,
+                        &oid,
+                        options.git_timeout,
+                    )
+                }) {
                     Ok(recovery) => {
                         let info = crate::LeaseInfo {
                             slot_id: slot.clone(),
@@ -716,6 +731,7 @@ impl Pool {
                 };
                 return Err(Error::new(code, "No verified worktree slot is available")
                     .with_details(|d| {
+                        d.processes = observed_processes;
                         d.capacity = Some(crate::CapacityFailure {
                             capacity: current.config.capacity,
                             busy_slots: busy,

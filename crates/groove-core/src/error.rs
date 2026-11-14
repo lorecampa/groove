@@ -94,7 +94,7 @@ pub struct GitFailure {
 pub struct CapacityFailure {
     /// Configured slot count during the final scan.
     pub capacity: usize,
-    /// Slots owned or durably reserved by other tasks.
+    /// Slots owned, durably reserved, or observed in use by workspace processes.
     pub busy_slots: usize,
     /// Slots that could not be prepared, with their failure reasons.
     pub failed_slots: BTreeMap<SlotId, String>,

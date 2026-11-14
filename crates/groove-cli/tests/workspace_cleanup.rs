@@ -97,3 +97,77 @@ fn read_only_directories_do_not_quarantine_reuse_or_block_destruction() {
         assert!(!repo.slot(1).exists());
     }
 }
+
+#[test]
+fn acquisition_does_not_normalize_a_released_checkout_under_a_lingering_shell() {
+    use std::{
+        os::unix::{fs::MetadataExt, process::CommandExt},
+        process::Stdio,
+        time::{Duration, Instant},
+    };
+    for capacity in ["1", "2"] {
+        let repo = Repo::new();
+        assert_success(&cli(
+            &repo,
+            &[
+                "init",
+                "--capacity",
+                capacity,
+                "--ready-target",
+                "0",
+                "--idle-timeout",
+                "never",
+                "--worktree-root",
+                repo.temp.path().join("w").to_str().unwrap(),
+            ],
+        ));
+        let lease = assert_success(&cli(&repo, &["acquire"]));
+        let id = lease["result"]["lease_id"].as_str().unwrap();
+        let slot = Path::new(lease["result"]["worktree_path"].as_str().unwrap());
+        let before = fs::metadata(slot.join("tracked.txt")).unwrap();
+        let ready = repo.temp.path().join("released-shell-ready");
+        let response = repo.temp.path().join("shell-release.json");
+        let mut command = support::command(slot, "bash");
+        command.process_group(0).stdin(Stdio::piped())
+            .args(["-c", "\"$1\" --json release --lease-id \"$2\" > \"$3\" || exit; printf ready > \"$4\"; read -r _", "lingering-shell"])
+            .arg(support::groove_binary()).arg(id).arg(&response).arg(&ready);
+        let mut shell = support::TestChild::spawn(&mut command);
+        let deadline = Instant::now() + support::PROCESS_TIMEOUT;
+        while !ready.exists() {
+            assert!(
+                shell.try_wait().unwrap().is_none(),
+                "shell did not release its lease"
+            );
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let released: Value = serde_json::from_slice(&fs::read(response).unwrap()).unwrap();
+        assert_eq!(released["ok"], true);
+        let output = cli(&repo, &["acquire"]);
+        let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+        if capacity == "1" {
+            assert_eq!(output.status.code(), Some(3), "{result}");
+            assert_eq!(result["error"]["code"], "POOL_EXHAUSTED");
+            assert_eq!(result["error"]["retryable"], true);
+            assert!(result["error"]["details"]["processes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|process| process["pid"] == shell.id()));
+        } else {
+            assert_success(&output);
+            assert_ne!(
+                result["result"]["worktree_path"].as_str().unwrap(),
+                slot.to_str().unwrap()
+            );
+        }
+        let after = fs::metadata(slot.join("tracked.txt")).unwrap();
+        assert_eq!(
+            (after.ino(), after.mtime(), after.mtime_nsec()),
+            (before.ino(), before.mtime(), before.mtime_nsec())
+        );
+        shell.kill().unwrap();
+        shell.wait().unwrap();
+        assert_success(&cli(&repo, &["acquire"]));
+    }
+}

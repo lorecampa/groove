@@ -178,6 +178,10 @@ between destination validation and materialization.
 Capacity bounds reservable slots, not process count, artifacts, CPU, memory or Git
 object storage. Waiting has no FIFO guarantee; Git preparation has its own timeout.
 
+Acquisition checks released candidates for observed processes after obtaining the
+slot descriptor and before normalization. A lingering user makes that slot busy,
+without quarantining it; this advisory scan does not confer ownership or stop writers.
+
 Normalization removes a `groove-verified` marker from native worktree administration
 before mutation and recreates it only after successful verification. With an index
 and a prior marker, a ctime walk drops index entries for changed files and files

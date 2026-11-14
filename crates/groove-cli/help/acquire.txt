@@ -3,6 +3,9 @@ EXAMPLES:
   groove acquire --task fix-parser --request-key issue-42-attempt-1
   groove acquire --task 'investigate flake' --base main --wait-ms 5000
 
+Released slots with observed processes are skipped before cleanup. Stop lingering
+shells, editors and builds; run acquire from outside any slot you want to reuse.
+
 Reserves a cleaned, verified checkout of --base (default HEAD) until it is
 explicitly released. HEAD resolves where you run the command, so from a linked
 worktree it is that checkout's commit. HEAD is detached in the reservation;
