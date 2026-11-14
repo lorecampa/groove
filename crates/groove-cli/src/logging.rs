@@ -55,7 +55,13 @@ fn directory() -> Option<PathBuf> {
     std::env::var_os("XDG_STATE_HOME")
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
-        .or_else(|| std::env::var_os("HOME").map(|p| PathBuf::from(p).join(".local/state")))
+        .or_else(|| {
+            // HOME itself may be an OS-provided symlink. Resolve that trusted
+            // anchor before validating the log directory's remaining components.
+            std::env::var_os("HOME")
+                .and_then(|home| fs::canonicalize(home).ok())
+                .map(|home| home.join(".local/state"))
+        })
         .map(|p| p.join("groove/logs"))
 }
 fn validate_directory(dir: &Path) -> io::Result<()> {

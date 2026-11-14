@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Resolve a symlinked HOME before choosing the fallback diagnostic log directory.
+
 ### Added
 
 - A README demo showing ready worktree replenishment, task reservations and saved

@@ -37,7 +37,8 @@ overrides it with an exact pool path. Changing/unsetting this preference never
 relocates existing pools; use config show to inspect a pool's recorded path.
 
 logging.directory selects the CLI diagnostic directory; unset it for
-$XDG_STATE_HOME/groove/logs (or ~/.local/state/groove/logs). TOML paths must be
+$XDG_STATE_HOME/groove/logs (or ~/.local/state/groove/logs, resolving a symlinked
+HOME first). TOML paths must be
 absolute and do not expand ~. logging.level accepts
 error/warn/info/debug/trace and is independent of -v/--quiet. GROOVE_LOG_DIR and
 GROOVE_LOG_ENABLED=true|false override file settings. Retention applies to CLI

@@ -349,6 +349,34 @@ fn successful_lifecycle_has_fresh_matching_timestamps_and_startup_notices() {
 }
 
 #[test]
+fn default_logging_resolves_a_symlinked_home() {
+    let home = tempfile::tempdir().unwrap();
+    let repo = support::Repo::new();
+    let alias = home.path().join("home-alias");
+    std::os::unix::fs::symlink(home.path(), &alias).unwrap();
+    let output = command(home.path())
+        .env("HOME", &alias)
+        .env_remove("XDG_STATE_HOME")
+        .arg("--repo")
+        .arg(&repo.path)
+        .args(["-vv", "list"])
+        .output()
+        .unwrap();
+    let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["error"]["code"], "NOT_INITIALIZED");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(!stderr.contains("File logging unavailable"), "{stderr}");
+    let logs = home.path().join(".local/state/groove/logs");
+    assert!(fs::read_dir(logs).unwrap().any(|entry| {
+        entry
+            .unwrap()
+            .path()
+            .extension()
+            .is_some_and(|ext| ext == "jsonl")
+    }));
+}
+
+#[test]
 fn unavailable_log_warning_is_timestamped_and_does_not_break_stdout() {
     let home = tempfile::tempdir().unwrap();
     let blocked = home.path().join("not-a-directory");
