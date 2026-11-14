@@ -771,6 +771,9 @@ pub(crate) fn interrupted(repo: &Repository, path: &Path) -> Result<bool> {
 }
 pub(crate) fn remove_owned(repo: &Repository, path: &Path) -> Result<()> {
     let registration = validate_disposal(repo, path)?;
+    if path.try_exists()? {
+        crate::workspace_files::make_writable(path)?;
+    }
     // Find registrations by their exact backlink, never via an untrusted .git pointer
     // and never with a repository-wide prune. Corrupt unrelated entries are left alone.
     if let Some(registration) = registration {

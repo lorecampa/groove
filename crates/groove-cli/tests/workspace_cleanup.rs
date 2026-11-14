@@ -67,3 +67,33 @@ fn special_files_are_unsaved_and_do_not_survive_reuse() {
         }
     }
 }
+
+#[test]
+fn read_only_directories_do_not_quarantine_reuse_or_block_destruction() {
+    use std::os::unix::fs::PermissionsExt;
+    for policy in ["warm", "pristine"] {
+        let repo = Repo::new();
+        initialize(&repo, policy);
+        let lease = assert_success(&cli(&repo, &["acquire"]));
+        let id = lease["result"]["lease_id"].as_str().unwrap();
+        let directory = repo.slot(1).join("build-output/nested");
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(directory.join("result"), b"untracked output").unwrap();
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o555)).unwrap();
+        fs::set_permissions(
+            directory.parent().unwrap(),
+            fs::Permissions::from_mode(0o555),
+        )
+        .unwrap();
+        assert_success(&cli(&repo, &["release", "--force", "--lease-id", id]));
+        let acquired = assert_success(&cli(&repo, &["acquire"]));
+        assert!(!directory.exists());
+        let id = acquired["result"]["lease_id"].as_str().unwrap();
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(directory.join("result"), b"disposable output").unwrap();
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o555)).unwrap();
+        assert_success(&cli(&repo, &["release", "--force", "--lease-id", id]));
+        assert_success(&cli(&repo, &["destroy", "--discard-changes"]));
+        assert!(!repo.slot(1).exists());
+    }
+}
