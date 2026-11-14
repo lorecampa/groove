@@ -14,6 +14,8 @@ Release every reservation and stop ALL writers first. Live lease and
 execution descriptors, protected reservations and orphaned execution records
 always refuse deletion. Resolve legacy executions with the previous Groove version. Run
 destroy from outside every directory being removed, including your shell's cwd.
+On macOS, unmount directories inside slots first: same-device mounts are not
+detected by cleanup's device checks. Linux also checks visible bind mounts.
 
 Deletion removes every configured checkout, its exact Git worktree registration,
 and disposable artifact caches, including ignored files even for warm pools.

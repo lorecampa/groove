@@ -29,6 +29,13 @@ APFS filenames must be valid UTF-8. Names that differ only by case or Unicode
 normalization may collide on the destination filesystem; repositories must use
 names that the selected volume can represent distinctly.
 
+Linux cleanup checks the visible mount table and rejects mounts within a slot,
+including bind mounts with the same device ID. macOS acquisition has no mount-table
+safeguard. Removal checks device boundaries, which still miss same-device mounts.
+On macOS, unmount every mounted directory beneath a slot before acquisition,
+background preparation, eviction or destruction. Mount changes concurrent with
+cleanup remain outside the cooperative-writer guarantee on both platforms.
+
 SHA-1/SHA-256 and ordinary, linked and bare repositories are supported. Pool
 checkouts reject submodules, sparse checkout, worktree-specific configuration and
 repository-configured content filters such as LFS. User/system filter definitions
