@@ -7,8 +7,9 @@ EXAMPLES:
 
 Snapshots save staged and working files, including deletions, modes, symlinks
 and non-ignored untracked files, without moving HEAD or touching the real index.
-Ignored files, empty folders and special files (pipes, sockets and devices) are
-excluded. Special files are not ordinary Git untracked content; export required
+Ignored files and empty folders are excluded. Special files (pipes, sockets and
+devices) are refused because Git cannot preserve them. Export or remove special
+files before saving; export required ignored
 artifacts separately before release --save. No pool, remote or first commit is
 required. Stop writers first: capture detects common races but is not atomic.
 Actual bytes, executable bits and symlinks are preserved independently of Git's

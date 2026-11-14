@@ -283,6 +283,7 @@ pub(crate) fn normalize(
         Err(error) => return Err(error.into()),
     }
     state::checkpoint("reuse-marker-removed");
+    crate::workspace_files::remove_special(path)?;
     if !reuse_untouched(git, path, oid, &index, verified.as_ref(), fds)? {
         // The full path discards flags and stat-cache assumptions and breaks every
         // tracked hardlink. A missing marker also forces this path after interruption.

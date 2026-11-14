@@ -917,6 +917,12 @@ impl Snapshots {
         publish: bool,
     ) -> Result<Snapshot> {
         self.validate(lock)?;
+        if let Some(path) = crate::workspace_files::first_special(&self.root)? {
+            return Err(unsupported(
+                "Snapshots cannot preserve special files; export or remove the file before saving",
+            )
+            .with_details(|details| details.path = Some(path)));
+        }
         let head = self.head()?;
         let original = self.index_bytes()?;
         let temp = tempfile::Builder::new()
@@ -994,7 +1000,8 @@ impl Snapshots {
     /// Preserves physical bytes, executable bits and symlinks independently of
     /// Git checkout preferences. LF-preserving text rules are supported; other
     /// active conversion attributes and byte-normalizing files are rejected.
-    /// Ignored files, empty directories and special files are excluded. Stop external
+    /// Ignored files and empty directories are excluded; special files are refused.
+    /// Stop external
     /// writers first: the stability checks detect common races but are not atomic.
     ///
     /// ```no_run

@@ -65,6 +65,7 @@ mod storage;
 #[path = "../tests/support/mod.rs"]
 mod test_support;
 mod types;
+mod workspace_files;
 
 pub use destruction::{DestroyOptions, DestroyResult};
 pub use error::{CapacityFailure, Error, ErrorCode, ErrorDetails, GitFailure, Result};

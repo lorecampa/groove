@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Treat FIFOs, sockets and devices as unsaved work on release/destruction and
+  refuse snapshot capture that would omit them. Normalization removes special
+  files under both cleanup policies before handing out the next lease.
 - Create filter-validation scratch directories with owner-only permissions even
   when the invoking shell has a permissive umask.
 - Fall back to full normalization when the verification marker and checkout use

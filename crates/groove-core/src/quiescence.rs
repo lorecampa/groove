@@ -130,6 +130,11 @@ impl Pool {
                 )
                 .with_details(|d| d.changes = Some(changes)));
             }
+            if let Some(path) = crate::workspace_files::first_special(&lease.worktree_path)? {
+                return Err(Error::new(ErrorCode::UnsavedChanges,
+                    "The workspace contains a special file Git cannot save; export or remove it, or release with --force to discard it")
+                    .with_details(|details| details.path = Some(path)));
+            }
             require_saved_head(&lease.worktree_path, timeout)?;
         }
         Ok(())

@@ -182,6 +182,11 @@ fn require_saved(repo: &Repository, path: &Path, timeout: Duration) -> Result<()
         return Err(Error::new(ErrorCode::UnsavedChanges, "Workspace contains residual files or edits; save them or acknowledge loss with --discard-changes")
             .with_details(|d| d.path = Some(path.into())));
     }
+    if let Some(special) = crate::workspace_files::first_special(path)? {
+        return Err(Error::new(ErrorCode::UnsavedChanges,
+            "Workspace contains a special file; export it or acknowledge loss with --discard-changes")
+            .with_details(|details| details.path = Some(special)));
+    }
     crate::quiescence::require_saved_head(path, timeout)
 }
 impl Pool {

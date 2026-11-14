@@ -14,8 +14,10 @@ files before release. A snapshot failure keeps the reservation protected. Recove
 saved work with `groove snapshot restore ID --to PATH`. Nothing is pushed.
 --description (default: 'workspace saved') and --max-file-bytes require --save;
 --max-file-bytes defaults to 104857600 bytes, and 0 removes the limit.
-Ignored files, empty directories and special files (pipes, sockets, devices) are
-excluded. Export required artifacts separately before releasing.
+Ignored files and empty directories are excluded. Special files (pipes, sockets,
+devices) block normal release and snapshot capture; export or remove them first.
+Forced release without --save allows cleanup to discard them before reuse.
+Export required ignored artifacts separately before releasing.
 Parallel saves wait for snapshot access up to --git-timeout-ms (default 120000).
 A timeout keeps the reservation protected; retry with the same lease ID.
 After a saved retry completes release, superseded checkpoints are unpinned but
