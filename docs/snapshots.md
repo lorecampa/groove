@@ -77,6 +77,11 @@ snapshot objects locally, preserving an unborn HEAD and its original branch name
 Saved files and staging state
 are restored in either case.
 
+If recovery fails after creating the destination, Groove removes its checkout
+and registration before returning the original error. Cleanup failures include
+the destination and a secondary error; stop writers before inspecting and
+removing that partial recovery. Process death can still interrupt cleanup.
+
 In-place restore requires HEAD to equal the saved base. It creates a safety
 snapshot before modifying files; failures after that point report its ID in error
 details. Files captured by the safety snapshot but absent from the target are
