@@ -32,6 +32,126 @@ fn acquire(repo: &Repo, task: &str) -> String {
 }
 
 #[test]
+fn unreadable_work_is_preserved_by_release_and_destruction() {
+    use std::os::unix::fs::PermissionsExt;
+    // SAFETY: geteuid observes the caller's effective user ID.
+    if unsafe { libc::geteuid() } == 0 {
+        return;
+    }
+    let repo = Repo::new();
+    ok(&cli(
+        &repo,
+        &[
+            "init",
+            "--capacity",
+            "1",
+            "--ready-target",
+            "0",
+            "--idle-timeout",
+            "never",
+        ],
+    ));
+    let path = acquire(&repo, "unreadable");
+    let directory = Path::new(&path).join("unreadable");
+    fs::create_dir(&directory).unwrap();
+    fs::write(directory.join("valuable.txt"), b"must survive").unwrap();
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o000)).unwrap();
+    let refused = cli(&repo, &["release", "--task", "unreadable"]);
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(refused.status.code(), Some(7));
+    let response: Value = serde_json::from_slice(&refused.stdout).unwrap();
+    assert_eq!(response["error"]["code"], "GIT_ERROR");
+    assert_eq!(
+        ok(&cli(&repo, &["list"]))["leases"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        fs::read(directory.join("valuable.txt")).unwrap(),
+        b"must survive"
+    );
+    ok(&cli(&repo, &["release", "--force", "--task", "unreadable"]));
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o000)).unwrap();
+    let refused = cli(&repo, &["destroy"]);
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(!refused.status.success());
+    let response: Value = serde_json::from_slice(&refused.stdout).unwrap();
+    // The path preflight can refuse before Git reaches its own inventory.
+    assert_eq!(response["error"]["code"], "IO_ERROR");
+    assert_eq!(
+        fs::read(directory.join("valuable.txt")).unwrap(),
+        b"must survive"
+    );
+    assert_eq!(ok(&cli(&repo, &["show"]))["pool"]["capacity"], 1);
+}
+
+#[test]
+fn successful_git_status_with_warnings_cannot_authorize_release_or_destroy() {
+    use std::os::unix::fs::PermissionsExt;
+    let repo = Repo::new();
+    ok(&cli(
+        &repo,
+        &[
+            "init",
+            "--capacity",
+            "1",
+            "--ready-target",
+            "0",
+            "--idle-timeout",
+            "never",
+        ],
+    ));
+    acquire(&repo, "warnings");
+    let real = support::command(&repo.path, "sh")
+        .args(["-c", "command -v git"])
+        .output()
+        .unwrap();
+    assert!(real.status.success());
+    let bin = repo.temp.path().join("warning-git");
+    fs::create_dir(&bin).unwrap();
+    let shim = bin.join("git");
+    fs::write(&shim, "#!/bin/sh\nfor arg do\n if [ \"$arg\" = status ]; then printf 'warning: incomplete inventory\\n' >&2; exit 0; fi\ndone\nexec \"$GROOVE_REAL_GIT\" \"$@\"\n").unwrap();
+    fs::set_permissions(&shim, fs::Permissions::from_mode(0o700)).unwrap();
+    let warned = |args: &[&str]| {
+        support::groove_in(&repo.path)
+            .env(
+                "PATH",
+                format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()),
+            )
+            .env(
+                "GROOVE_REAL_GIT",
+                String::from_utf8_lossy(&real.stdout).trim(),
+            )
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    for (index, args) in [vec!["release", "--task", "warnings"], vec!["destroy"]]
+        .into_iter()
+        .enumerate()
+    {
+        let output = warned(&args);
+        assert_eq!(output.status.code(), Some(7));
+        let error: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(error["error"]["code"], "GIT_ERROR");
+        assert_eq!(error["error"]["details"]["git"]["exit_code"], 0);
+        assert!(repo.slot(1).join("tracked.txt").exists());
+        if index == 0 {
+            assert_eq!(
+                ok(&cli(&repo, &["list"]))["leases"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                1
+            );
+            ok(&cli(&repo, &["release", "--force", "--task", "warnings"]));
+        }
+    }
+}
+
+#[test]
 fn release_from_inside_the_slot_can_pipe_its_output_to_a_sibling() {
     let repo = Repo::new();
     ok(&cli(&repo, &["init", "--capacity", "1"]));

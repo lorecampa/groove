@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Refuse release and destruction when Git status emits warnings, even after exit
+  zero, because omitted untracked work cannot be treated as a clean inventory.
 - Stream index audits during snapshot capture, ready preparation and destruction
   instead of buffering every entry, including SHA-256 indexes and flags that
   conceal working-file edits.

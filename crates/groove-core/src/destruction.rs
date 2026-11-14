@@ -162,7 +162,7 @@ fn require_saved(repo: &Repository, path: &Path, timeout: Duration) -> Result<()
         return Err(Error::new(ErrorCode::UnsupportedConfiguration, "Index flags can hide edits; clear assume-unchanged/skip-worktree flags or use --discard-changes")
             .with_details(|d| d.path = Some(path.into())));
     }
-    let status = git.run(
+    let status = git.run_with(
         path,
         &[
             "status",
@@ -173,7 +173,10 @@ fn require_saved(repo: &Repository, path: &Path, timeout: Duration) -> Result<()
             "--no-renames",
             "--no-ahead-behind",
         ],
-        &[],
+        crate::git::Invocation {
+            reject_stderr: true,
+            ..Default::default()
+        },
     )?;
     if !status.is_empty() {
         return Err(Error::new(ErrorCode::UnsavedChanges, "Workspace contains residual files or edits; save them or acknowledge loss with --discard-changes")

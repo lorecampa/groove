@@ -328,7 +328,7 @@ impl Pool {
         timeout: Duration,
     ) -> Result<WorkspaceGitStatus> {
         self.validate_workspace(slot)?;
-        let bytes = crate::git::Git::new(timeout).run(
+        let bytes = crate::git::Git::new(timeout).run_with(
             path,
             &[
                 "status",
@@ -340,7 +340,10 @@ impl Pool {
                 "--no-ahead-behind",
                 "--ignore-submodules=all",
             ],
-            &[],
+            crate::git::Invocation {
+                reject_stderr: true,
+                ..Default::default()
+            },
         )?;
         let mut facts = WorkspaceGitStatus::default();
         for entry in bytes.split(|byte| *byte == 0).filter(|e| !e.is_empty()) {
