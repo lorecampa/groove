@@ -476,6 +476,22 @@ impl Pool {
         }
         let lease_id = record.lease.as_ref().map(|lease| lease.lease_id);
         let prior = prior.filter(|work| work.pool_id == self.pool_id && work.lease_id == lease_id);
+        let now = crate::reservation::now_ms();
+        let expired = policy.idle_timeout.0.is_some_and(|timeout| {
+            record.idle_since_unix_ms.is_some_and(|idle_since| {
+                now.checked_sub(idle_since)
+                    .is_some_and(|age| age >= timeout.as_millis() as u64)
+            })
+        });
+        let evicting = prior
+            .as_ref()
+            .is_some_and(|work| work.phase == WorkPhase::Evicting);
+        // Once the spare target is met, excess checkouts need no inspection or
+        // normalization until eviction is due. In particular, pristine cleanup
+        // must not erase their ignored caches merely because they were released.
+        if retained >= policy.ready_target && !expired && !evicting {
+            return Ok(false);
+        }
         if path.try_exists()? && !crate::quiescence::all_processes_using(&path)?.is_empty() {
             return Err(Error::new(
                 ErrorCode::WorkspaceInUse,
@@ -549,18 +565,10 @@ impl Pool {
                 ));
             }
         }
-        let now = crate::reservation::now_ms();
         if !path.try_exists()? {
             record.idle_since_unix_ms = Some(now);
         }
-        let idle_since = record.idle_since_unix_ms.get_or_insert(now);
-        let expired = policy.idle_timeout.0.is_some_and(|timeout| {
-            now.checked_sub(*idle_since)
-                .is_some_and(|age| age >= timeout.as_millis() as u64)
-        });
-        let evicting = prior
-            .as_ref()
-            .is_some_and(|work| work.phase == WorkPhase::Evicting);
+        record.idle_since_unix_ms.get_or_insert(now);
         if evicting || (retained >= policy.ready_target && expired && path.try_exists()?) {
             let _admin = self.ready_admin()?;
             crate::recovery::validate_disposal(&self.repo, &path)?;
