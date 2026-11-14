@@ -29,6 +29,9 @@
   before checkout normalization, rebuilding, eviction or destruction.
 - Default worktree roots resolve aliases in HOME or a configured base before
   validating managed descendants, allowing initialization with a symlinked HOME.
+- Pool configuration checks detect selected user/system Git content filters,
+  so globally installed filters cannot silently produce unsmudged checkouts;
+  unused global filter definitions remain supported.
 
 - Contributor hooks scan staged secrets and validate formatting from the index,
   including fuzz sources. Pushes require a clean checkout at the outgoing commit

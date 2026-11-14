@@ -40,6 +40,65 @@ pub(crate) fn validate_config(git: &Git, repo: &Repository, oid: &crate::CommitO
             ));
         }
     }
+    validate_user_filters(git, repo, oid)
+}
+
+fn validate_user_filters(git: &Git, repo: &Repository, oid: &crate::CommitOid) -> Result<()> {
+    use crate::git::Invocation;
+    use std::io::{Seek, Write};
+    let config = git.run_with(
+        &repo.origin,
+        &["config", "--null", "--list"],
+        Invocation::snapshot(),
+    )?;
+    if !config
+        .split(|b| *b == 0)
+        .any(|entry| entry.starts_with(b"filter."))
+    {
+        return Ok(());
+    }
+    // Installing an unused global filter must not strand ordinary tasks. Check
+    // the requested commit's attributes, not the caller's index or working files.
+    let scratch = tempfile::tempdir()?;
+    let index = scratch.path().join("index");
+    let env = [("GIT_INDEX_FILE", index.as_os_str())];
+    git.run_with(
+        &repo.origin,
+        &["read-tree", oid.as_str()],
+        Invocation {
+            env: &env,
+            ..Default::default()
+        },
+    )?;
+    let names = git.run_with(
+        &repo.origin,
+        &["ls-files", "-z"],
+        Invocation {
+            env: &env,
+            ..Invocation::snapshot()
+        },
+    )?;
+    let mut input = tempfile::tempfile()?;
+    input.write_all(&names)?;
+    input.rewind()?;
+    let attributes = git.run_with(
+        &repo.origin,
+        &["check-attr", "--cached", "-z", "--stdin", "filter"],
+        Invocation {
+            env: &env,
+            stdin: Some(input),
+            ..Invocation::snapshot()
+        },
+    )?;
+    let fields: Vec<_> = attributes.split(|b| *b == 0).collect();
+    for attr in fields.as_chunks::<3>().0 {
+        if attr[2] != b"unset" && attr[2] != b"unspecified" {
+            return Err(Error::new(
+                crate::ErrorCode::UnsupportedConfiguration,
+                "Content filters selected by checkout attributes are not supported",
+            ));
+        }
+    }
     Ok(())
 }
 

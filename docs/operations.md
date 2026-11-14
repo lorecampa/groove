@@ -23,7 +23,9 @@ names that the selected volume can represent distinctly.
 
 SHA-1/SHA-256 and ordinary, linked and bare repositories are supported. Pool
 checkouts reject submodules, sparse checkout, worktree-specific configuration and
-configured content filters such as LFS. Maintenance clears repository-selection
+repository-configured content filters such as LFS. User/system filter definitions
+are rejected when the requested commit's paths select a filter; merely installing
+an unused global filter does not block an ordinary checkout. Maintenance clears repository-selection
 overrides and disables hooks, fsmonitor, automatic maintenance, prompts and
 system/global Git configuration. Baselines follow controlled Git checkout
 semantics, including normal attributes/line-ending conversion.
