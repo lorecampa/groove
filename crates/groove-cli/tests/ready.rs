@@ -6,6 +6,39 @@ use std::{
     time::{Duration, Instant},
 };
 use support::{assert_success, Repo};
+#[test]
+fn worker_startup_failures_are_recorded_in_configured_logs() {
+    let repo = Repo::new();
+    let logs = repo.temp.path().join("logs");
+    let output = support::command(&repo.path, support::groove_binary())
+        .arg("--internal-ready-worker")
+        .env("GROOVE_INTERNAL_READY_WORKER", "1")
+        .env("GROOVE_LOG_ENABLED", "true")
+        .env("GROOVE_LOG_DIR", &logs)
+        .env("XDG_CONFIG_HOME", repo.temp.path().join("config"))
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert!(output.stderr.is_empty());
+    let events: Vec<Value> = fs::read_dir(logs)
+        .unwrap()
+        .flat_map(|entry| {
+            fs::read_to_string(entry.unwrap().path())
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect::<Vec<Value>>()
+        })
+        .collect();
+    assert!(
+        events
+            .iter()
+            .any(|event| event.to_string().contains("ready.failed")
+                && event.to_string().contains("INVALID_ARGUMENT")),
+        "{events:?}"
+    );
+}
 
 fn cli(repo: &Repo, args: &[&str]) -> Value {
     let output = support::groove_in(&repo.path).args(args).output().unwrap();
