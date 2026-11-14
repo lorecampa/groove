@@ -173,7 +173,13 @@ impl Logging {
 }
 pub fn load() -> Result<Config> {
     let mut config = match path() {
-        Ok(path) => parse(&read(&path)?)?,
+        Ok(path) => read(&path)
+            .and_then(|text| parse(&text))
+            .map_err(|mut error| {
+                error.message = format!("{}: {}", path.display(), error.message);
+                error.details.path = Some(path);
+                error
+            })?,
         Err(_) => Config::default(),
     };
     if let Some(value) = std::env::var_os("GROOVE_LOG_ENABLED") {

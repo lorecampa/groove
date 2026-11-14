@@ -12,6 +12,8 @@ The file is $XDG_CONFIG_HOME/groove/config.toml (or ~/.config/groove/config.toml
 Unset, empty or relative XDG paths use the HOME fallback. `show` reports effective
 values and environment overrides. Unknown keys and invalid values fail before
 operational commands run. Help remains available with broken preferences.
+With an invalid file, `show` reports its repair path in the primary error and
+error.details.path. `path` prints the location without parsing the file.
 
 EXPERIMENTAL FEATURES:
 experimental.features is a TOML array of individual feature names, default [].

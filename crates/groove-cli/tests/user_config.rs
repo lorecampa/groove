@@ -29,6 +29,33 @@ fn ok(out: Output) -> Value {
     value["result"].clone()
 }
 #[test]
+fn broken_configuration_show_reports_the_repair_path_without_rewriting_it() {
+    let home = tempfile::tempdir().unwrap();
+    let h = home.path();
+    fs::create_dir(h.join("groove")).unwrap();
+    let path = h.join("groove/config.toml");
+    fs::write(&path, "broken!").unwrap();
+    let output = run(h, &["config", "global", "show"]);
+    assert_eq!(output.status.code(), Some(2));
+    let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let schema: Value =
+        serde_json::from_str(include_str!("../schemas/response-v1.schema.json")).unwrap();
+    assert!(jsonschema::validator_for(&schema)
+        .unwrap()
+        .is_valid(&response));
+    assert_eq!(response["error"]["details"]["path"], path.to_str().unwrap());
+    assert!(response["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains(path.to_str().unwrap()));
+    assert_eq!(fs::read_to_string(&path).unwrap(), "broken!");
+    assert_eq!(
+        ok(run(h, &["config", "global", "path"]))["config_path"],
+        path.to_str().unwrap()
+    );
+}
+
+#[test]
 fn invalid_supplied_preferences_name_the_key_and_expected_values() {
     let home = tempfile::tempdir().unwrap();
     let h = home.path();
