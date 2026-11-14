@@ -4,8 +4,10 @@ EXAMPLES:
 
 Stop all writers before restoring.
 
---to recovers into a new directory that must not exist. Recovery uses detached
-HEAD for snapshots with a base commit; snapshots from before the first commit
+--to recovers into a new directory that must not exist. The destination must be
+outside the source working tree and all pool roots; existing parent symlinks are
+resolved before checking. Recovery uses detached HEAD for snapshots with a base
+commit; snapshots from before the first commit
 keep their unborn HEAD and original initial branch name.
 
 Without --to, restore works in place: HEAD must equal the saved HEAD, a safety

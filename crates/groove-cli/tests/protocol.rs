@@ -721,7 +721,7 @@ fn release_save_options_require_save_and_rejections_keep_the_reservation() {
         "workspace saved"
     );
     let snapshot = saved["result"]["snapshot"]["id"].as_str().unwrap();
-    let recovered = repo.path.join("recovered");
+    let recovered = repo.temp.path().join("recovered");
     assert_success(&cli(
         &repo,
         &[

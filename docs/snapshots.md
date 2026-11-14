@@ -68,7 +68,9 @@ Export leaves HEAD, the real index and working files unchanged.
 
 ## Recovery
 
-Recovery to a new directory requires that directory not exist. For a snapshot
+Recovery to a new directory requires that directory not exist and be outside
+the source working tree and all pool roots, including through parent symlinks.
+This prevents introducing nested repositories that block subsequent saves. For a snapshot
 with a base commit, this creates a detached linked worktree. For a snapshot from
 before the first commit, it creates an independent repository and fetches the
 snapshot objects locally, preserving an unborn HEAD and its original branch name.

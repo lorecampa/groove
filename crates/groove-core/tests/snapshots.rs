@@ -17,6 +17,41 @@ fn save(s: &Snapshots) -> groove_core::snapshot::Snapshot {
     s.save(SaveOptions::default()).unwrap()
 }
 #[test]
+fn recovery_rejects_destinations_inside_the_source_including_parent_aliases() {
+    let repo = Repo::new();
+    let snapshots = service(&repo);
+    fs::write(repo.path.join("saved.txt"), b"saved bytes\n").unwrap();
+    let saved = save(&snapshots);
+    let alias = repo.temp.path().join("source-alias");
+    symlink(&repo.path, &alias).unwrap();
+    let registrations = repo.git(&["worktree", "list", "--porcelain"]);
+    for destination in [repo.path.join("recovered"), alias.join("recovered")] {
+        let error = snapshots
+            .restore(&saved.id, Some(&destination))
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::InvalidArgument);
+        assert!(error.message.contains("source working tree"));
+        assert!(!destination.exists());
+        assert_eq!(
+            repo.git(&["worktree", "list", "--porcelain"]),
+            registrations
+        );
+        assert_eq!(
+            fs::read(repo.path.join("saved.txt")).unwrap(),
+            b"saved bytes\n"
+        );
+    }
+    // Rejected recovery must not introduce a nested repository that blocks saves.
+    save(&snapshots);
+    let external = repo.temp.path().join("external-recovery");
+    snapshots.restore(&saved.id, Some(&external)).unwrap();
+    assert_eq!(
+        fs::read(external.join("saved.txt")).unwrap(),
+        b"saved bytes\n"
+    );
+}
+
+#[test]
 fn unreadable_untracked_directories_fail_capture_without_publishing() {
     if !support::in_subprocess("unreadable_untracked_directories_fail_capture_without_publishing") {
         return;
