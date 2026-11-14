@@ -143,7 +143,10 @@ fn external_recovery_and_gc_keep_local_history() {
     s.restore(&snap.id, Some(&dest)).unwrap();
     assert_eq!(fs::read(dest.join("new")).unwrap(), b"hello");
     assert_eq!(support::git(&dest, &["rev-parse", "HEAD"]), head);
-    assert!(s.restore(&snap.id, Some(&dest)).is_err());
+    assert_eq!(
+        s.restore(&snap.id, Some(&dest)).unwrap_err().code,
+        ErrorCode::InvalidArgument
+    );
 }
 #[test]
 fn unborn_roundtrip_and_external_recovery() {
@@ -183,9 +186,12 @@ fn delete_removes_only_the_selected_snapshot() {
     let b = save(&s);
     assert_eq!(s.list().unwrap().len(), 2);
     s.delete(&a.id, false).unwrap();
-    assert!(s.show(&a.id).is_err());
+    assert_eq!(s.show(&a.id).unwrap_err().code, ErrorCode::GitError);
     assert!(s.show(&b.id).is_ok());
-    assert!(s.delete(&a.id, false).is_err());
+    assert_eq!(
+        s.delete(&a.id, false).unwrap_err().code,
+        ErrorCode::GitError
+    );
 }
 #[test]
 fn file_modes_deletions_symlinks_and_platform_filenames() {
@@ -448,19 +454,28 @@ fn rejects_large_files_filters_conflicts_and_changed_head() {
     let repo = Repo::new();
     let s = service(&repo);
     fs::write(repo.path.join("new"), "large").unwrap();
-    assert!(s
-        .save(SaveOptions {
+    assert_eq!(
+        s.save(SaveOptions {
             max_file_bytes: 1,
             ..Default::default()
         })
-        .is_err());
+        .unwrap_err()
+        .code,
+        ErrorCode::InvalidArgument
+    );
     assert!(s.list().unwrap().is_empty());
     let snap = save(&s);
     repo.git(&["commit", "--allow-empty", "-qm", "changed"]);
-    assert!(s.restore(&snap.id, None).is_err());
+    assert_eq!(
+        s.restore(&snap.id, None).unwrap_err().code,
+        ErrorCode::InvalidArgument
+    );
     repo.git(&["config", "filter.lfs.clean", "cat"]);
     fs::write(repo.path.join(".gitattributes"), "*.txt filter=lfs\n").unwrap();
-    assert!(s.save(Default::default()).is_err());
+    assert_eq!(
+        s.save(Default::default()).unwrap_err().code,
+        ErrorCode::UnsupportedConfiguration
+    );
 }
 #[test]
 fn no_change_reuses_file_trees_and_diff_includes_untracked() {
@@ -488,7 +503,10 @@ fn ignored_collision_is_never_overwritten() {
     let snap = save(&s);
     fs::write(repo.path.join(".git/info/exclude"), "collision\n").unwrap();
     fs::write(repo.path.join("collision"), "precious ignored").unwrap();
-    assert!(s.restore(&snap.id, None).is_err());
+    assert_eq!(
+        s.restore(&snap.id, None).unwrap_err().code,
+        ErrorCode::InvalidArgument
+    );
     assert_eq!(
         fs::read(repo.path.join("collision")).unwrap(),
         b"precious ignored"
@@ -542,7 +560,10 @@ fn malformed_manifest_and_conversion_attributes_fail_closed() {
     let repo = Repo::new();
     let s = service(&repo);
     fs::write(repo.path.join(".gitattributes"), "*.txt text eol=crlf\n").unwrap();
-    assert!(s.save(Default::default()).is_err());
+    assert_eq!(
+        s.save(Default::default()).unwrap_err().code,
+        ErrorCode::UnsupportedConfiguration
+    );
     fs::remove_file(repo.path.join(".gitattributes")).unwrap();
     let snap = save(&s);
     repo.git(&[
@@ -550,7 +571,7 @@ fn malformed_manifest_and_conversion_attributes_fail_closed() {
         &format!("refs/groove/snapshots/{}", snap.id),
         "HEAD",
     ]);
-    assert!(s.show(&snap.id).is_err());
+    assert_eq!(s.show(&snap.id).unwrap_err().code, ErrorCode::ProtocolError);
 }
 #[test]
 fn index_flags_and_gitlinks_fail_without_publication() {
@@ -560,7 +581,10 @@ fn index_flags_and_gitlinks_fail_without_publication() {
     let repo = Repo::new();
     let s = service(&repo);
     repo.git(&["update-index", "--assume-unchanged", "tracked.txt"]);
-    assert!(s.save(Default::default()).is_err());
+    assert_eq!(
+        s.save(Default::default()).unwrap_err().code,
+        ErrorCode::UnsupportedConfiguration
+    );
     repo.git(&["update-index", "--no-assume-unchanged", "tracked.txt"]);
     let head = repo.git(&["rev-parse", "HEAD"]);
     repo.git(&[
@@ -569,7 +593,10 @@ fn index_flags_and_gitlinks_fail_without_publication() {
         "--cacheinfo",
         &format!("160000,{head},module"),
     ]);
-    assert!(s.save(Default::default()).is_err());
+    assert_eq!(
+        s.save(Default::default()).unwrap_err().code,
+        ErrorCode::UnsupportedConfiguration
+    );
     assert!(s.list().unwrap().is_empty());
 }
 #[test]
@@ -588,7 +615,10 @@ fn publication_failure_does_not_mutate_workspace() {
         "blocking file",
     )
     .unwrap();
-    assert!(s.save(Default::default()).is_err());
+    assert_eq!(
+        s.save(Default::default()).unwrap_err().code,
+        ErrorCode::GitError
+    );
     assert_eq!(fs::read(repo.path.join(".git/index")).unwrap(), index);
     assert_eq!(repo.git(&["rev-parse", "HEAD"]), head);
     assert_eq!(
@@ -616,7 +646,10 @@ fn unresolved_merge_is_rejected() {
         .status
         .success());
     let s = service(&repo);
-    assert!(s.save(Default::default()).is_err());
+    assert_eq!(
+        s.save(Default::default()).unwrap_err().code,
+        ErrorCode::UnsupportedConfiguration
+    );
     assert!(s.list().unwrap().is_empty());
 }
 #[test]
@@ -713,7 +746,10 @@ fn split_index_and_intent_to_add_are_handled_explicitly() {
     assert_eq!(fs::read(repo.path.join(".git/index")).unwrap(), index);
     fs::write(repo.path.join("intent"), "intent\n").unwrap();
     repo.git(&["add", "-N", "intent"]);
-    assert!(s.save(Default::default()).is_err());
+    assert_eq!(
+        s.save(Default::default()).unwrap_err().code,
+        ErrorCode::UnsupportedConfiguration
+    );
 }
 #[test]
 fn unborn_sha256_recovery_preserves_object_format() {

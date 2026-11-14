@@ -932,7 +932,10 @@ fn durable_shell_reservations_survive_sigkill_and_release_retries_are_generation
             );
             kill_at_checkpoint(&mut command, listener, checkpoint);
         } else {
-            assert!(pool.acquire(Default::default()).is_err());
+            assert_eq!(
+                pool.acquire(Default::default()).unwrap_err().code,
+                groove_core::ErrorCode::PoolExhausted
+            );
         }
         // Use independent CLI processes throughout. Taking locks in this
         // multithreaded harness can transiently lend them to another test's fork

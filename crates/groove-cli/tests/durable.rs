@@ -42,10 +42,14 @@ fn shell_calls_retain_reservations_and_reuse_only_after_explicit_release() {
     assert!(!blocked.status.success());
     assert_eq!(checked(&blocked)["error"]["code"], "POOL_EXHAUSTED");
     // Neither CLI nor direct core acquisition can clean the reserved checkout.
-    assert!(groove_core::Pool::open(&repo.path)
-        .unwrap()
-        .acquire(Default::default())
-        .is_err());
+    assert_eq!(
+        groove_core::Pool::open(&repo.path)
+            .unwrap()
+            .acquire(Default::default())
+            .unwrap_err()
+            .code,
+        groove_core::ErrorCode::PoolExhausted
+    );
     assert_eq!(
         fs::read_to_string(path.join("tracked.txt")).unwrap(),
         "task work\n"

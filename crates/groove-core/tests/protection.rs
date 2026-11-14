@@ -95,7 +95,7 @@ fn malformed_protection_blocks_reuse_and_failed_release_retains_ownership() {
         pool.protected_leases().unwrap_err().code,
         ErrorCode::ProtocolError
     );
-    assert!(lease.release().is_err());
+    assert_eq!(lease.release().unwrap_err().code, ErrorCode::ProtocolError);
     assert!(lease.is_active());
     assert_eq!(
         pool.acquire(Default::default()).err().unwrap().code,
