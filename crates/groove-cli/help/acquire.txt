@@ -24,6 +24,8 @@ last verified checkout are rewritten, including metadata and hardlink changes.
 This trusts that ctime cannot be backdated without root or a clock change.
 Missing verification/index state, hidden index flags, attribute changes or a
 large touched inventory force a full rewrite. Retained build outputs still need validation.
+The marker and checkout must share one recognized filesystem; cross-filesystem
+markers and override-only storage always use the full rewrite.
 
 Capacity: a zero --wait-ms scans once; a positive value bounds waiting for a
 free slot (not checkout preparation, which has its own Git timeouts). There is

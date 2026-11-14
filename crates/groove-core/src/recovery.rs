@@ -373,7 +373,13 @@ fn reuse_untouched(
     let Some(verified) = verified else {
         return Ok(false);
     };
-    if !index.try_exists()? || verified.modified()? > std::time::SystemTime::now() {
+    // Across filesystems, the marker's mtime may have finer precision than file
+    // ctimes. Override-only storage also has no established ctime semantics.
+    if !index.try_exists()?
+        || verified.modified()? > std::time::SystemTime::now()
+        || fs::metadata(path)?.dev() != verified.dev()
+        || !crate::platform::fs::recognized_fs(path)?
+    {
         return Ok(false);
     }
     let audit = git.audit_index(

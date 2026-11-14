@@ -70,6 +70,46 @@ fn tree(root: &Path) -> BTreeMap<PathBuf, (u32, u64, Vec<u8>)> {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
+fn verification_markers_on_another_filesystem_force_a_full_rewrite() {
+    if !Path::new("/dev/shm").is_dir() {
+        eprintln!("cross-filesystem regression requires /dev/shm");
+        return;
+    }
+    let repo = Repo::new();
+    let root = tempfile::tempdir_in("/dev/shm").unwrap();
+    fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
+    if fs::metadata(root.path()).unwrap().dev() == fs::metadata(&repo.path).unwrap().dev() {
+        eprintln!("cross-filesystem regression requires distinct devices");
+        return;
+    }
+    cli(
+        &repo,
+        &[
+            "init",
+            "--capacity",
+            "1",
+            "--ready-target",
+            "0",
+            "--idle-timeout",
+            "never",
+            "--worktree-root",
+            root.path().to_str().unwrap(),
+        ],
+    );
+    let lease = acquire(&repo);
+    let file = repo.slot(1).join("tracked.txt");
+    // Keep the old inode alive so a rewrite cannot immediately reuse its number.
+    let original = fs::File::open(&file).unwrap();
+    let before = original.metadata().unwrap();
+    release(&repo, &lease);
+    acquire(&repo);
+    let after = fs::metadata(&file).unwrap();
+    assert_ne!(after.ino(), before.ino());
+    assert_eq!(fs::read(file).unwrap(), b"baseline\n");
+}
+
+#[test]
 fn untouched_files_keep_their_inode_and_mtime_across_reservations() {
     let repo = Repo::new();
     init(&repo);

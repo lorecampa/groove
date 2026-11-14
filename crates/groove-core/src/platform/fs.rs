@@ -6,6 +6,14 @@ use std::{
 };
 
 pub(crate) fn local_fs(path: &Path) -> Result<()> {
+    require_supported(
+        recognized_fs(path)?,
+        std::env::var_os("GROOVE_ALLOW_UNSUPPORTED_FILESYSTEM").as_deref(),
+    )
+}
+
+/// Native filesystem qualification, without the operator's explicit override.
+pub(crate) fn recognized_fs(path: &Path) -> Result<bool> {
     let c = CString::new(path.as_os_str().as_bytes())
         .map_err(|e| Error::new(crate::ErrorCode::InvalidArgument, "NUL in path").with_source(e))?;
     let mut stat = std::mem::MaybeUninit::<libc::statfs>::uninit();
@@ -27,10 +35,7 @@ pub(crate) fn local_fs(path: &Path) -> Result<()> {
             .collect();
         stat.f_flags & libc::MNT_LOCAL as u32 != 0 && name == b"apfs"
     };
-    require_supported(
-        supported,
-        std::env::var_os("GROOVE_ALLOW_UNSUPPORTED_FILESYSTEM").as_deref(),
-    )
+    Ok(supported)
 }
 
 fn require_supported(supported: bool, override_value: Option<&OsStr>) -> Result<()> {
