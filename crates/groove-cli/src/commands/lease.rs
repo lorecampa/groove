@@ -95,7 +95,7 @@ pub fn release(
     let result: ReleaseResult = pool.release_lease(id)?;
     tracing::info!(event = "workspace.released", slot = %result.slot_id, lease_id = %id, "Workspace released");
     let text = format!(
-        "Released {} (lease {}). Its contents are discarded on the next acquisition.",
+        "Released {} (lease {}). Background preparation or the next acquisition discards its contents.",
         result.slot_id, result.lease_id
     );
     Output::text(result, text)
