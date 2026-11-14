@@ -46,6 +46,8 @@
   dependencies from enabling features in the shipped binary.
 - CI test jobs install the pinned Gitleaks scanner required by contributor-hook
   regressions on Linux and macOS, independently of the security job.
+- Hosted formatting and Clippy checks use the contributor's pinned toolchain;
+  minimum Rust and current stable remain compatibility build/test targets.
 
 - Retrying an interrupted saved release captures the still-reserved workspace
   again before reuse. Completed retries reject deleted or unpinned snapshots.
