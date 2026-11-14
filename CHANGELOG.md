@@ -24,6 +24,8 @@
   rather than silently omitting merge parents and operation state.
 - Linux cleanup checks mount points, including same-filesystem bind mounts,
   before checkout normalization, rebuilding, eviction or destruction.
+- Default worktree roots resolve aliases in HOME or a configured base before
+  validating managed descendants, allowing initialization with a symlinked HOME.
 
 - Contributor hooks scan staged secrets and validate formatting from the index,
   including fuzz sources. Pushes require a clean checkout at the outgoing commit

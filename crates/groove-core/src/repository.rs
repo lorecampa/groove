@@ -124,6 +124,29 @@ impl Repository {
                     "Set an absolute HOME, configure worktrees.root, or pass --worktree-root",
                 )
             })?;
+        // User-selected parents may be aliases (for example a symlinked HOME).
+        // Resolve the existing prefix before creating Groove-owned descendants;
+        // those descendants still undergo the strict managed-path checks below.
+        let mut ancestor = base.as_path();
+        let mut suffix = Vec::new();
+        while !ancestor.try_exists()? {
+            suffix.push(ancestor.file_name().ok_or_else(|| {
+                Error::new(
+                    crate::ErrorCode::InvalidArgument,
+                    "Worktree base cannot be resolved",
+                )
+            })?);
+            ancestor = ancestor.parent().ok_or_else(|| {
+                Error::new(
+                    crate::ErrorCode::InvalidArgument,
+                    "Worktree base has no parent",
+                )
+            })?;
+        }
+        let mut resolved_base = fs::canonicalize(ancestor)?;
+        for part in suffix.into_iter().rev() {
+            resolved_base.push(part);
+        }
         let project = if self.common.file_name().is_some_and(|name| name == ".git") {
             self.common.parent().and_then(Path::file_name)
         } else {
@@ -145,7 +168,7 @@ impl Repository {
             .collect();
         let digest = Sha256::digest(utf8(&self.common)?.as_bytes());
         let id = crate::state::hex(&digest[..16]);
-        let root = base
+        let root = resolved_base
             .join(format!("{project}-{id}"))
             .join(self.name.as_str());
         no_symlinks(&root)?;
