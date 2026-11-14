@@ -16,6 +16,8 @@
   met, preserving excess released caches until acquisition or idle eviction.
 - Invalid preparation bases fail immediately with `INVALID_REVISION`, before
   initialization or settings updates can publish them.
+- Acquisition skips slots with corrupt ready metadata and can use other healthy
+  slots, while preserving the corrupt slot and its files for recovery.
 
 - Retrying an interrupted saved release captures the still-reserved workspace
   again before reuse. Completed retries reject deleted or unpinned snapshots.

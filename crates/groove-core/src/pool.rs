@@ -616,7 +616,16 @@ impl Pool {
                         ));
                     }
                 }
-                current.validate_ready_state(slot)?;
+                if let Err(error) = current.validate_ready_state(slot) {
+                    // Unknown versions remain a compatibility barrier. Corrupt
+                    // advisory state quarantines only this candidate; never let
+                    // it hide independent healthy capacity or authorize cleanup.
+                    if error.code == crate::ErrorCode::UnsupportedConfiguration {
+                        return Err(error);
+                    }
+                    failed.insert(slot.clone(), error.summary());
+                    continue;
+                }
                 match recovery::prepare(
                     &self.repo,
                     &current.config,
