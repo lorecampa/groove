@@ -12,6 +12,18 @@ on:
 permissions:
   contents: read
 jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.release_ref || github.ref }}
+          persist-credentials: false
+      # rust-toolchain.toml is the contributor/release lint policy. Compatibility
+      # toolchains below still build and test without imposing different lints.
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
   packages:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -81,8 +93,6 @@ jobs:
           git --version
           node --version
           npm --version
-      - run: cargo fmt --all -- --check
-      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       - run: cargo test --workspace --all-targets --all-features --locked
         # Isolate fixtures without changing checkout's own Git configuration.
         # User-configuration regressions provide explicit configuration files.
@@ -157,8 +167,6 @@ jobs:
           rustc --version
           git --version
           sw_vers
-      - run: cargo fmt --all -- --check
-      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       - run: cargo test --workspace --all-targets --all-features --locked --no-fail-fast
       - run: cargo test --workspace --doc --locked
       - run: cargo doc --workspace --no-deps --locked
