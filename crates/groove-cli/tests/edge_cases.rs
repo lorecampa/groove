@@ -65,6 +65,187 @@ fn failure(output: &Output, exit: i32, code: &str) -> Value {
 }
 
 #[test]
+fn filter_validation_checks_the_whole_commit_from_a_subdirectory() {
+    let repo = Repo::new();
+    fs::write(repo.path.join(".gitattributes"), b"*.txt filter=audit\n").unwrap();
+    repo.git(&["add", ".gitattributes"]);
+    repo.git(&["commit", "-qm", "root filter rule"]);
+    assert_success(&cli(
+        &repo.path,
+        &[
+            "init",
+            "--capacity",
+            "1",
+            "--ready-target",
+            "0",
+            "--idle-timeout",
+            "never",
+        ],
+    ));
+    let subdir = repo.path.join("subdir");
+    fs::create_dir(&subdir).unwrap();
+    let config = repo.temp.path().join("filters.gitconfig");
+    fs::write(
+        &config,
+        "[filter \"audit\"]\nsmudge = false\nrequired = true\n",
+    )
+    .unwrap();
+    let output = support::groove_in(&subdir)
+        .env("GIT_CONFIG_GLOBAL", config)
+        .arg("acquire")
+        .output()
+        .unwrap();
+    failure(&output, 2, "UNSUPPORTED_CONFIGURATION");
+    assert!(!repo.slot(1).exists());
+}
+
+#[test]
+fn unused_global_filters_work_in_acquisition_and_the_common_directory_worker() {
+    let repo = Repo::new();
+    assert_success(&cli(
+        &repo.path,
+        &[
+            "init",
+            "--capacity",
+            "2",
+            "--ready-target",
+            "0",
+            "--idle-timeout",
+            "never",
+        ],
+    ));
+    let config = repo.temp.path().join("unused-filter.gitconfig");
+    fs::write(
+        &config,
+        "[filter \"lfs\"]\nprocess = false\nrequired = true\n",
+    )
+    .unwrap();
+    let pool = groove_core::Pool::open(&repo.path).unwrap();
+    pool.configure(groove_core::PoolUpdate {
+        ready_target: Some(1),
+        ..Default::default()
+    })
+    .unwrap();
+    let generation = pool.request_ready().unwrap().unwrap();
+    let mut command = support::command(&repo.path, support::groove_binary());
+    command
+        .arg("--internal-ready-worker")
+        .arg(pool.common_git_dir())
+        .arg("default")
+        .arg(generation.to_string())
+        .arg("5000")
+        .current_dir(pool.common_git_dir())
+        .env("GROOVE_INTERNAL_READY_WORKER", "1")
+        .env("GIT_CONFIG_GLOBAL", &config);
+    let output = support::TestChild::spawn(&mut command)
+        .wait_with_output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report = pool.ready_report().unwrap();
+    assert_eq!(report.ready, 1, "{report:?}");
+    assert!(report.error.is_none(), "{report:?}");
+    assert_success(
+        &support::groove_in(&repo.path)
+            .env("GIT_CONFIG_GLOBAL", config)
+            .arg("acquire")
+            .output()
+            .unwrap(),
+    );
+}
+
+#[test]
+fn filter_scratch_layout_does_not_collide_with_an_index_directory() {
+    let repo = Repo::new();
+    fs::create_dir(repo.path.join("index")).unwrap();
+    fs::write(
+        repo.path.join("index/.gitattributes"),
+        "*.txt text eol=lf\n",
+    )
+    .unwrap();
+    repo.git(&["add", "index/.gitattributes"]);
+    repo.git(&["commit", "-qm", "attributes below index directory"]);
+    assert_success(&cli(
+        &repo.path,
+        &["init", "--capacity", "1", "--ready-target", "0"],
+    ));
+    let config = repo.temp.path().join("unused-filter.gitconfig");
+    fs::write(
+        &config,
+        "[filter \"lfs\"]\nprocess = false\nrequired = true\n",
+    )
+    .unwrap();
+    let acquired = assert_success(
+        &support::groove_in(&repo.path)
+            .env("GIT_CONFIG_GLOBAL", config)
+            .arg("acquire")
+            .output()
+            .unwrap(),
+    );
+    let slot = Path::new(acquired["result"]["worktree_path"].as_str().unwrap());
+    assert_eq!(
+        fs::read_to_string(slot.join("index/.gitattributes")).unwrap(),
+        "*.txt text eol=lf\n"
+    );
+}
+
+#[test]
+fn unused_filters_do_not_require_space_in_the_system_temporary_directory() {
+    let repo = Repo::new();
+    assert_success(&cli(
+        &repo.path,
+        &["init", "--capacity", "1", "--ready-target", "0"],
+    ));
+    let config = repo.temp.path().join("unused-filter.gitconfig");
+    fs::write(
+        &config,
+        "[filter \"lfs\"]\nprocess = false\nrequired = true\n",
+    )
+    .unwrap();
+    assert_success(
+        &support::groove_in(&repo.path)
+            .env("GIT_CONFIG_GLOBAL", config)
+            .env("TMPDIR", repo.temp.path().join("unavailable-tmp"))
+            .arg("acquire")
+            .output()
+            .unwrap(),
+    );
+}
+
+#[test]
+fn odd_filter_driver_names_are_refused_before_checkout() {
+    let repo = Repo::new();
+    assert_success(&cli(
+        &repo.path,
+        &[
+            "init",
+            "--capacity",
+            "1",
+            "--ready-target",
+            "0",
+            "--idle-timeout",
+            "never",
+        ],
+    ));
+    let config = repo.temp.path().join("odd-filter.gitconfig");
+    fs::write(&config, "[filter \"odd driver)\"]\nsmudge = false\n").unwrap();
+    let output = support::groove_in(&repo.path)
+        .env("GIT_CONFIG_GLOBAL", config)
+        .arg("acquire")
+        .output()
+        .unwrap();
+    let error = failure(&output, 2, "UNSUPPORTED_CONFIGURATION");
+    assert!(error["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("odd driver)"));
+    assert!(!repo.slot(1).exists());
+}
+
+#[test]
 fn pool_acquisition_rejects_globally_defined_content_filters() {
     let repo = Repo::new();
     fs::write(repo.path.join(".gitattributes"), "*.txt filter=audit\n").unwrap();

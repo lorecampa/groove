@@ -45,57 +45,119 @@ pub(crate) fn validate_config(git: &Git, repo: &Repository, oid: &crate::CommitO
 
 fn validate_user_filters(git: &Git, repo: &Repository, oid: &crate::CommitOid) -> Result<()> {
     use crate::git::Invocation;
-    use std::io::{Seek, Write};
+    use std::collections::BTreeSet;
     let config = git.run_with(
         &repo.origin,
         &["config", "--null", "--list"],
         Invocation::snapshot(),
     )?;
-    if !config
-        .split(|b| *b == 0)
-        .any(|entry| entry.starts_with(b"filter."))
-    {
+    let mut drivers = BTreeSet::new();
+    for entry in config.split(|byte| *byte == 0) {
+        let key = entry
+            .split(|byte| *byte == b'\n')
+            .next()
+            .unwrap_or_default();
+        if let Some(key) = key.strip_prefix(b"filter.") {
+            let driver = key
+                .rsplitn(2, |byte| *byte == b'.')
+                .nth(1)
+                .unwrap_or_default();
+            if driver.is_empty()
+                || !driver
+                    .iter()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(byte))
+            {
+                return Err(Error::new(
+                    crate::ErrorCode::UnsupportedConfiguration,
+                    format!(
+                        "Unsupported filter driver name: {}",
+                        String::from_utf8_lossy(driver)
+                    ),
+                ));
+            }
+            drivers.insert(
+                std::str::from_utf8(driver)
+                    .map_err(|error| {
+                        Error::new(
+                            crate::ErrorCode::UnsupportedConfiguration,
+                            "Filter driver name must be ASCII",
+                        )
+                        .with_source(error)
+                    })?
+                    .to_owned(),
+            );
+        }
+    }
+    if drivers.is_empty() {
         return Ok(());
     }
     // Installing an unused global filter must not strand ordinary tasks. Check
     // the requested commit's attributes, not the caller's index or working files.
-    let scratch = tempfile::tempdir()?;
+    // A large private index belongs on repository storage, not a potentially
+    // memory-backed or quota-limited system temporary directory. Keep it outside
+    // the scratch tree: a tracked directory named `index` is valid Git content.
+    let scratch = tempfile::Builder::new()
+        .prefix("groove-filter-")
+        .tempdir_in(&repo.common)?;
     let index = scratch.path().join("index");
-    let env = [("GIT_INDEX_FILE", index.as_os_str())];
+    let worktree = scratch.path().join("worktree");
+    fs::create_dir(&worktree)?;
+    let env = [
+        ("GIT_INDEX_FILE", index.as_os_str()),
+        ("GIT_DIR", repo.common.as_os_str()),
+        ("GIT_WORK_TREE", worktree.as_os_str()),
+    ];
     git.run_with(
-        &repo.origin,
+        &worktree,
         &["read-tree", oid.as_str()],
         Invocation {
             env: &env,
             ..Default::default()
         },
     )?;
-    let names = git.run_with(
-        &repo.origin,
-        &["ls-files", "-z"],
+    // Materialize only attribute files, without user filter definitions. Attribute
+    // pathspecs then see the requested tree at a stable root, including when the
+    // caller is a subdirectory or a background worker runs from the common .git.
+    let names = git.spool(
+        &worktree,
+        &["ls-files", "-z", "--", ":(glob)**/.gitattributes"],
         Invocation {
             env: &env,
-            ..Invocation::snapshot()
+            reject_stderr: true,
+            ..Default::default()
         },
     )?;
-    let mut input = tempfile::tempfile()?;
-    input.write_all(&names)?;
-    input.rewind()?;
-    let attributes = git.run_with(
-        &repo.origin,
-        &["check-attr", "--cached", "-z", "--stdin", "filter"],
+    git.run_with(
+        &worktree,
+        &[
+            "-c",
+            "core.autocrlf=false",
+            "checkout-index",
+            "-z",
+            "--stdin",
+        ],
         Invocation {
             env: &env,
-            stdin: Some(input),
-            ..Invocation::snapshot()
+            stdin: Some(names),
+            reject_stderr: true,
+            ..Default::default()
         },
     )?;
-    let fields: Vec<_> = attributes.split(|b| *b == 0).collect();
-    for attr in fields.as_chunks::<3>().0 {
-        if attr[2] != b"unset" && attr[2] != b"unspecified" {
+    for driver in drivers {
+        let selection = format!(":(attr:filter={driver})");
+        let selected = git.spool(
+            &worktree,
+            &["ls-files", "-z", "--", &selection],
+            Invocation {
+                env: &env,
+                reject_stderr: true,
+                ..Invocation::snapshot()
+            },
+        )?;
+        if selected.metadata()?.len() > 0 {
             return Err(Error::new(
                 crate::ErrorCode::UnsupportedConfiguration,
-                "Content filters selected by checkout attributes are not supported",
+                format!("Content filter {driver} is selected by checkout attributes and is not supported"),
             ));
         }
     }
