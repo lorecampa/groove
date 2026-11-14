@@ -68,39 +68,6 @@ focused pull request describing the behavior and the checks you ran.
   [the testing guide](docs/testing.md#writing-tests-intent-and-observable-contracts).
   Keep ownership and recovery guarantees in real-process tests.
 
-### Writing and comment review
-
-Use [Avoid AI Writing](https://github.com/conorbronsdon/avoid-ai-writing) as a
-review aid for English prose, with its `docs` context for documentation and
-help. Read its pattern catalog and context exceptions before applying a match.
-Review code comments separately from executable code. A detector finding is a
-prompt to inspect the passage, not proof of authorship or a reason to rewrite it.
-
-- Lead with the behavior, constraint or action the reader needs. Cut empty
-  introductions, promotional claims and repetition that adds no information.
-  For example, replace "seamlessly recovers your work" with the documented
-  recovery steps and their limits.
-- Keep technical names consistent. Repeat `lease`, `reservation` or `slot` when
-  it names the same concept; do not rotate synonyms for variety. Preserve
-  uncertainty, negation and conditions that limit a safety claim.
-- Explain why a comment is needed: the invariant it protects, the failure it
-  prevents or a constraint the code alone cannot explain. Remove comments that
-  only narrate the next statement. Describe current behavior; put change history
-  in commits and the changelog.
-- Keep local `SAFETY` arguments and public rustdoc ownership, error and recovery
-  details. Brevity must not hide descriptor lifetimes, surviving children or
-  partial failure. Review these details against the implementation.
-- Organize prose around the reader's task. Keep steps ordered and reference
-  lists parallel. In code, follow the module boundaries above and group helpers
-  by responsibility; do not introduce abstractions or refactors just to make a
-  file look more structured.
-
-Before finishing, compare edited passages with the original. Check that commands,
-identifiers, examples and factual claims still agree with the implementation.
-Leave useful lists, technical terms and already clear passages alone. Report
-actual checks and unresolved findings in the PR; do not treat a detector score
-as a merge gate or add a runtime dependency for prose review.
-
 ## Commits
 
 Use a short, imperative English subject describing the result, without a trailing
