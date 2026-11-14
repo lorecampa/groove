@@ -241,7 +241,7 @@ fn error_hint(error: &Error, args: Option<&crate::args::Args>) -> Option<String>
             "Stop the reported processes and all other workspace writers, then retry.",
         ),
         ErrorCode::PoolUnhealthy | ErrorCode::RecoveryFailed => Some(
-            "Run `groove list --slots` and inspect the reported slot failures. Resolve the underlying filesystem or Git problem before retrying; never remove lock or protection files to force reuse.",
+            "Run `groove list --slots` and inspect the reported slot failures. Resolve the underlying filesystem or Git problem before retrying; for a slow Git operation, increase --git-timeout-ms. Never remove lock or protection files to force reuse.",
         ),
         _ => None,
     }?;

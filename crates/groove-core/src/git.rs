@@ -427,6 +427,7 @@ impl Git {
                         },
                     )
                 })
+                .with_git_timeout(timed_out)
                 .with_details(|d| {
                     // Keep a failed validation subprocess's diagnostics intact.
                     if d.git.is_none() {

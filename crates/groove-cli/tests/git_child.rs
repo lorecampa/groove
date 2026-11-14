@@ -166,6 +166,80 @@ fn killed_groove_leaves_mutating_git_child_holding_both_locks() {
 }
 
 #[test]
+fn acquisition_stops_after_the_first_slot_times_out() {
+    let repo = Repo::new();
+    support::assert_success(
+        &support::groove_in(&repo.path)
+            .args([
+                "init",
+                "--capacity",
+                "3",
+                "--ready-target",
+                "0",
+                "--idle-timeout",
+                "never",
+            ])
+            .output()
+            .unwrap(),
+    );
+    let bin = repo.temp.path().join("timeout-once");
+    fs::create_dir(&bin).unwrap();
+    let ready = repo.temp.path().join("ready");
+    let resume = repo.temp.path().join("never-resume");
+    let calls = repo.temp.path().join("calls");
+    fifo(&ready);
+    fifo(&resume);
+    let shim = bin.join("git");
+    fs::write(&shim, "#!/bin/sh\ncase \" $* \" in\n*\" worktree add \"*) printf 'add\\n' >> \"$GROOVE_CALLS\"; printf ready > \"$GROOVE_READY_FIFO\"; read go < \"$GROOVE_RESUME_FIFO\" ;;\nesac\nexec \"$GROOVE_REAL_GIT\" \"$@\"\n").unwrap();
+    fs::set_permissions(shim, fs::Permissions::from_mode(0o700)).unwrap();
+    let mut command = support::groove_in(&repo.path);
+    command
+        .args(["--git-timeout-ms", "1000", "acquire"])
+        .env(
+            "PATH",
+            format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()),
+        )
+        .env("GROOVE_REAL_GIT", real_git())
+        .env("GROOVE_READY_FIFO", &ready)
+        .env("GROOVE_RESUME_FIFO", &resume)
+        .env("GROOVE_CALLS", &calls);
+    let child = support::TestChild::spawn(&mut command);
+    let mut marker = [0; 5];
+    fs::File::open(ready)
+        .unwrap()
+        .read_exact(&mut marker)
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(6));
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let schema: serde_json::Value =
+        serde_json::from_str(include_str!("../schemas/response-v1.schema.json")).unwrap();
+    jsonschema::validator_for(&schema)
+        .unwrap()
+        .validate(&value)
+        .unwrap();
+    assert_eq!(value["error"]["code"], "POOL_UNHEALTHY");
+    assert!(value["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("timed out"));
+    assert!(value["error"]["hint"]
+        .as_str()
+        .unwrap()
+        .contains("--git-timeout-ms"));
+    assert_eq!(
+        value["error"]["details"]["capacity"]["failed_slots"]
+            .as_object()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(fs::read_to_string(calls).unwrap(), "add\n");
+    assert!(!repo.slot(2).exists());
+    assert!(!repo.slot(3).exists());
+}
+
+#[test]
 fn git_timeout_terminates_the_mutating_process_group_before_recovery() {
     let r = Repo::new();
     Pool::init(

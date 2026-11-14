@@ -33,7 +33,7 @@ pub enum ErrorCode {
     LeaseMismatch,
     /// A slot could not be restored or verified.
     RecoveryFailed,
-    /// No healthy or busy candidate remains.
+    /// No usable candidate remains, or preparation stopped on a Git timeout.
     PoolUnhealthy,
     /// A filesystem or operating-system operation failed.
     IoError,
@@ -158,6 +158,7 @@ pub struct Error {
     pub details: Box<ErrorDetails>,
     #[source]
     source: Option<Box<dyn std::error::Error + Send + Sync + 'static>>,
+    git_timeout: bool,
 }
 impl Error {
     /// Construct a non-retryable error with empty diagnostic details.
@@ -168,6 +169,7 @@ impl Error {
             retryable: false,
             details: Box::default(),
             source: None,
+            git_timeout: false,
         }
     }
     /// Preserve an underlying error for [`std::error::Error::source`] inspection.
@@ -194,6 +196,13 @@ impl Error {
     #[must_use]
     pub fn git_exit_code(&self) -> Option<i32> {
         self.details.git.as_ref().and_then(|git| git.exit_code)
+    }
+    pub(crate) fn with_git_timeout(mut self, timed_out: bool) -> Self {
+        self.git_timeout |= timed_out;
+        self
+    }
+    pub(crate) fn is_git_timeout(&self) -> bool {
+        self.git_timeout
     }
     /// One-line diagnostic for per-slot failure summaries: the message plus the
     /// last line Git wrote to stderr, which usually names the real cause.

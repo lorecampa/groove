@@ -673,7 +673,7 @@ impl Pool {
                         state::checkpoint("lease-recorded");
                         return Ok(Lease::new(current.clone(), guard, info));
                     }
-                    Err(e) => {
+                    Err(mut e) => {
                         let record = SlotRecord {
                             released_head: None,
                             idle_since_unix_ms: None,
@@ -684,6 +684,15 @@ impl Pool {
                         };
                         let _ = state::write(&self.repo.record_path(slot), &record);
                         failed.insert(slot.clone(), e.summary());
+                        if e.is_git_timeout() {
+                            e.code = crate::ErrorCode::PoolUnhealthy;
+                            e.details.capacity = Some(crate::CapacityFailure {
+                                capacity: current.config.capacity,
+                                busy_slots: busy,
+                                failed_slots: failed,
+                            });
+                            return Err(e);
+                        }
                     }
                 }
             }
