@@ -399,6 +399,31 @@ fn hidden_index_changes_and_new_commits_after_release_are_preserved() {
 }
 
 #[test]
+fn ready_worker_preserves_skip_worktree_edits() {
+    if !support::in_subprocess("ready_worker_preserves_skip_worktree_edits") {
+        return;
+    }
+    let repo = Repo::new();
+    let pool = pool(&repo, 1, 1);
+    let lease = pool.reserve(Default::default()).unwrap();
+    pool.release_protected(&lease.slot_id, lease.lease_id)
+        .unwrap();
+    fs::write(lease.worktree_path.join("tracked.txt"), "hidden work").unwrap();
+    support::git(
+        &lease.worktree_path,
+        &["update-index", "--skip-worktree", "tracked.txt"],
+    );
+    run(&pool);
+    let report = pool.ready_report().unwrap();
+    assert_eq!(report.ready, 0);
+    assert_eq!(report.failures.len(), 1);
+    assert_eq!(
+        fs::read_to_string(lease.worktree_path.join("tracked.txt")).unwrap(),
+        "hidden work"
+    );
+}
+
+#[test]
 fn named_pools_keep_independent_targets_and_ready_checkouts() {
     let repo = Repo::new();
     let first = pool(&repo, 2, 1);

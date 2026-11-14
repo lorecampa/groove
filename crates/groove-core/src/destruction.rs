@@ -157,12 +157,8 @@ fn require_saved(repo: &Repository, path: &Path, timeout: Duration) -> Result<()
             .with_details(|d| d.path = Some(path.into())));
     }
     let git = crate::git::Git::new(timeout);
-    let flags = git.run(path, &["ls-files", "-v", "-z"], &[])?;
-    if flags.split(|b| *b == 0).any(|entry| {
-        entry
-            .first()
-            .is_some_and(|b| b.is_ascii_lowercase() || *b == b'S')
-    }) {
+    let audit = git.audit_index(path, crate::git::Invocation::default())?;
+    if audit.assume_unchanged || audit.skip_worktree {
         return Err(Error::new(ErrorCode::UnsupportedConfiguration, "Index flags can hide edits; clear assume-unchanged/skip-worktree flags or use --discard-changes")
             .with_details(|d| d.path = Some(path.into())));
     }

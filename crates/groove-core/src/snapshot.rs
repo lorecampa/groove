@@ -494,50 +494,35 @@ impl Snapshots {
                 )));
             }
         }
-        // One index enumeration supplies conflict, mode, flag and attribute-path checks.
+        // Audit headers without retaining the repository-sized index inventory.
         let sparse = match self.string(&["config", "--type=bool", "--get", "core.sparseCheckout"]) {
             Ok(value) => value == "true",
             Err(error) if error.git_exit_code() == Some(1) => false,
             Err(error) => return Err(error),
         };
-        let empty_blob = self.string(&["hash-object", "--stdin"])?;
-        let entries = self.run(&["ls-files", "-v", "--stage", "-z"], None, None, None)?;
-        let mut names = Vec::new();
-        let mut may_have_intent = false;
-        for record in paths(&entries) {
-            let tab = record
-                .iter()
-                .position(|b| *b == b'\t')
-                .ok_or_else(|| invalid("Malformed Git index entry"))?;
-            let header = &record[..tab];
-            if header.last() != Some(&b'0') {
-                return Err(unsupported(
-                    "Resolve merge conflicts before taking a snapshot",
-                ));
-            }
-            if record.get(2..9) == Some(b"160000 ") {
-                return Err(unsupported("Submodules are not yet supported by snapshots"));
-            }
-            if record.first().is_some_and(u8::is_ascii_lowercase) {
-                return Err(unsupported(
-                    "Clear assume-unchanged index flags before saving",
-                ));
-            }
-            if record.starts_with(b"S ") && !sparse {
-                return Err(unsupported(
-                    "Clear manual skip-worktree flags before saving",
-                ));
-            }
-            may_have_intent |= header
-                .split(|b| *b == b' ')
-                .any(|part| part == empty_blob.as_bytes());
-            names.extend_from_slice(&record[tab + 1..]);
-            names.push(0);
+        let audit = Git::new(self.timeout).audit_index(&self.root, Invocation::snapshot())?;
+        if audit.conflicts {
+            return Err(unsupported(
+                "Resolve merge conflicts before taking a snapshot",
+            ));
         }
-        drop(entries);
+        if audit.gitlinks {
+            return Err(unsupported("Submodules are not yet supported by snapshots"));
+        }
+        if audit.assume_unchanged {
+            return Err(unsupported(
+                "Clear assume-unchanged index flags before saving",
+            ));
+        }
+        if audit.skip_worktree && !sparse {
+            return Err(unsupported(
+                "Clear manual skip-worktree flags before saving",
+            ));
+        }
+        let mut names = self.run(&["ls-files", "-z"], None, None, None)?;
         names.extend_from_slice(&self.run(UNTRACKED_ARGS, None, None, None)?);
         self.validate_attributes(&names, None, false, None)?;
-        if may_have_intent
+        if audit.may_have_intent
             && self.run(
                 &[
                     "diff",

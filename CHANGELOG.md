@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Stream index audits during snapshot capture, ready preparation and destruction
+  instead of buffering every entry, including SHA-256 indexes and flags that
+  conceal working-file edits.
 - Bound Git failure diagnostics to 16 KiB per stream, including JSON escaping,
   and distinguish timeout, output-limit, warning and nonzero-exit failures.
 - Prune completed saved-release receipts for missing snapshots during destruction,
