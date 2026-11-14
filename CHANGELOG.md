@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.3.2] - 2026-11-14
+
 ### Fixed
 
 - Refuse acquisition when final Git status emits warnings, including exit zero,
