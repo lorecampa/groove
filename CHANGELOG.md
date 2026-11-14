@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Count already-prepared checkouts for the current lease before newer releases,
+  so sequential releases respect ready_target and retain excess ignored caches.
 - Stop acquisition after the first Git preparation timeout, returning
   `POOL_UNHEALTHY` with the timeout instead of retrying other slots or rebuilding.
 - Require shared refs to preserve released commits; a slot's private worktree
