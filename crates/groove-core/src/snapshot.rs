@@ -249,6 +249,9 @@ impl Snapshots {
     pub fn open(path: impl AsRef<Path>, timeout: Duration) -> Result<Self> {
         let git = Git::new(timeout);
         let repo = repository::Repository::discover(path.as_ref(), timeout)?;
+        if text(git.run(path.as_ref(), &["rev-parse", "--is-bare-repository"], &[])?)? == "true" {
+            return Err(unsupported("Snapshots require a working tree; bare repositories cannot be captured. Pass --repo with a working-tree path"));
+        }
         let root = PathBuf::from(text(git.run(
             path.as_ref(),
             &["rev-parse", "--show-toplevel"],

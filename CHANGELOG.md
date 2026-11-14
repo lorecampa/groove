@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Name unavailable repository paths, missing Git executables, repository-discovery
+  failures and bare-repository snapshot misuse in primary diagnostics.
 - Report unknown or deleted snapshot IDs as INVALID_ARGUMENT with a named
   "Snapshot not found" diagnostic, before creating recovery directories.
 - Skip released slots still used by shells, editors, builds or other observed

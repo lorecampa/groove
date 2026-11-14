@@ -252,7 +252,17 @@ impl Git {
             });
         }
         let start = Instant::now();
-        let mut child = cmd.spawn()?;
+        let mut child = cmd.spawn().map_err(|error| {
+            Error::new(
+                crate::ErrorCode::IoError,
+                format!(
+                    "Could not start Git in {}: {error}; check that Git 2.40+ is available on PATH",
+                    cwd.display()
+                ),
+            )
+            .with_details(|details| details.path = Some(cwd.into()))
+            .with_source(error)
+        })?;
         let stdout = child.stdout.take().expect("stdout is piped above");
         let stderr = child.stderr.take().expect("stderr is piped above");
         let limit = invocation.stdout_limit.unwrap_or(OUTPUT_LIMIT);

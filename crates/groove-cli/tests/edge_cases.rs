@@ -10,6 +10,56 @@ use serde_json::Value;
 use std::{fs, path::Path, process::Output};
 use support::{assert_success, Repo};
 #[test]
+fn common_setup_errors_name_the_missing_requirement_or_path() {
+    let repo = Repo::new();
+    let absent = repo.temp.path().join("nonexistent repository");
+    let missing = failure(
+        &cli(&repo.path, &["--repo", absent.to_str().unwrap(), "list"]),
+        2,
+        "INVALID_ARGUMENT",
+    );
+    assert!(missing["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains(absent.to_str().unwrap()));
+    assert_eq!(
+        missing["error"]["details"]["path"],
+        absent.to_str().unwrap()
+    );
+    assert!(!absent.exists());
+    let outside = failure(&cli(repo.temp.path(), &["list"]), 7, "GIT_ERROR");
+    assert!(outside["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("not a git repository"));
+    let no_git = repo.temp.path().join("empty-path");
+    fs::create_dir(&no_git).unwrap();
+    let output = support::groove_in(&repo.path)
+        .env("PATH", no_git)
+        .arg("list")
+        .output()
+        .unwrap();
+    let missing_git = failure(&output, 7, "IO_ERROR");
+    assert!(missing_git["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("Could not start Git"));
+    assert!(missing_git["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("PATH"));
+    let bare = repo.temp.path().join("bare.git");
+    repo.git(&["init", "--bare", "-q", bare.to_str().unwrap()]);
+    let output = cli(&bare, &["snapshot", "save"]);
+    let error = failure(&output, 2, "UNSUPPORTED_CONFIGURATION");
+    assert!(error["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("bare repositories"));
+    assert!(!bare.join("groove-snapshots").exists());
+}
+
+#[test]
 fn slot_table_exposes_failure_details_and_recovery_actions() {
     let repo = Repo::new();
     assert_success(&cli(

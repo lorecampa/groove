@@ -11,7 +11,8 @@ Ignored files and empty folders are excluded. Special files (pipes, sockets and
 devices) are refused because Git cannot preserve them. Export or remove special
 files before saving; export required ignored
 artifacts separately before release --save. No pool, remote or first commit is
-required. Stop writers first: capture detects common races but is not atomic.
+required. A working tree is required; bare repositories cannot be captured.
+Stop writers first: capture detects common races but is not atomic.
 Actual bytes, executable bits and symlinks are preserved independently of Git's
 autocrlf/filemode/symlinks preferences. User ignore rules still apply.
 
