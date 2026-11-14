@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Require shared refs to preserve released commits; a slot's private worktree
+  and bisect refs no longer satisfy the check. Stop ref enumeration after a match.
 - Scope snapshot attribute checks to saved paths, support byte-preserving text,
   legacy crlf and eol=lf rules, and reject normalized files by name. Saving
   .gitattributes uses strict whole-tree checks; restore refuses CR-containing text

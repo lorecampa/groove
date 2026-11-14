@@ -23,8 +23,10 @@ remain recoverable until deleted. Interrupted pin cleanup resumes on that retry.
 
 Without --save, release refuses with UNSAVED_CHANGES for staged, modified or
 untracked files, or a HEAD commit not reachable from any ref. Preserve detached
-commits with a branch or snapshot before normal release. Both forms refuse with
-WORKSPACE_IN_USE if other processes have
+commits with a branch or snapshot before normal release.
+Shared branches, tags, stash and snapshot refs preserve commits; private
+refs/worktree/* and refs/bisect/* in the slot do not count.
+Both forms refuse with WORKSPACE_IN_USE if other processes have
 their working directory, executable or open files in the workspace. The caller,
 its ancestors and its process group (including pipeline peers) are ignored.
 The process check only sees your processes and is best effort.
