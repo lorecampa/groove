@@ -21,7 +21,21 @@ pub fn internal(raw: &[std::ffi::OsString]) -> Option<u8> {
     }
     Some(match worker(raw) {
         Ok(()) => 0,
-        Err(_) => 1,
+        Err(error) => {
+            // Keep successful background passes log-free; retain failures even
+            // when opening the pool failed before run_ready could report them.
+            let terminal = crate::terminal::Terminal::new(crate::terminal::Verbosity {
+                verbose: 0,
+                quiet: true,
+            });
+            let settings = crate::preferences::load().map_or_else(
+                |_| crate::preferences::Logging::disabled(),
+                |settings| settings.logging,
+            );
+            let _logging = crate::logging::init(terminal, settings, None, "ready-worker");
+            tracing::error!(event = "ready.failed", file_only = true, code = %error.code, %error, "Background checkout preparation failed; a later pool operation will retry");
+            1
+        }
     })
 }
 fn worker(raw: &[std::ffi::OsString]) -> Result<()> {

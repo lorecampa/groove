@@ -32,6 +32,8 @@
   Ceph and unknown types no longer pass an incomplete network blocklist.
 - Detached preparation workers close caller-inherited descriptors at exec, so
   external locks and pipe writers are not retained after the foreground exits.
+- Background workers record failures in bounded configured logs, including startup
+  failures that previously disappeared with their exit status.
 
 - Retrying an interrupted saved release captures the still-reserved workspace
   again before reuse. Completed retries reject deleted or unpinned snapshots.
