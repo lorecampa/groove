@@ -552,6 +552,7 @@ impl Pool {
         }
         for path in &result.artifacts {
             repository::owned_dir(path)?;
+            crate::workspace_files::make_writable(path)?;
             fs::remove_dir_all(path)?;
             state::sync_dir(path.parent().expect("artifact entries have a parent"))?;
             state::checkpoint("pool-artifact-removed");

@@ -222,6 +222,9 @@ residue and may be lost during rebuild. External caches can be used with pristin
 slots. Capacity bounds reservations, not process count, artifacts or disk usage.
 
 Acquisition preserves inode and mtime for untouched tracked files across leases.
+Authorized cleanup makes owned directories readable, searchable and writable
+before cleaning or removing them, so read-only build directories do not jam reuse.
+Inspection and unsaved-work checks do not repair permissions.
 It uses ctime since the last verified checkout to identify paths that need
 rewriting, including chmod, xattr, hardlink, utimes and directory-swap changes.
 This trusts that tasks cannot backdate ctime without root privileges or a clock

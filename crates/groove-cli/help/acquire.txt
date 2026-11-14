@@ -19,6 +19,7 @@ warm retains them only when reusing a healthy checkout. Retained files are not
 validated build outputs and may disappear during rebuild. Run and validate your
 build directly in the returned checkout. Build-tool caches outside pool roots can
 survive pristine cleanup; the build tool owns their compatibility and sharing.
+Cleanup repairs owner permissions on read-only directories before removing output.
 Untouched tracked files keep inode and mtime. Files whose ctime changed since the
 last verified checkout are rewritten, including metadata and hardlink changes.
 This trusts that ctime cannot be backdated without root or a clock change.

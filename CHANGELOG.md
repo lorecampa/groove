@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Repair owner permissions on read-only directories during authorized cleanup
+  and removal, preventing build output from jamming reuse or destruction.
 - Treat FIFOs, sockets and devices as unsaved work on release/destruction and
   refuse snapshot capture that would omit them. Normalization removes special
   files under both cleanup policies before handing out the next lease.
