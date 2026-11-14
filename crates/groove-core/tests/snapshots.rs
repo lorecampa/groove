@@ -17,6 +17,38 @@ fn save(s: &Snapshots) -> groove_core::snapshot::Snapshot {
     s.save(SaveOptions::default()).unwrap()
 }
 #[test]
+fn unreadable_untracked_directories_fail_capture_without_publishing() {
+    // SAFETY: geteuid only observes the calling process's effective uid.
+    if unsafe { libc::geteuid() } == 0 {
+        eprintln!("requires an unprivileged user to enforce directory permissions");
+        return;
+    }
+    let repo = Repo::new();
+    let snapshots = service(&repo);
+    let directory = repo.path.join("unreadable");
+    fs::create_dir(&directory).unwrap();
+    fs::write(directory.join("work.txt"), "must survive").unwrap();
+    let index = fs::read(repo.path.join(".git/index")).unwrap();
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o000)).unwrap();
+    let result = snapshots.save(Default::default());
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(result.unwrap_err().code, ErrorCode::GitError);
+    assert!(snapshots.list().unwrap().is_empty());
+    assert_eq!(
+        fs::read(directory.join("work.txt")).unwrap(),
+        b"must survive"
+    );
+    assert_eq!(fs::read(repo.path.join(".git/index")).unwrap(), index);
+    let saved = save(&snapshots);
+    let recovered = repo.temp.path().join("recovered");
+    snapshots.restore(&saved.id, Some(&recovered)).unwrap();
+    assert_eq!(
+        fs::read(recovered.join("unreadable/work.txt")).unwrap(),
+        b"must survive"
+    );
+}
+
+#[test]
 fn roundtrip_preserves_index_files_and_head() {
     let repo = Repo::new();
     let s = service(&repo);
