@@ -206,7 +206,63 @@ struct Request {
     pool_id: Option<crate::PoolId>,
     nonce: String,
 }
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WorkerToken {
+    schema_version: u32,
+    pool_id: Option<crate::PoolId>,
+    token: String,
+}
+
+/// Publish cancellation for the descriptor owner observed under admin exclusion.
+/// Tokens identify a pass only; the ready lock remains proof of ownership.
+pub(crate) fn cancel_worker(
+    repo: &crate::repository::Repository,
+    timeout: Duration,
+) -> Result<bool> {
+    let config: crate::state::Config = state::read(&repo.config_path())?;
+    let Some(identity) = config.ready_lock else {
+        return Ok(false);
+    };
+    let _admin = SlotGuard::wait(
+        &repo.admin_lock_path(),
+        Some(config.admin_identity),
+        timeout,
+    )?;
+    if SlotGuard::try_lock(&repo.root.join("locks/ready.lock"), Some(identity))?.is_some() {
+        return Ok(false);
+    }
+    let active = repo.root.join("ready-active.json");
+    if !active.try_exists()? {
+        return Ok(false);
+    }
+    let token: WorkerToken = state::read(&active)?;
+    let generation = crate::lifecycle::read(repo)?.map(|record| record.pool_id);
+    if token.schema_version != state::SCHEMA_VERSION || token.pool_id != generation {
+        return Err(Error::new(
+            ErrorCode::ConfigConflict,
+            "Invalid active ready worker generation",
+        ));
+    }
+    state::write(&repo.root.join("ready-cancel.json"), &token)?;
+    Ok(true)
+}
+
 impl Pool {
+    fn ready_cancelled(&self, token: &WorkerToken) -> Result<bool> {
+        let path = self.repo.root.join("ready-cancel.json");
+        if !path.try_exists()? {
+            return Ok(false);
+        }
+        let cancel: WorkerToken = state::read(&path)?;
+        if cancel.schema_version != state::SCHEMA_VERSION {
+            return Err(Error::new(
+                ErrorCode::UnsupportedConfiguration,
+                "Unsupported ready cancellation request",
+            ));
+        }
+        Ok(cancel == *token)
+    }
     pub(crate) fn validate_ready_state(&self, slot: &SlotId) -> Result<()> {
         if self.config.ready.is_some() && self.ready_path(slot).try_exists()? {
             let work: Work = state::read(&self.ready_path(slot))?;
@@ -336,8 +392,17 @@ impl Pool {
         else {
             return Ok(());
         };
+        let token = WorkerToken {
+            schema_version: state::SCHEMA_VERSION,
+            pool_id: self.pool_id,
+            token: uuid::Uuid::new_v4().to_string(),
+        };
+        state::write(&self.repo.root.join("ready-active.json"), &token)?;
         drop(admin);
         loop {
+            if self.ready_cancelled(&token)? {
+                return Ok(());
+            }
             // Never overwrite a report from a format this binary cannot read.
             self.ready_report()?;
             let request: Request = state::read(&self.repo.root.join("ready-request.json"))?;
@@ -352,7 +417,7 @@ impl Pool {
                 attempted_at_unix_ms: crate::reservation::now_ms(),
                 ..Default::default()
             };
-            if let Err(error) = current.ready_pass(&mut report) {
+            if let Err(error) = current.ready_pass(&mut report, &token) {
                 report.error = Some(error.summary());
             }
             state::write(
@@ -365,6 +430,9 @@ impl Pool {
                 },
             )?;
             state::checkpoint("ready-pass-completed");
+            if self.ready_cancelled(&token)? {
+                return Ok(());
+            }
             let admin = self.ready_admin()?;
             let latest: Request = state::read(&self.repo.root.join("ready-request.json"))?;
             if latest == request {
@@ -376,7 +444,7 @@ impl Pool {
             }
         }
     }
-    fn ready_pass(&self, report: &mut ReadyReport) -> Result<()> {
+    fn ready_pass(&self, report: &mut ReadyReport, token: &WorkerToken) -> Result<()> {
         let Some(policy) = &self.config.ready else {
             return Ok(());
         };
@@ -442,6 +510,9 @@ impl Pool {
             (std::cmp::Reverse(*prepared), std::cmp::Reverse(*age))
         });
         for (slot, _, _) in slots {
+            if self.ready_cancelled(token)? {
+                return Ok(());
+            }
             if let Some(failure) = recent
                 .as_ref()
                 .and_then(|saved| saved.report.failures.get(&slot))
@@ -462,6 +533,7 @@ impl Pool {
                     report.failures.insert(slot, error.summary());
                 }
             }
+            state::checkpoint("ready-between-slots");
         }
         Ok(())
     }

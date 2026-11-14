@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Destruction publishes cancellation for the active ready worker and waits up to
+  the Git timeout for its descriptors to close. Workers stop between slots;
+  stale cancellation tokens cannot cancel a later worker or pool generation.
 - Reuse untouched tracked files by ctime since the last verified checkout, keeping
   inode and mtime across leases. Missing markers/indexes, hidden flags, attribute
   changes and oversized touched lists fall back to the full rewrite. Interrupted

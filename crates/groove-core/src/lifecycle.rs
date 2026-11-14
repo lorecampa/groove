@@ -165,6 +165,37 @@ pub(crate) fn gate(repo: &Repository, exclusive: bool) -> Result<File> {
     Ok(file)
 }
 
+/// Cancel only an observed ready worker, then poll exclusive admission without
+/// queuing an exclusive waiter behind nested shared operations.
+pub(crate) fn destroy_gate(repo: &Repository, timeout: std::time::Duration) -> Result<File> {
+    let started = std::time::Instant::now();
+    let blocked = match gate(repo, true) {
+        Ok(gate) => return Ok(gate),
+        Err(error) if error.code == ErrorCode::ConfigConflict && error.retryable => error,
+        Err(error) => return Err(error),
+    };
+    if !repo.config_path().try_exists()?
+        || !crate::ready::cancel_worker(repo, timeout.saturating_sub(started.elapsed()))?
+    {
+        return Err(blocked);
+    }
+    state::checkpoint("ready-cancel-requested");
+    loop {
+        match gate(repo, true) {
+            Ok(gate) => return Ok(gate),
+            Err(error) if error.code == ErrorCode::ConfigConflict && error.retryable => (),
+            Err(error) => return Err(error),
+        }
+        let remaining = timeout.saturating_sub(started.elapsed());
+        if remaining.is_zero() {
+            return Err(Error::new(ErrorCode::ConfigConflict,
+                "Ready worker did not stop within the Git timeout; retry after its current operation finishes")
+                .retryable(true).with_source(blocked));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(2).min(remaining));
+    }
+}
+
 impl Pool {
     pub(crate) fn operation(&self) -> Result<File> {
         self.admit(false)
