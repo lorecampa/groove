@@ -1,4 +1,0 @@
-[caches.build]
-key = "build-v1"
-paths = ["target"]
-inputs = ["Cargo.lock"]
