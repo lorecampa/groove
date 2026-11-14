@@ -276,6 +276,9 @@ permissions and races. Missing PIDs/descriptors do not authorize cleanup. If
 ownership is uncertain, leave protection intact.
 
 The release/destruction process scan observes accessible same-user processes and
+release excludes the caller, its ancestors and its process group, including
+pipeline peers. Destruction excludes none of these. Stop all writers explicitly;
+group exclusion does not establish quiescence. The scan
 compares visible paths. Other users, mount namespaces and alternate mount paths
 can hide workspace users. A successful scan does not establish that all writers
 stopped: callers must stop their workers, watchers and descendants before release.

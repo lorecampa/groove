@@ -51,7 +51,8 @@ pub struct WorkspaceProcess {
 impl Pool {
     /// List other processes whose working directory, executable or open files are
     /// inside the reservation's workspace. The calling process and its ancestors (the
-    /// shell that ran this command) are excluded. Only processes this user may
+    /// shell that ran this command), plus its process group (pipeline peers),
+    /// are excluded. Only processes this user may
     /// inspect are seen.
     ///
     /// # Errors
@@ -176,6 +177,16 @@ pub(crate) fn missing_checkout(path: &std::path::Path) -> Result<()> {
     }
 }
 
+/// Pipeline peers belong to the invocation, rather than independent workspace users.
+fn same_process_group(pid: u32) -> bool {
+    let Ok(pid) = i32::try_from(pid) else {
+        return false;
+    };
+    // SAFETY: these calls only observe process-group IDs. A vanished or
+    // inaccessible PID returns -1 and cannot match this process's group.
+    unsafe { libc::getpgid(pid) == libc::getpgrp() }
+}
+
 /// This process and every ancestor up to init, so the invoking shell is not reported.
 fn self_and_ancestors() -> BTreeSet<u32> {
     let mut pids = BTreeSet::new();
@@ -203,11 +214,13 @@ mod tests {
 
     #[test]
     fn a_child_inside_a_directory_is_found() {
+        use std::os::unix::process::CommandExt;
         let dir = tempfile::tempdir().unwrap();
         let root = fs::canonicalize(dir.path()).unwrap();
         let mut child = std::process::Command::new("sleep")
             .arg("30")
             .current_dir(&root)
+            .process_group(0)
             .spawn()
             .unwrap();
         let found = processes_using(&root).unwrap();

@@ -1,4 +1,4 @@
-use super::{self_and_ancestors, ProcessUse, WorkspaceProcess};
+use super::{same_process_group, self_and_ancestors, ProcessUse, WorkspaceProcess};
 use crate::Result;
 use std::{
     fs,
@@ -23,7 +23,7 @@ pub(super) fn processes_using(root: &Path, skip_ancestors: bool) -> Result<Vec<W
         else {
             continue;
         };
-        if skip.contains(&pid) {
+        if skip.contains(&pid) || (skip_ancestors && same_process_group(pid)) {
             continue;
         }
         if let Some(uses) = process_use(&entry.path(), root) {
