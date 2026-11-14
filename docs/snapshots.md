@@ -129,7 +129,8 @@ not implemented.
 
 ## Supported boundaries
 
-Conflicts, submodules (including clean gitlinks), nested untracked repositories,
+Unfinished merges (including conflict-free merges), conflicts, submodules
+(including clean gitlinks), nested untracked repositories,
 assume-unchanged or manual skip-worktree flags, intent-to-add entries,
 and active content-converting attributes (including filters) are rejected. Merely
 installing Git LFS or defining an unused filter does not block snapshots. Restore

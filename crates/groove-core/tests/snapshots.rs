@@ -49,6 +49,42 @@ fn unreadable_untracked_directories_fail_capture_without_publishing() {
 }
 
 #[test]
+fn unresolved_merge_metadata_cannot_be_silently_omitted_from_a_snapshot() {
+    let repo = Repo::new();
+    let base = repo.git(&["rev-parse", "HEAD"]);
+    repo.git(&["checkout", "-qb", "merge-source"]);
+    fs::write(repo.path.join("merged.txt"), "merged work").unwrap();
+    repo.git(&["add", "merged.txt"]);
+    repo.git(&["commit", "-qm", "source"]);
+    let source = repo.git(&["rev-parse", "HEAD"]);
+    repo.git(&["checkout", "--detach", &base]);
+    repo.git(&["merge", "--no-ff", "--no-commit", "merge-source"]);
+    repo.git(&["branch", "-D", "merge-source"]);
+    let merge_head = fs::read(repo.path.join(".git/MERGE_HEAD")).unwrap();
+    let index = fs::read(repo.path.join(".git/index")).unwrap();
+    let snapshots = service(&repo);
+    assert_eq!(
+        snapshots.save(Default::default()).unwrap_err().code,
+        ErrorCode::UnsupportedConfiguration
+    );
+    assert!(snapshots.list().unwrap().is_empty());
+    assert_eq!(
+        fs::read(repo.path.join(".git/MERGE_HEAD")).unwrap(),
+        merge_head
+    );
+    assert_eq!(fs::read(repo.path.join(".git/index")).unwrap(), index);
+    assert_eq!(
+        fs::read(repo.path.join("merged.txt")).unwrap(),
+        b"merged work"
+    );
+    repo.git(&["commit", "-qm", "finish merge"]);
+    let saved = save(&snapshots);
+    let recovered = repo.temp.path().join("recovered");
+    snapshots.restore(&saved.id, Some(&recovered)).unwrap();
+    assert_eq!(support::git(&recovered, &["rev-parse", "HEAD^2"]), source);
+}
+
+#[test]
 fn roundtrip_preserves_index_files_and_head() {
     let repo = Repo::new();
     let s = service(&repo);

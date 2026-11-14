@@ -16,7 +16,8 @@ autocrlf/filemode/symlinks preferences. User ignore rules still apply.
 
 Snapshots are shared by all linked worktrees and survive pool reuse. They live in
 local refs/groove/snapshots/ and the shared object database; ordinary pushes do
-not back them up. Conflicts, submodules, nested repositories, active content filters,
+not back them up. Unfinished merges (even without conflicts), conflicts, submodules,
+nested repositories, active content filters,
 content-converting attributes, intent-to-add and manual index flags are rejected.
 Unused filter definitions, such as a global Git LFS installation, are harmless.
 Concurrent saves wait for the shared lock up to --git-timeout-ms (default 120000).
