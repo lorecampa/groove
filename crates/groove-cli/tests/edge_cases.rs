@@ -79,6 +79,21 @@ fn pool_acquisition_rejects_globally_defined_content_filters() {
 }
 
 #[test]
+fn json_argument_errors_survive_non_utf8_arguments_before_the_flag() {
+    use std::os::unix::ffi::OsStringExt;
+    let repo = Repo::new();
+    let output = support::command(&repo.path, support::groove_binary())
+        .env("HOME", repo.temp.path())
+        .env("XDG_CONFIG_HOME", repo.temp.path().join("config"))
+        .arg(std::ffi::OsString::from_vec(vec![0xff]))
+        .args(["--json", "--request-id", "invalid-utf8"])
+        .output()
+        .unwrap();
+    let response = failure(&output, 2, "INVALID_ARGUMENT");
+    assert_eq!(response["request_id"], "invalid-utf8");
+}
+
+#[test]
 fn a_deleted_working_directory_is_reported_plainly() {
     let repo = Repo::new();
     assert_success(&cli(&repo.path, &["init", "--capacity", "1"]));
