@@ -20,9 +20,13 @@ pub struct AcquireRequest {
 
 /// Human summary of one reservation.
 pub fn describe_lease(lease: &LeaseInfo) -> String {
-    let label = lease.task.as_deref().unwrap_or("untitled task");
+    let task = lease
+        .task
+        .as_deref()
+        .map(|label| format!(" for '{label}'"))
+        .unwrap_or_default();
     format!(
-        "{slot} reserved for '{label}'\n  lease:  {id}\n  path:   {path}\n  base:   {base}\n",
+        "{slot} reserved{task}\n  lease:  {id}\n  path:   {path}\n  base:   {base}\n",
         base = short(lease.base_oid.as_str()),
         slot = lease.slot_id,
         id = lease.lease_id,
@@ -106,11 +110,14 @@ pub fn lease_output(lease: LeaseInfo, extra: Value) -> Result<Output> {
     let heading = if extra["active"] == true {
         describe_lease(&lease)
     } else {
+        let task = lease
+            .task
+            .as_deref()
+            .map(|label| format!(" (former task '{label}')"))
+            .unwrap_or_default();
         format!(
-            "{} has no active reservation for lease {} (former task '{}').\n",
-            lease.slot_id,
-            lease.lease_id,
-            lease.task.as_deref().unwrap_or("untitled task")
+            "{} has no active reservation for lease {}{task}.\n",
+            lease.slot_id, lease.lease_id,
         )
     };
     let text = heading + &fields(&extra, 1);

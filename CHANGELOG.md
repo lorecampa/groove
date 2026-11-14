@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Render unnamed reservations without inventing an "untitled task" label,
+  consistent with absent task metadata in list and JSON output.
 - Describe all valid setting alternatives when `config set` has no options,
   rather than implying capacity is required.
 - Name unavailable repository paths, missing Git executables, repository-discovery
