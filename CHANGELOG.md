@@ -18,6 +18,8 @@
   one filesystem read per JSON byte.
 - Plain release refuses detached commits that no ref preserves, matching
   destruction's safeguard. Its success message also describes background cleanup.
+- Snapshot capture fails on Git's untracked-inventory warnings instead of
+  silently omitting unreadable directories and authorizing a saved release.
 
 - Contributor hooks scan staged secrets and validate formatting from the index,
   including fuzz sources. Pushes require a clean checkout at the outgoing commit

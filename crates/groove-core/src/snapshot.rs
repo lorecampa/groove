@@ -324,6 +324,9 @@ impl Snapshots {
             env: &env,
             stdin: input,
             prepared,
+            // Git can exit successfully after skipping unreadable directories.
+            // An incomplete untracked inventory must never authorize publication.
+            reject_stderr: args == UNTRACKED_ARGS,
             ..Invocation::snapshot()
         };
         Git::new(self.timeout).run_with(&self.root, &durable_args, invocation)
