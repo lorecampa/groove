@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Include the preference-file path in primary and structured configuration errors,
+  so `config global show` identifies the file to repair even when it is invalid.
 - Explain invalid supplied preference values by setting name and expected values,
   without obscuring them behind TOML parse positions; updates remain atomic.
 - Use singular slot/directory nouns for counts of one in pool summaries.
