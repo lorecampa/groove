@@ -740,6 +740,7 @@ impl Pool {
                     })
                     .retryable(busy > 0));
             }
+            state::checkpoint("acquire-waiting");
             std::thread::sleep(retry_delay.min(options.wait.saturating_sub(start.elapsed())));
             retry_delay = (retry_delay * 2).min(Duration::from_millis(100));
         }
