@@ -11,6 +11,8 @@ pub const DEFAULT_GIT_TIMEOUT: Duration = Duration::from_secs(120);
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 /// How acquisition cleans residual worktree contents.
+/// Both policies reset tracked files. Retained ignored files are not verified
+/// build outputs and can be discarded if the checkout must be rebuilt.
 pub enum CleanupPolicy {
     #[default]
     /// Remove all untracked contents, including ignored files.
@@ -114,8 +116,10 @@ pub enum CleanupTiming {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-/// Serializable lease metadata. An in-process lease is owned by its live handle;
-/// a durable reservation requires explicit release after all writers stop.
+/// Serializable metadata recorded for a lease, not a live view of its checkout.
+///
+/// Metadata alone does not grant ownership. An in-process lease needs its live
+/// handle; a durable reservation requires explicit release after all writers stop.
 pub struct LeaseInfo {
     /// Permanent slot name, such as `wt-0001`.
     pub slot_id: SlotId,
@@ -125,7 +129,7 @@ pub struct LeaseInfo {
     pub worktree_path: PathBuf,
     /// Full SHA-1 or SHA-256 commit OID requested by this lease.
     pub base_oid: CommitOid,
-    /// HEAD mode; always `detached` at the base.
+    /// HEAD mode at acquisition: `detached` at the base, even if the task later switches branches.
     pub head_mode: HeadMode,
     /// Preparation performed before handing out this lease.
     pub recovery: RecoveryOutcome,

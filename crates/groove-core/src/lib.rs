@@ -1,7 +1,8 @@
 //! Bounded, crash-safe pools of reusable Git worktrees for parallel tasks.
 //!
-//! A [`Pool`] owns a fixed number of slots. Ownership is a kernel `flock` on a
-//! permanent per-slot lock file, never a timeout, PID or metadata record:
+//! A [`Pool`] identifies a bounded set of slots; opening or cloning it does not
+//! reserve a workspace. Slot ownership requires a kernel `flock` on a permanent
+//! per-slot lock file. A timeout, PID or metadata record never grants ownership.
 //!
 //! - [`Pool::reserve`] creates a *durable reservation*, optionally named by a task
 //!   label, that survives process exit until explicitly released. Retrying the
@@ -9,8 +10,9 @@
 //! - [`Pool::acquire`] returns an in-process [`Lease`] whose descriptor owns the
 //!   slot; dropping it closes the descriptor without cleanup.
 //!
-//! Callers must preserve results and stop every writer before release; the next
-//! acquisition cleans the slot. [`Pool::finish`] pins a local checkpoint first.
+//! Callers must preserve results and stop every writer before release. Background
+//! preparation or the next acquisition can then clean the slot. [`Pool::finish`]
+//! pins a local checkpoint before releasing it.
 //!
 //! ```no_run
 //! use groove_core::{snapshot::SaveOptions, Pool, PoolOptions, ReservationOptions};

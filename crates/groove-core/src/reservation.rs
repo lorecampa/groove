@@ -211,14 +211,19 @@ impl Pool {
         Ok(None)
     }
 
-    /// Reserve a verified checkout, with crash-safe task-key retries across restarts.
+    /// Reserve a verified checkout, or recover a reservation by its request key.
     ///
-    /// The checkout is clean and its HEAD is detached at the requested base.
+    /// A new reservation starts clean with HEAD detached at the requested base.
+    /// Retrying an active request key with the same base expression and task label
+    /// returns its original metadata without cleaning the checkout or resetting
+    /// edits. This also applies if the base branch has moved since acquisition.
+    /// Reservations survive process exit and require explicit release after all
+    /// writers have stopped.
     ///
     /// # Errors
-    /// Rejects reused/completed keys and changed base/task inputs.
-    /// A lost response can be recovered by retrying the same key. No timeout or process
-    /// exit releases a reservation.
+    /// Rejects invalid labels or keys, labels held by another reservation, completed
+    /// keys and changed base/task inputs. Also reports acquisition, lock and metadata
+    /// failures. A lost response can be recovered by retrying the same inputs and key.
     pub fn reserve(&self, options: ReservationOptions) -> Result<LeaseInfo> {
         let _operation = self.operation()?;
         options.validate()?;

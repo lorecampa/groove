@@ -12,8 +12,11 @@ use std::{
     process::{Command, ExitStatus},
 };
 
-/// Exclusive ownership of a verified worktree. Drop closes only; it never runs Git
-/// or explicitly unlocks copies held by a surviving participating child.
+/// Exclusive ownership of a verified worktree through its slot lock descriptor.
+///
+/// Dropping the handle closes its descriptor without running Git or explicitly
+/// unlocking the slot. A participating child that inherited the descriptor can
+/// keep the lock alive. Durable reuse protection, if set, also survives the drop.
 #[derive(Debug)]
 #[must_use = "keep the lease alive until all worktree writers have stopped"]
 pub struct Lease {
@@ -36,12 +39,13 @@ impl Lease {
     }
     /// Whether this handle still retains its descriptor.
     ///
-    /// External explicit unlock through a duplicate descriptor affects all copies.
+    /// This checks the handle's state, not the kernel lock. An explicit unlock
+    /// through a duplicate descriptor affects all copies without changing this result.
     #[must_use]
     pub fn is_active(&self) -> bool {
         self.guard.is_some()
     }
-    /// Durably block automatic reuse even if this handle or its server disappears.
+    /// Persist reuse protection that survives handle drop or process exit.
     ///
     /// Use before exposing a checkout to tools whose writers do not inherit its
     /// descriptor. Explicit release removes protection after writers have stopped.
@@ -70,10 +74,10 @@ impl Lease {
     }
     /// Consume this handle into a durable reservation usable across shell calls.
     ///
-    /// Persists protection before returning any path and closes the kernel lease
-    /// descriptor. The checkout remains unavailable to other acquisitions until
-    /// [`Pool::release_protected`] is called after saving results and stopping ALL
-    /// writers. Process exit, timeout or age never releases this reservation.
+    /// Writes protection before closing the slot lock descriptor and returning
+    /// reservation metadata. The checkout remains unavailable to other acquisitions
+    /// until [`Pool::release_protected`] is called after saving results and stopping
+    /// all writers. Process exit, timeout or age never releases this reservation.
     /// If a response is lost, inspect [`Pool::protected_leases`] before retrying.
     ///
     /// # Errors
@@ -104,8 +108,11 @@ impl Lease {
         self.guard.take();
         Ok(result)
     }
-    /// Run one participating writer in the leased worktree, retaining ownership in
-    /// that child if this process dies. Callers must account for detached descendants.
+    /// Run a command in the worktree with the slot lock descriptor inherited.
+    ///
+    /// Waits for the direct child without a timeout. If this process dies, the child
+    /// retains ownership until it closes the descriptor. Detached descendants may
+    /// outlive the direct child; callers must stop them before releasing the lease.
     ///
     /// # Errors
     /// Returns an error if the lease is inactive or spawning/waiting fails. A worker's
@@ -202,10 +209,12 @@ pub(crate) fn release(
     // A live lease owner cannot bypass writers from a previous Groove version.
     let _execution = pool.execution_guard(slot)?;
     pool.require_execution_clear(slot)?;
-    // Accept the same generation's released record to finish an interrupted release.
-    // On the owning open file description flock is a no-op. An independent open
-    // conflicts with a retained lock. After a completed release, reacquiring an idle
-    // slot is harmless; the second generation check protects any successor.
+    // An interrupted release may already have recorded this generation as released.
+    // Re-locking the owning open file description is a no-op; an independently
+    // opened descriptor conflicts while another owner retains the lock.
+    //
+    // After a completed release, an idle slot can be locked again. Recheck the
+    // generation under that lock so a retry cannot release a successor.
     if !locking::flock(fd, libc::LOCK_EX | libc::LOCK_NB)? {
         return Err(Error::new(
             crate::ErrorCode::InvalidLease,

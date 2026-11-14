@@ -12,7 +12,7 @@ use std::{fs, path::PathBuf, time::Duration};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SlotStatus {
-    /// Unlocked, unreserved; prepared again on acquisition.
+    /// Eligible for acquisition; the checkout directory may not yet exist.
     Available,
     /// A durable reservation prohibits reuse.
     Reserved,
@@ -65,7 +65,10 @@ pub struct WorkspaceGitStatus {
     pub error: Option<String>,
 }
 impl WorkspaceGitStatus {
-    /// Whether anything would be lost: staged, modified or untracked files.
+    /// Whether staged, tracked working-file or non-ignored untracked changes were observed.
+    ///
+    /// Check [`Self::error`] first: a failed status scan leaves these facts unknown.
+    /// This does not check ignored files or whether a ref preserves detached commits.
     #[must_use]
     pub fn has_changes(&self) -> bool {
         self.staged || self.modified || self.untracked

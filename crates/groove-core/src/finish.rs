@@ -55,12 +55,17 @@ pub(crate) fn released_files_saved(pool: &Pool, lease: &crate::LeaseInfo) -> Res
 
 impl Lease {
     /// Save and pin a local checkpoint before releasing this reservation.
-    /// A failed checkpoint leaves the reservation protected. Until release completes,
-    /// each retry saves the current files again, preserving edits made after a failed attempt.
-    /// All external writers must have stopped before calling.
+    ///
+    /// Stop all external writers before calling. A failed checkpoint leaves the
+    /// reservation protected. Until release completes, each retry captures the
+    /// current files, including edits made after a failed attempt.
     ///
     /// # Errors
-    /// Reports legacy execution protection, snapshot or release failures. Error details retain a saved snapshot ID.
+    /// Reports protection, legacy execution, snapshot, receipt or release failures.
+    /// If release fails after capture, error details include the saved snapshot ID.
+    /// Earlier failures may occur before a checkpoint exists. A receipt write can
+    /// also fail after release has completed; retry through [`Pool::finish`] to
+    /// recover the result.
     pub fn finish(&mut self, options: SaveOptions) -> Result<FinishResult> {
         let _operation = self.pool.operation()?;
         self.protect_from_reuse()?;
@@ -114,8 +119,11 @@ impl Lease {
 }
 
 impl Pool {
-    /// Checkpoint and release by lease ID.
-    /// Retries reuse completed finish receipts, so a lost response is safe to retry.
+    /// Save a pinned checkpoint and release the reservation identified by `id`.
+    ///
+    /// Stop all external writers before calling. While the checkout remains
+    /// reserved, retries capture its current files again. Once release completes,
+    /// retries return the saved result without touching a successor's workspace.
     ///
     /// ```no_run
     /// use groove_core::{snapshot::SaveOptions, Pool};
@@ -128,7 +136,10 @@ impl Pool {
     /// ```
     ///
     /// # Errors
-    /// Rejects active owners, invalid IDs or failed snapshots without authorizing reuse.
+    /// Rejects active descriptor owners, invalid IDs and failed captures. Completed
+    /// retries fail if their saved snapshot is missing or no longer pinned. Errors
+    /// while checking a completed release do not restore its reservation; snapshot
+    /// validation errors include `snapshot_id` and `released: true` in their details.
     pub fn finish(&self, id: LeaseId, options: SaveOptions) -> Result<FinishResult> {
         let _operation = self.retained_operation()?;
         match self.completed_finish(id)? {
@@ -137,7 +148,8 @@ impl Pool {
         }
     }
 
-    /// Resume a finish whose checkpoint was already saved, completing release if needed.
+    /// Return a completed release, or `None` when the caller must capture again.
+    /// A saved receipt cannot prove that a still-reserved checkout is unchanged.
     fn completed_finish(&self, id: LeaseId) -> Result<Option<FinishResult>> {
         let path = receipt_path(self, id);
         if !path.exists() {
