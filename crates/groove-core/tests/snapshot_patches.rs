@@ -184,6 +184,11 @@ fn exercise_patch(format: &str, config: &[(&str, &str)]) {
 
 #[test]
 fn exported_patches_reconstruct_trees_under_hostile_display_preferences() {
+    if !support::in_subprocess(
+        "exported_patches_reconstruct_trees_under_hostile_display_preferences",
+    ) {
+        return;
+    }
     for config in [
         vec![("color.ui", "always")],
         vec![("diff.noprefix", "true")],
@@ -198,6 +203,11 @@ fn exported_patches_reconstruct_trees_under_hostile_display_preferences() {
 
 #[test]
 fn sha256_patches_reconstruct_trees_under_combined_hostile_preferences() {
+    if !support::in_subprocess(
+        "sha256_patches_reconstruct_trees_under_combined_hostile_preferences",
+    ) {
+        return;
+    }
     exercise_patch(
         "sha256",
         &[
@@ -214,6 +224,9 @@ fn sha256_patches_reconstruct_trees_under_combined_hostile_preferences() {
 
 #[test]
 fn unchanged_snapshots_export_an_empty_patch() {
+    if !support::in_subprocess("unchanged_snapshots_export_an_empty_patch") {
+        return;
+    }
     let repo = Repo::new();
     repo.git(&["config", "color.ui", "always"]);
     let snapshots = service(&repo.path);
@@ -228,6 +241,11 @@ fn unchanged_snapshots_export_an_empty_patch() {
 
 #[test]
 fn current_diff_rejects_intent_to_add_under_hostile_display_preferences() {
+    if !support::in_subprocess(
+        "current_diff_rejects_intent_to_add_under_hostile_display_preferences",
+    ) {
+        return;
+    }
     let repo = Repo::new();
     let snapshots = service(&repo.path);
     let before = snapshots.save(Default::default()).unwrap();

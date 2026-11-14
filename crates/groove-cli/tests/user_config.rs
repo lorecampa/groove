@@ -7,7 +7,7 @@ fn run(home: &std::path::Path, args: &[&str]) -> Output {
     command(home).args(args).output().unwrap()
 }
 fn command(home: &std::path::Path) -> Command {
-    let mut cmd = support::groove();
+    let mut cmd = support::groove_in(home);
     cmd.current_dir(home)
         .env("HOME", home)
         .env("XDG_CONFIG_HOME", home)

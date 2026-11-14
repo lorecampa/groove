@@ -8,6 +8,9 @@ use support::Repo;
 
 #[test]
 fn legacy_execution_records_preserve_results_and_reservations() {
+    if !support::in_subprocess("legacy_execution_records_preserve_results_and_reservations") {
+        return;
+    }
     let repo = Repo::new();
     Pool::init(
         &repo.path,

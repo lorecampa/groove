@@ -21,7 +21,7 @@ fn expected(name: &str) -> Value {
 }
 
 fn command(home: &Path) -> Command {
-    let mut command = support::groove();
+    let mut command = support::groove_in(home);
     command
         .current_dir(home)
         .env("HOME", home)

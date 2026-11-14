@@ -914,7 +914,7 @@ fn durable_shell_reservations_survive_sigkill_and_release_retries_are_generation
             let (mut command, listener) = checkpoint_command(&r, checkpoint, &["acquire"]);
             kill_at_checkpoint(&mut command, listener, checkpoint);
         } else {
-            let output = support::groove()
+            let output = support::groove_in(&r.path)
                 .arg("--repo")
                 .arg(&r.path)
                 .arg("acquire")
@@ -938,7 +938,7 @@ fn durable_shell_reservations_survive_sigkill_and_release_retries_are_generation
         // multithreaded harness can transiently lend them to another test's fork
         // before CLOEXEC runs; that is not the ordinary one-shot CLI lifecycle.
         let release = |id: groove_core::LeaseId| {
-            support::groove()
+            support::groove_in(&r.path)
                 .arg("--repo")
                 .arg(&r.path)
                 .args(["release", "--lease-id", &id.to_string()])
@@ -947,7 +947,7 @@ fn durable_shell_reservations_survive_sigkill_and_release_retries_are_generation
         };
         support::assert_success(&release(lease.lease_id));
         support::assert_success(&release(lease.lease_id));
-        let acquired = support::groove()
+        let acquired = support::groove_in(&r.path)
             .arg("--repo")
             .arg(&r.path)
             .arg("acquire")

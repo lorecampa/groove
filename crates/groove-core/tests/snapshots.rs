@@ -18,6 +18,9 @@ fn save(s: &Snapshots) -> groove_core::snapshot::Snapshot {
 }
 #[test]
 fn unreadable_untracked_directories_fail_capture_without_publishing() {
+    if !support::in_subprocess("unreadable_untracked_directories_fail_capture_without_publishing") {
+        return;
+    }
     // SAFETY: geteuid only observes the calling process's effective uid.
     if unsafe { libc::geteuid() } == 0 {
         eprintln!("requires an unprivileged user to enforce directory permissions");
@@ -50,6 +53,11 @@ fn unreadable_untracked_directories_fail_capture_without_publishing() {
 
 #[test]
 fn unresolved_merge_metadata_cannot_be_silently_omitted_from_a_snapshot() {
+    if !support::in_subprocess(
+        "unresolved_merge_metadata_cannot_be_silently_omitted_from_a_snapshot",
+    ) {
+        return;
+    }
     let repo = Repo::new();
     let base = repo.git(&["rev-parse", "HEAD"]);
     repo.git(&["checkout", "-qb", "merge-source"]);
@@ -86,6 +94,9 @@ fn unresolved_merge_metadata_cannot_be_silently_omitted_from_a_snapshot() {
 
 #[test]
 fn roundtrip_preserves_index_files_and_head() {
+    if !support::in_subprocess("roundtrip_preserves_index_files_and_head") {
+        return;
+    }
     let repo = Repo::new();
     let s = service(&repo);
     fs::write(repo.path.join("tracked.txt"), "staged\n").unwrap();
@@ -118,6 +129,9 @@ fn roundtrip_preserves_index_files_and_head() {
 }
 #[test]
 fn external_recovery_and_gc_keep_local_history() {
+    if !support::in_subprocess("external_recovery_and_gc_keep_local_history") {
+        return;
+    }
     let repo = Repo::new();
     let s = service(&repo);
     repo.git(&["commit", "--allow-empty", "-qm", "local"]);
@@ -133,6 +147,9 @@ fn external_recovery_and_gc_keep_local_history() {
 }
 #[test]
 fn unborn_roundtrip_and_external_recovery() {
+    if !support::in_subprocess("unborn_roundtrip_and_external_recovery") {
+        return;
+    }
     let temp = tempfile::tempdir().unwrap();
     support::git(
         temp.path(),
@@ -157,6 +174,9 @@ fn unborn_roundtrip_and_external_recovery() {
 }
 #[test]
 fn delete_removes_only_the_selected_snapshot() {
+    if !support::in_subprocess("delete_removes_only_the_selected_snapshot") {
+        return;
+    }
     let repo = Repo::new();
     let s = service(&repo);
     let a = save(&s);
@@ -169,6 +189,9 @@ fn delete_removes_only_the_selected_snapshot() {
 }
 #[test]
 fn file_modes_deletions_symlinks_and_platform_filenames() {
+    if !support::in_subprocess("file_modes_deletions_symlinks_and_platform_filenames") {
+        return;
+    }
     let repo = Repo::format("sha256");
     let s = service(&repo);
     fs::remove_file(repo.path.join("tracked.txt")).unwrap();
@@ -197,6 +220,10 @@ fn file_modes_deletions_symlinks_and_platform_filenames() {
 #[cfg(target_os = "macos")]
 #[test]
 fn apfs_rejects_non_utf8_filenames_before_changing_workspace_contents() {
+    if !support::in_subprocess("apfs_rejects_non_utf8_filenames_before_changing_workspace_contents")
+    {
+        return;
+    }
     let repo = Repo::new();
     let invalid = repo.path.join(std::ffi::OsStr::from_bytes(b"odd\xff"));
     let error = fs::write(invalid, b"unrepresentable").unwrap_err();
@@ -210,6 +237,11 @@ fn apfs_rejects_non_utf8_filenames_before_changing_workspace_contents() {
 
 #[test]
 fn snapshots_preserve_actual_line_endings_under_every_autocrlf_setting() {
+    if !support::in_subprocess(
+        "snapshots_preserve_actual_line_endings_under_every_autocrlf_setting",
+    ) {
+        return;
+    }
     for setting in ["true", "yes", "on", "1", "input", "false"] {
         let repo = Repo::new();
         repo.git(&["config", "core.autocrlf", setting]);
@@ -256,6 +288,9 @@ fn snapshots_preserve_actual_line_endings_under_every_autocrlf_setting() {
 
 #[test]
 fn snapshots_keep_symlinks_and_chmod_even_when_git_ignores_them() {
+    if !support::in_subprocess("snapshots_keep_symlinks_and_chmod_even_when_git_ignores_them") {
+        return;
+    }
     let repo = Repo::new();
     repo.git(&["config", "core.filemode", "false"]);
     repo.git(&["config", "core.symlinks", "false"]);
@@ -293,6 +328,9 @@ fn snapshots_keep_symlinks_and_chmod_even_when_git_ignores_them() {
 
 #[test]
 fn unused_filter_definitions_do_not_prevent_checkpoints() {
+    if !support::in_subprocess("unused_filter_definitions_do_not_prevent_checkpoints") {
+        return;
+    }
     let repo = Repo::new();
     repo.git(&["config", "filter.lfs.clean", "false"]);
     repo.git(&["config", "filter.lfs.smudge", "false"]);
@@ -310,6 +348,9 @@ fn unused_filter_definitions_do_not_prevent_checkpoints() {
 
 #[test]
 fn restore_rejects_new_filter_attributes_before_modifying_files() {
+    if !support::in_subprocess("restore_rejects_new_filter_attributes_before_modifying_files") {
+        return;
+    }
     let repo = Repo::new();
     let s = service(&repo);
     fs::write(repo.path.join("new.txt"), "saved\n").unwrap();
@@ -366,16 +407,27 @@ fn assert_conversion_rejected(rules: &[&str]) {
 
 #[test]
 fn legacy_crlf_attributes_reject_capture_and_restore_before_changing_files() {
+    if !support::in_subprocess(
+        "legacy_crlf_attributes_reject_capture_and_restore_before_changing_files",
+    ) {
+        return;
+    }
     assert_conversion_rejected(&["*.txt crlf", "*.txt crlf=input"]);
 }
 
 #[test]
 fn empty_attribute_values_cannot_hide_content_conversion() {
+    if !support::in_subprocess("empty_attribute_values_cannot_hide_content_conversion") {
+        return;
+    }
     assert_conversion_rejected(&["*.txt diff= text=auto"]);
 }
 
 #[test]
 fn empty_nonconverting_attributes_and_unset_crlf_preserve_bytes() {
+    if !support::in_subprocess("empty_nonconverting_attributes_and_unset_crlf_preserve_bytes") {
+        return;
+    }
     let repo = Repo::new();
     fs::write(repo.path.join(".gitattributes"), "*.txt diff= -crlf\n").unwrap();
     fs::write(repo.path.join("tracked.txt"), b"saved\r\n").unwrap();
@@ -390,6 +442,9 @@ fn empty_nonconverting_attributes_and_unset_crlf_preserve_bytes() {
 }
 #[test]
 fn rejects_large_files_filters_conflicts_and_changed_head() {
+    if !support::in_subprocess("rejects_large_files_filters_conflicts_and_changed_head") {
+        return;
+    }
     let repo = Repo::new();
     let s = service(&repo);
     fs::write(repo.path.join("new"), "large").unwrap();
@@ -409,6 +464,9 @@ fn rejects_large_files_filters_conflicts_and_changed_head() {
 }
 #[test]
 fn no_change_reuses_file_trees_and_diff_includes_untracked() {
+    if !support::in_subprocess("no_change_reuses_file_trees_and_diff_includes_untracked") {
+        return;
+    }
     let repo = Repo::new();
     let s = service(&repo);
     let a = save(&s);
@@ -421,6 +479,9 @@ fn no_change_reuses_file_trees_and_diff_includes_untracked() {
 }
 #[test]
 fn ignored_collision_is_never_overwritten() {
+    if !support::in_subprocess("ignored_collision_is_never_overwritten") {
+        return;
+    }
     let repo = Repo::new();
     let s = service(&repo);
     fs::write(repo.path.join("collision"), "saved").unwrap();
@@ -435,6 +496,9 @@ fn ignored_collision_is_never_overwritten() {
 }
 #[test]
 fn linked_worktree_snapshots_are_shared() {
+    if !support::in_subprocess("linked_worktree_snapshots_are_shared") {
+        return;
+    }
     let repo = Repo::new();
     let s = service(&repo);
     let other = repo.temp.path().join("linked");
@@ -447,6 +511,9 @@ fn linked_worktree_snapshots_are_shared() {
 }
 #[test]
 fn sparse_checkout_preserves_outside_entries() {
+    if !support::in_subprocess("sparse_checkout_preserves_outside_entries") {
+        return;
+    }
     let repo = Repo::new();
     fs::create_dir(repo.path.join("inside")).unwrap();
     fs::create_dir(repo.path.join("outside")).unwrap();
@@ -469,6 +536,9 @@ fn sparse_checkout_preserves_outside_entries() {
 }
 #[test]
 fn malformed_manifest_and_conversion_attributes_fail_closed() {
+    if !support::in_subprocess("malformed_manifest_and_conversion_attributes_fail_closed") {
+        return;
+    }
     let repo = Repo::new();
     let s = service(&repo);
     fs::write(repo.path.join(".gitattributes"), "*.txt text eol=crlf\n").unwrap();
@@ -484,6 +554,9 @@ fn malformed_manifest_and_conversion_attributes_fail_closed() {
 }
 #[test]
 fn index_flags_and_gitlinks_fail_without_publication() {
+    if !support::in_subprocess("index_flags_and_gitlinks_fail_without_publication") {
+        return;
+    }
     let repo = Repo::new();
     let s = service(&repo);
     repo.git(&["update-index", "--assume-unchanged", "tracked.txt"]);
@@ -501,6 +574,9 @@ fn index_flags_and_gitlinks_fail_without_publication() {
 }
 #[test]
 fn publication_failure_does_not_mutate_workspace() {
+    if !support::in_subprocess("publication_failure_does_not_mutate_workspace") {
+        return;
+    }
     let repo = Repo::new();
     let s = service(&repo);
     fs::write(repo.path.join("tracked.txt"), "unsaved\n").unwrap();
@@ -522,6 +598,9 @@ fn publication_failure_does_not_mutate_workspace() {
 }
 #[test]
 fn unresolved_merge_is_rejected() {
+    if !support::in_subprocess("unresolved_merge_is_rejected") {
+        return;
+    }
     let repo = Repo::new();
     let original = repo.git(&["branch", "--show-current"]);
     repo.git(&["checkout", "-qb", "other"]);
@@ -542,6 +621,9 @@ fn unresolved_merge_is_rejected() {
 }
 #[test]
 fn tracked_files_under_ignored_directories_are_captured() {
+    if !support::in_subprocess("tracked_files_under_ignored_directories_are_captured") {
+        return;
+    }
     let repo = Repo::new();
     fs::create_dir(repo.path.join("ignored")).unwrap();
     fs::write(repo.path.join("ignored/tracked"), "base").unwrap();
@@ -561,6 +643,9 @@ fn tracked_files_under_ignored_directories_are_captured() {
 }
 #[test]
 fn file_directory_transitions_preserve_only_selected_files() {
+    if !support::in_subprocess("file_directory_transitions_preserve_only_selected_files") {
+        return;
+    }
     let repo = Repo::new();
     let s = service(&repo);
     fs::remove_file(repo.path.join("tracked.txt")).unwrap();
@@ -588,6 +673,11 @@ fn file_directory_transitions_preserve_only_selected_files() {
 }
 #[test]
 fn deletion_releases_unique_objects_without_retaining_snapshot_history() {
+    if !support::in_subprocess(
+        "deletion_releases_unique_objects_without_retaining_snapshot_history",
+    ) {
+        return;
+    }
     let repo = Repo::new();
     let s = service(&repo);
     fs::write(repo.path.join("tracked.txt"), "first unique content\n").unwrap();
@@ -607,6 +697,9 @@ fn deletion_releases_unique_objects_without_retaining_snapshot_history() {
 }
 #[test]
 fn split_index_and_intent_to_add_are_handled_explicitly() {
+    if !support::in_subprocess("split_index_and_intent_to_add_are_handled_explicitly") {
+        return;
+    }
     let repo = Repo::new();
     repo.git(&["update-index", "--split-index"]);
     let s = service(&repo);
@@ -624,6 +717,9 @@ fn split_index_and_intent_to_add_are_handled_explicitly() {
 }
 #[test]
 fn unborn_sha256_recovery_preserves_object_format() {
+    if !support::in_subprocess("unborn_sha256_recovery_preserves_object_format") {
+        return;
+    }
     let temp = tempfile::tempdir().unwrap();
     support::git(temp.path(), &["init", "-q", "--object-format=sha256"]);
     fs::write(temp.path().join("first"), "first").unwrap();
@@ -640,6 +736,9 @@ fn unborn_sha256_recovery_preserves_object_format() {
 }
 #[test]
 fn snapshot_survives_pool_release_and_slot_reuse() {
+    if !support::in_subprocess("snapshot_survives_pool_release_and_slot_reuse") {
+        return;
+    }
     use groove_core::{Pool, PoolOptions};
     let repo = Repo::new();
     Pool::init(

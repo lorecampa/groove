@@ -5,7 +5,7 @@ use serde_json::Value;
 use support::{assert_success, Repo};
 
 fn cli(r: &Repo, args: &[&str]) -> std::process::Output {
-    support::groove()
+    support::groove_in(&r.path)
         .env("HOME", r.temp.path())
         .env("GROOVE_LOG_DIR", r.path.join("test-logs"))
         .env("XDG_CONFIG_HOME", r.path.join("config-home"))
@@ -452,7 +452,7 @@ fn logging_flags_preserve_protocol_and_failures_are_best_effort() {
     for line in contents.lines() {
         serde_json::from_str::<Value>(line).unwrap();
     }
-    let output = support::groove()
+    let output = support::groove_in(&r.path)
         .env("XDG_CONFIG_HOME", r.path.join("config-home"))
         .env("GROOVE_LOG_ENABLED", "false")
         .arg("--repo")
@@ -465,7 +465,7 @@ fn logging_flags_preserve_protocol_and_failures_are_best_effort() {
     // A regular file cannot be a log directory. Release still succeeds.
     let blocked = r.path.join("blocked");
     std::fs::write(&blocked, "file").unwrap();
-    let output = support::groove()
+    let output = support::groove_in(&r.path)
         .arg("--repo")
         .arg(&r.path)
         .env("GROOVE_LOG_DIR", blocked)
@@ -493,7 +493,7 @@ fn logging_controls_apply_to_help_and_invalid_arguments() {
     let r = Repo::new();
     let logs = r.path.join("test-logs");
     for args in [vec!["--help"], vec!["unknown"]] {
-        let out = support::groove()
+        let out = support::groove_in(&r.path)
             .env("XDG_CONFIG_HOME", r.path.join("config-home"))
             .env("GROOVE_LOG_DIR", &logs)
             .env("GROOVE_LOG_ENABLED", "false")
@@ -543,7 +543,7 @@ fn command_help_is_available_without_a_repository_or_valid_config() {
     ];
     for command in commands {
         for flag in ["-h", "--help"] {
-            let output = support::groove()
+            let output = support::groove_in(temp.path())
                 .current_dir(temp.path())
                 .env("XDG_CONFIG_HOME", &config_home)
                 .env("GROOVE_LOG_ENABLED", "false")
@@ -565,7 +565,7 @@ fn command_help_is_available_without_a_repository_or_valid_config() {
             }
         }
     }
-    let output = support::groove()
+    let output = support::groove_in(temp.path())
         .current_dir(temp.path())
         .env("XDG_CONFIG_HOME", &config_home)
         .env("GROOVE_LOG_ENABLED", "false")
@@ -636,7 +636,7 @@ fn release_save_options_require_save_and_rejections_keep_the_reservation() {
 fn human_output_is_the_default_and_json_is_opt_in() {
     let r = Repo::new();
     let human = |args: &[&str]| {
-        support::groove_human()
+        support::groove_human_in(&r.path)
             .env("HOME", r.temp.path())
             .env("XDG_CONFIG_HOME", r.temp.path().join("config-home"))
             .env("GROOVE_LOG_ENABLED", "false")
@@ -719,7 +719,7 @@ fn completions_preserve_output_modes_without_a_repository_or_valid_config() {
     std::fs::write(config.join("groove/config.toml"), "invalid toml [").unwrap();
     for shell in ["bash", "zsh", "fish", "powershell", "elvish"] {
         let run = |json_flag: bool| {
-            let mut command = support::groove_human();
+            let mut command = support::groove_human_in(temp.path());
             command
                 .current_dir(temp.path())
                 .env("XDG_CONFIG_HOME", &config)
@@ -760,7 +760,7 @@ fn completions_preserve_output_modes_without_a_repository_or_valid_config() {
             assert_eq!(String::from_utf8(output.stdout).unwrap().trim(), "show");
         }
     }
-    let invalid = support::groove()
+    let invalid = support::groove_in(temp.path())
         .current_dir(temp.path())
         .args(["completions", "unknown-shell"])
         .env("GROOVE_LOG_ENABLED", "false")
@@ -782,7 +782,7 @@ fn common_failures_have_the_same_advice_in_human_and_json_output() {
         let hint = response["error"]["hint"].as_str().unwrap();
         assert!(hint.contains(action), "{hint}");
         assert!(!hint.contains("--force"));
-        let human = support::groove_human()
+        let human = support::groove_human_in(&r.path)
             .env("GROOVE_LOG_ENABLED", "false")
             .env("XDG_CONFIG_HOME", r.path.join("config-home"))
             .arg("--repo")
