@@ -19,6 +19,12 @@ Your agent runner handles task scheduling, agent communication and result
 integration. Groove handles workspace allocation, reuse and recovery. Capacity
 bounds reserved workspaces; the runner controls agent concurrency and resource use.
 
+[![Groove demo: reserve workspaces, replenish ready spares, and save results](assets/groove-demo.gif)](assets/groove-demo.mp4)
+
+A pool of 10 slots keeps a target of two spare worktrees ready in the background.
+The demo reserves two tasks, shows the replenished spares, then saves and releases
+both workspaces. [Watch the video](assets/groove-demo.mp4).
+
 ## Install
 
 Requires Linux or macOS 13+, Git 2.40+ and local storage (APFS on macOS).
