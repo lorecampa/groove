@@ -7,6 +7,9 @@ EXAMPLES:
 
 Without a selector, shows pool settings and a page of slots. With --task or
 --lease-id, shows that reservation (or its release receipt) and its slot.
+Selected lease output includes active=false for historical metadata; a successful
+show is not proof of an active assignment. Slot views retain lease history but
+mark it with lease_active=false and omit its old task from the current task column.
 --details reads bounded local Git status (staged, modified, untracked); with a
 selector, only that workspace is checked. Nothing contacts a remote.
 

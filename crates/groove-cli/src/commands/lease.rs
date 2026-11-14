@@ -103,7 +103,17 @@ pub fn release(
 
 /// Human view of a lease plus any extra JSON context.
 pub fn lease_output(lease: LeaseInfo, extra: Value) -> Result<Output> {
-    let text = describe_lease(&lease) + &fields(&extra, 1);
+    let heading = if extra["active"] == true {
+        describe_lease(&lease)
+    } else {
+        format!(
+            "{} has no active reservation for lease {} (former task '{}').\n",
+            lease.slot_id,
+            lease.lease_id,
+            lease.task.as_deref().unwrap_or("untitled task")
+        )
+    };
+    let text = heading + &fields(&extra, 1);
     let mut result = json!({ "lease": lease });
     if let (Some(map), Value::Object(extra)) = (result.as_object_mut(), extra) {
         map.extend(extra);

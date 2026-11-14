@@ -416,3 +416,36 @@ fn a_filesystem_monitor_daemon_neither_blocks_release_nor_goes_stale() {
     fs::remove_file(path.join("after-reuse.txt")).unwrap();
     assert_success(&cli(&repo.path, &["release", "--task", "next"]));
 }
+
+#[test]
+fn released_lease_history_is_explicitly_inactive() {
+    let repo = Repo::new();
+    assert_success(&cli(
+        &repo.path,
+        &["init", "--capacity", "1", "--ready-target", "0"],
+    ));
+    let lease = assert_success(&cli(&repo.path, &["acquire", "--task", "former-task"]));
+    let id = lease["result"]["lease_id"].as_str().unwrap();
+    assert_eq!(
+        assert_success(&cli(&repo.path, &["show", "--lease-id", id]))["result"]["active"],
+        true
+    );
+    assert_success(&cli(&repo.path, &["release", "--lease-id", id]));
+    let shown = checked(&cli(&repo.path, &["show", "--lease-id", id]));
+    assert_eq!(shown["result"]["active"], false);
+    let slots = checked(&cli(&repo.path, &["list", "--slots"]));
+    assert_eq!(
+        slots["result"]["inspection"]["slots"][0]["lease_active"],
+        false
+    );
+    let human = support::command(&repo.path, support::groove_binary())
+        .env("HOME", repo.temp.path())
+        .env("XDG_CONFIG_HOME", repo.temp.path().join("config"))
+        .args(["list", "--slots"])
+        .output()
+        .unwrap();
+    assert!(human.status.success());
+    assert!(!String::from_utf8(human.stdout)
+        .unwrap()
+        .contains("former-task"));
+}

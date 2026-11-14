@@ -24,6 +24,8 @@
   of leaving a dangling code after clap's usage text.
 - Unwinding foreground panics return a typed error envelope under `--json`
   instead of exiting 101 without a response; durable protections remain intact.
+- Lease inspection identifies inactive history explicitly and available slot
+  rows omit former task labels, preventing released assignments from looking active.
 
 - Retrying an interrupted saved release captures the still-reserved workspace
   again before reuse. Completed retries reject deleted or unpinned snapshots.

@@ -232,7 +232,7 @@ fn slot_table(inspection: &PoolInspection) -> String {
             vec![
                 slot.slot_id.to_string(),
                 status,
-                task_label(slot.lease.as_ref()),
+                task_label(slot.lease.as_ref().filter(|_| slot.lease_active)),
                 git,
                 slot.reason.clone(),
             ]
@@ -247,8 +247,14 @@ fn sort_slots(slots: &mut [SlotInspection], sort: SlotSort) {
         SlotSort::Task => a
             .lease
             .as_ref()
+            .filter(|_| a.lease_active)
             .and_then(|lease| lease.task.as_deref())
-            .cmp(&b.lease.as_ref().and_then(|lease| lease.task.as_deref()))
+            .cmp(
+                &b.lease
+                    .as_ref()
+                    .filter(|_| b.lease_active)
+                    .and_then(|lease| lease.task.as_deref()),
+            )
             .then_with(|| a.slot_id.cmp(&b.slot_id)),
     });
 }
@@ -336,6 +342,7 @@ pub fn show(
     if let Some(lease) = lease {
         let slot = inspect_slot(&pool, &lease.slot_id, details, context.git_timeout)?;
         let extra = json!({
+            "active": slot.lease_active && slot.lease.as_ref().is_some_and(|current| current.lease_id == lease.lease_id),
             "slot": {
                 "status": slot.status,
                 "reason": slot.reason,

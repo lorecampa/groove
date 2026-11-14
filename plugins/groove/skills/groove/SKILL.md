@@ -35,8 +35,10 @@ coordinator supplies task scheduling, communication, command execution and resul
   Separately assigned tasks can have their own reservations.
 
 Assigned workers use the checkout, lease ID and pool supplied by their coordinator.
-Match that assignment with `groove show --lease-id ID` before using it. Inspection,
-directory location, PIDs and metadata do not grant ownership. If the assignment is
+Match that assignment with `groove show --lease-id ID` before using it. In JSON
+output, require `result.active` to be true; a successful show can otherwise describe
+a released reservation. Inspection, directory location, PIDs and metadata do not
+grant ownership. If the assignment is
 ambiguous, inspect and report it rather than guessing.
 
 Carry the same explicit `--pool NAME` on **every pool command**, including
