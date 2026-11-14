@@ -12,6 +12,8 @@ use std::{
 
 /// Diagnostic capture bound for stderr and for ordinary maintenance stdout.
 const OUTPUT_LIMIT: usize = 1024 * 1024;
+/// Per-stream error budget, including JSON escaping, independent of plumbing output.
+const DIAGNOSTIC_LIMIT: usize = 16 * 1024;
 /// Stdout bound for snapshot plumbing, which streams trees and patches.
 const SNAPSHOT_OUTPUT_LIMIT: usize = 128 * 1024 * 1024;
 
@@ -358,19 +360,28 @@ impl Git {
                         crate::ErrorCode::GitError,
                         if status.is_none() {
                             "Git operation timed out"
+                        } else if (out.large && !scan_tree) || err.large {
+                            "Git operation exceeded its output limit"
+                        } else if status.is_some_and(|status| status.success()) {
+                            "Git operation returned warnings; its inventory may be incomplete"
                         } else {
-                            "Git operation failed or exceeded its output limit"
+                            "Git operation failed"
                         },
                     )
                 })
                 .with_details(|d| {
                     // Keep a failed validation subprocess's diagnostics intact.
                     if d.git.is_none() {
+                        let (stdout, stdout_truncated) = diagnostic(&out.bytes);
+                        let (stderr, stderr_truncated) = diagnostic(&err.bytes);
                         d.git = Some(crate::GitFailure {
                             exit_code: status.and_then(|s| s.code()),
-                            stdout: String::from_utf8_lossy(&out.bytes).into_owned(),
-                            stderr: String::from_utf8_lossy(&err.bytes).into_owned(),
-                            output_truncated: out.large || err.large,
+                            stdout,
+                            stderr,
+                            output_truncated: out.large
+                                || err.large
+                                || stdout_truncated
+                                || stderr_truncated,
                         });
                     }
                 }));
@@ -379,6 +390,26 @@ impl Git {
     }
 }
 use std::os::unix::ffi::OsStrExt;
+
+fn diagnostic(bytes: &[u8]) -> (String, bool) {
+    let text = String::from_utf8_lossy(bytes);
+    let mut result = String::new();
+    let mut encoded = 0;
+    for character in text.chars() {
+        let size = match character {
+            '"' | '\\' | '\n' | '\r' | '\t' | '\u{08}' | '\u{0c}' => 2,
+            '\u{00}'..='\u{1f}' => 6,
+            _ => character.len_utf8(),
+        };
+        if encoded + size > DIAGNOSTIC_LIMIT {
+            return (result, true);
+        }
+        encoded += size;
+        result.push(character);
+    }
+    (result, false)
+}
+
 struct Capture {
     bytes: Vec<u8>,
     large: bool,
@@ -435,4 +466,27 @@ fn capture(
         large,
         gitlink,
     })
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::*;
+    #[test]
+    fn diagnostics_bound_json_escaping_and_lossy_unicode_without_cutting_characters() {
+        for input in [
+            vec![b'x'; 100_000],
+            vec![0; 100_000],
+            vec![0xff; 100_000],
+            "é🦀\"\n".repeat(10_000).into_bytes(),
+        ] {
+            let (text, truncated) = diagnostic(&input);
+            assert!(truncated);
+            assert!(!text.is_empty());
+            assert!(serde_json::to_vec(&text).unwrap().len() <= DIAGNOSTIC_LIMIT + 2);
+        }
+        assert_eq!(
+            diagnostic(b"short warning"),
+            ("short warning".into(), false)
+        );
+    }
 }

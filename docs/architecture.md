@@ -263,6 +263,9 @@ output. `git::Invocation` makes each policy explicit: `ConfigScope::Isolated`
 executable modes and symlinks independently of checkout preferences), the stdout bound, inherited
 descriptors, and whether `ls-tree` output is streamed for gitlink detection.
 Ordinary output is bounded to 1 MiB per stream while both streams are drained.
+Failure diagnostics retain at most 16 KiB per stream, including JSON escaping,
+independently of the larger successful-plumbing output budget. Truncation is
+reported explicitly; warnings can fail inventories even when Git exits zero.
 
 Mutating children inherit relevant ownership/admin descriptors. Timeouts terminate
 the mutation process group and reap the direct child before relinquishing protection.
