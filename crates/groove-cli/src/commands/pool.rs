@@ -144,10 +144,20 @@ pub fn destroy(
         "Pool is already deleted.\n".to_owned()
     } else {
         format!(
-            "{} {} workspace slots and {} artifact directories.\n",
+            "{} {} workspace {} and {} artifact {}.\n",
             if dry_run { "Would remove" } else { "Removed" },
             result.slots.len(),
-            result.artifacts.len()
+            if result.slots.len() == 1 {
+                "slot"
+            } else {
+                "slots"
+            },
+            result.artifacts.len(),
+            if result.artifacts.len() == 1 {
+                "directory"
+            } else {
+                "directories"
+            }
         )
     };
     text.push_str(&format!("Pool: {}\n", result.pool_name));
@@ -182,11 +192,16 @@ pub fn init(
             git_timeout: context.git_timeout,
         },
     )?;
+    let slots = if result.capacity == 1 {
+        "slot"
+    } else {
+        "slots"
+    };
     let heading = if result.pool_name == groove_core::PoolName::default() {
-        format!("Initialized a pool of {} slots.", result.capacity)
+        format!("Initialized a pool of {} {slots}.", result.capacity)
     } else {
         format!(
-            "Initialized pool '{}' with {} slots.",
+            "Initialized pool '{}' with {} {slots}.",
             result.pool_name, result.capacity
         )
     };

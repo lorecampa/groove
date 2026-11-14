@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Use singular slot/directory nouns for counts of one in pool summaries.
 - Render unnamed reservations without inventing an "untitled task" label,
   consistent with absent task metadata in list and JSON output.
 - Describe all valid setting alternatives when `config set` has no options,
