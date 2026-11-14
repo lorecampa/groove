@@ -10,6 +10,9 @@
 
 ### Fixed
 
+- Retrying an interrupted saved release captures the still-reserved workspace
+  again before reuse. Completed retries reject deleted or unpinned snapshots.
+
 - Contributor hooks scan staged secrets and validate formatting from the index,
   including fuzz sources. Pushes require a clean checkout at the outgoing commit
   so validation covers the source being published.

@@ -166,6 +166,29 @@ impl SnapshotLock {
     }
 }
 impl Snapshots {
+    /// Read a saved-release snapshot without depending on a surviving checkout.
+    /// The caller retains pool lifecycle admission; refs belong to the common repo.
+    pub(crate) fn saved_release_snapshot(
+        repository: &repository::Repository,
+        timeout: Duration,
+        id: &str,
+    ) -> Result<Snapshot> {
+        let service = Self {
+            root: repository.common.clone(),
+            common: repository.common.clone(),
+            git_dir: repository.common.clone(),
+            state: repository.common.join("groove-snapshots"),
+            timeout,
+            pool: None,
+            repository: repository.clone(),
+        };
+        let snapshot = service.show(id)?;
+        if !snapshot.pinned {
+            return Err(invalid("Saved release snapshot is no longer pinned"));
+        }
+        Ok(snapshot)
+    }
+
     /// Discover a non-bare Git worktree, without initializing a Groove pool.
     /// The timeout bounds each Git subprocess and each wait for the shared snapshot lock.
     ///

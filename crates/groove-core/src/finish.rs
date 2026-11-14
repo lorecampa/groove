@@ -55,7 +55,8 @@ pub(crate) fn released_files_saved(pool: &Pool, lease: &crate::LeaseInfo) -> Res
 
 impl Lease {
     /// Save and pin a local checkpoint before releasing this reservation.
-    /// A failed checkpoint leaves the reservation protected; retries reuse its saved checkpoint.
+    /// A failed checkpoint leaves the reservation protected. Until release completes,
+    /// each retry saves the current files again, preserving edits made after a failed attempt.
     /// All external writers must have stopped before calling.
     ///
     /// # Errors
@@ -66,38 +67,37 @@ impl Lease {
         let execution = self.pool.execution_guard(&self.info.slot_id)?;
         self.pool.require_execution_clear(&self.info.slot_id)?;
         let path = receipt_path(&self.pool, self.info.lease_id);
-        let mut receipt = match state::read::<FinishReceipt>(&path) {
+        match state::read::<FinishReceipt>(&path) {
             Ok(receipt)
                 if receipt.schema_version == state::SCHEMA_VERSION
-                    && receipt.lease_id == self.info.lease_id =>
-            {
-                receipt
-            }
+                    && receipt.lease_id == self.info.lease_id
+                    && receipt.slot_id == self.info.slot_id => {}
             Ok(_) => {
                 return Err(Error::new(
                     ErrorCode::ProtocolError,
                     "Invalid finish receipt",
                 ))
             }
-            Err(e) if !path.exists() && e.code == ErrorCode::IoError => {
-                crate::quiescence::missing_checkout(&self.info.worktree_path)?;
-                let snapshots = Snapshots::open(&self.info.worktree_path, self.pool.git_timeout)?;
-                let mut snapshot = snapshots.save(options)?;
-                snapshots.pin(&snapshot.id)?;
-                snapshot.pinned = true;
-                let receipt = FinishReceipt {
-                    schema_version: state::SCHEMA_VERSION,
-                    lease_id: self.info.lease_id,
-                    slot_id: self.info.slot_id.clone(),
-                    snapshot,
-                    released: false,
-                };
-                state::write(&path, &receipt)?;
-                state::checkpoint("finish-snapshot-saved");
-                receipt
-            }
+            Err(e) if !path.exists() && e.code == ErrorCode::IoError => {}
             Err(e) => return Err(e),
+        }
+        // A receipt is history, not proof that this still-reserved checkout is
+        // unchanged or that its old snapshot still exists. Re-capture under the
+        // slot/execution guards before authorizing reuse. Retain older pins.
+        crate::quiescence::missing_checkout(&self.info.worktree_path)?;
+        let snapshots = Snapshots::open(&self.info.worktree_path, self.pool.git_timeout)?;
+        let mut snapshot = snapshots.save(options)?;
+        snapshots.pin(&snapshot.id)?;
+        snapshot.pinned = true;
+        let mut receipt = FinishReceipt {
+            schema_version: state::SCHEMA_VERSION,
+            lease_id: self.info.lease_id,
+            slot_id: self.info.slot_id.clone(),
+            snapshot,
+            released: false,
         };
+        state::write(&path, &receipt)?;
+        state::checkpoint("finish-snapshot-saved");
         drop(execution);
         state::checkpoint("finish-before-release");
         let release = self
@@ -171,6 +171,16 @@ impl Pool {
         } else {
             return Ok(None);
         };
+        // Completed retries are historical: never capture or mutate a successor.
+        // Verify recoverability instead of claiming a deleted snapshot is pinned.
+        receipt.snapshot =
+            Snapshots::saved_release_snapshot(&self.repo, self.git_timeout, &receipt.snapshot.id)
+                .map_err(|e| {
+                e.with_details(|d| {
+                    d.snapshot_id = Some(receipt.snapshot.id.clone());
+                    d.released = Some(true);
+                })
+            })?;
         receipt.released = true;
         state::write(&path, &receipt)?;
         Ok(Some(FinishResult {

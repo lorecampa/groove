@@ -1010,12 +1010,14 @@ fn finish_crash_retries_preserve_checkpoint_and_never_release_a_successor() {
             None
         };
         let retry = support::assert_success(&cli(&["release", "--save", "--lease-id", id]));
-        assert_eq!(retry["result"]["snapshot"]["id"], receipt["snapshot"]["id"]);
+        if successor.is_some() {
+            assert_eq!(retry["result"]["snapshot"]["id"], receipt["snapshot"]["id"]);
+        }
         let recovered = r.temp.path().join("recovered");
         support::assert_success(&cli(&[
             "snapshot",
             "restore",
-            receipt["snapshot"]["id"].as_str().unwrap(),
+            retry["result"]["snapshot"]["id"].as_str().unwrap(),
             "--to",
             recovered.to_str().unwrap(),
         ]));
@@ -1032,6 +1034,135 @@ fn finish_crash_retries_preserve_checkpoint_and_never_release_a_successor() {
             ]));
         }
     }
+}
+
+fn retry_unreleased_finish(checkpoint: &str, delete_snapshot: bool, fail_capture: bool) {
+    let r = Repo::new();
+    let cli = |args: &[&str]| support::groove_in(&r.path).args(args).output().unwrap();
+    support::assert_success(&cli(&["init", "--capacity", "1"]));
+    let lease = support::assert_success(&cli(&["acquire"]))["result"].clone();
+    let id = lease["lease_id"].as_str().unwrap();
+    std::fs::write(r.slot(1).join("tracked.txt"), "first checkpoint").unwrap();
+    let (mut command, listener) =
+        checkpoint_command(&r, checkpoint, &["release", "--save", "--lease-id", id]);
+    kill_at_checkpoint(&mut command, listener, checkpoint);
+    let receipt: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(r.state().join(format!("slots/finish-{id}.json"))).unwrap(),
+    )
+    .unwrap();
+    if delete_snapshot {
+        support::assert_success(&cli(&[
+            "snapshot",
+            "delete",
+            receipt["snapshot"]["id"].as_str().unwrap(),
+            "--force",
+        ]));
+    }
+    std::fs::write(r.slot(1).join("tracked.txt"), "work after crash").unwrap();
+    support::git(&r.slot(1), &["add", "tracked.txt"]);
+    std::fs::write(r.slot(1).join("tracked.txt"), "unstaged after crash").unwrap();
+    std::fs::write(r.slot(1).join("new.txt"), "new work").unwrap();
+    if fail_capture {
+        let failure = cli(&[
+            "release",
+            "--save",
+            "--lease-id",
+            id,
+            "--max-file-bytes",
+            "1",
+        ]);
+        assert!(!failure.status.success());
+        let failed: serde_json::Value = serde_json::from_slice(&failure.stdout).unwrap();
+        assert_eq!(failed["error"]["code"], "INVALID_ARGUMENT");
+        assert_eq!(
+            Pool::open(&r.path).unwrap().protected_leases().unwrap()[0]
+                .lease_id
+                .to_string(),
+            id
+        );
+        let exhausted = cli(&["acquire"]);
+        assert!(!exhausted.status.success());
+        assert_eq!(
+            std::fs::read(r.slot(1).join("new.txt")).unwrap(),
+            b"new work"
+        );
+    }
+    let retry = support::assert_success(&cli(&["release", "--save", "--lease-id", id]));
+    assert_ne!(retry["result"]["snapshot"]["id"], receipt["snapshot"]["id"]);
+    assert_eq!(retry["result"]["snapshot"]["pinned"], true);
+    // Reuse destroys the checkout; recovery must depend on the new snapshot alone.
+    support::assert_success(&cli(&["acquire"]));
+    let recovered = r.temp.path().join("recovered");
+    support::assert_success(&cli(&[
+        "snapshot",
+        "restore",
+        retry["result"]["snapshot"]["id"].as_str().unwrap(),
+        "--to",
+        recovered.to_str().unwrap(),
+    ]));
+    assert_eq!(
+        std::fs::read(recovered.join("tracked.txt")).unwrap(),
+        b"unstaged after crash"
+    );
+    assert_eq!(
+        support::git(&recovered, &["show", ":tracked.txt"]),
+        "work after crash"
+    );
+    assert_eq!(
+        std::fs::read(recovered.join("new.txt")).unwrap(),
+        b"new work"
+    );
+}
+
+#[test]
+fn finish_retry_saves_edits_after_snapshot_receipt() {
+    retry_unreleased_finish("finish-snapshot-saved", false, false);
+}
+
+#[test]
+fn finish_retry_saves_edits_before_release() {
+    retry_unreleased_finish("finish-before-release", false, false);
+}
+
+#[test]
+fn finish_retry_replaces_deleted_snapshot() {
+    retry_unreleased_finish("finish-before-release", true, false);
+}
+
+#[test]
+fn finish_retry_capture_failure_preserves_reservation() {
+    retry_unreleased_finish("finish-before-release", false, true);
+}
+
+#[test]
+fn completed_finish_retry_rejects_deleted_snapshot_and_preserves_successor() {
+    let r = Repo::new();
+    let cli = |args: &[&str]| support::groove_in(&r.path).args(args).output().unwrap();
+    support::assert_success(&cli(&["init", "--capacity", "1"]));
+    let lease = support::assert_success(&cli(&["acquire"]))["result"].clone();
+    let id = lease["lease_id"].as_str().unwrap();
+    let finished = support::assert_success(&cli(&["release", "--save", "--lease-id", id]));
+    let snapshot = finished["result"]["snapshot"]["id"].as_str().unwrap();
+    support::assert_success(&cli(&["snapshot", "delete", snapshot, "--force"]));
+    let successor = support::assert_success(&cli(&["acquire"]))["result"].clone();
+    std::fs::write(r.slot(1).join("new.txt"), "successor work").unwrap();
+    let retry = cli(&["release", "--save", "--lease-id", id]);
+    assert!(!retry.status.success());
+    let error: serde_json::Value = serde_json::from_slice(&retry.stdout).unwrap();
+    assert_eq!(error["error"]["code"], "GIT_ERROR");
+    assert_eq!(error["error"]["details"]["snapshot_id"], snapshot);
+    assert_eq!(error["error"]["details"]["released"], true);
+    assert_eq!(
+        Pool::open(&r.path).unwrap().protected_leases().unwrap()[0]
+            .lease_id
+            .to_string(),
+        successor["lease_id"]
+    );
+    assert_eq!(
+        std::fs::read(r.slot(1).join("new.txt")).unwrap(),
+        b"successor work"
+    );
+    assert!(!cli(&["acquire"]).status.success());
 }
 
 #[test]
