@@ -944,6 +944,11 @@
         "patch"
       ],
       "properties": {
+        "patch_encoding": {
+          "type": "string",
+          "enum": ["base64"],
+          "description": "When present, decode patch from base64. Otherwise patch is UTF-8 text."
+        },
         "patch": {
           "type": "string"
         }

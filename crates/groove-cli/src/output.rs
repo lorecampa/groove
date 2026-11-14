@@ -26,7 +26,7 @@ pub struct Output {
     pub text: String,
     pub status: u8,
     /// Data printed verbatim (a patch or a script), not composed Groove text.
-    pub raw: bool,
+    pub raw: Option<Vec<u8>>,
 }
 
 /// Position within a command's filtered, ordered collection.
@@ -67,7 +67,7 @@ impl Output {
             result,
             text,
             status: 0,
-            raw: false,
+            raw: None,
         })
     }
     /// A result rendered as indented `key: value` lines.
@@ -83,8 +83,12 @@ impl Output {
     /// such as a patch (which may contain CRLF) or a shell script. Like `git diff`,
     /// file content is not escaped; Groove-composed text always is.
     pub fn raw(result: impl Serialize, text: impl Into<String>) -> Result<Self, Error> {
-        let mut output = Self::text(result, text)?;
-        output.raw = true;
+        Self::raw_bytes(result, text.into().into_bytes())
+    }
+    /// A byte-exact human response; JSON uses the supplied encoded representation.
+    pub fn raw_bytes(result: impl Serialize, bytes: Vec<u8>) -> Result<Self, Error> {
+        let mut output = Self::text(result, "")?;
+        output.raw = Some(bytes);
         Ok(output)
     }
 }
@@ -125,7 +129,12 @@ pub fn emit_success(
             request_id,
             json!({"ok": true, "result": output.result}),
         )),
-        Format::Human if output.raw => write_text(&output.text),
+        Format::Human if output.raw.is_some() => {
+            let mut stdout = io::stdout().lock();
+            stdout
+                .write_all(output.raw.as_deref().unwrap_or_default())
+                .and_then(|()| stdout.flush())
+        }
         Format::Human => write_text(&printable(&output.text, true)),
     };
     output_status(written, output.status)

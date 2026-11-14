@@ -465,6 +465,7 @@ dependencies = [
 name = "groove-cli"
 version = "0.3.0"
 dependencies = [
+ "base64",
  "chrono",
  "clap",
  "clap_complete",

@@ -58,7 +58,10 @@ its patch.
 
 Diff exports an uncolored, binary-capable Git patch with fixed `a/` and `b/`
 prefixes, independently of Git display preferences. Redirect human output to save
-the patch, or extract the patch string from the documented JSON result. Apply it
+the patch, or extract the patch string from the documented JSON result. If JSON
+contains `patch_encoding: "base64"`, decode `patch` before applying it; otherwise
+`patch` is UTF-8 text. Human output retains arbitrary content bytes, and filenames
+use Git's quoted patch syntax. Apply it
 to files matching the baseline. Equal file trees produce empty output. The patch
 compares working files; use restore to recover the saved staging state as well.
 Export leaves HEAD, the real index and working files unchanged.

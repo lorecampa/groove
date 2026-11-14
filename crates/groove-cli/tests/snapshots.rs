@@ -2,6 +2,49 @@ mod support;
 use serde_json::Value;
 use std::{fs, process::Stdio};
 use support::{assert_success, Repo};
+#[test]
+fn arbitrary_bytes_and_filenames_produce_applicable_patches() {
+    use base64::Engine;
+    use std::os::unix::ffi::OsStrExt;
+    let repo = Repo::new();
+    // APFS rejects non-UTF-8 filenames; arbitrary file contents work on both hosts.
+    let name = if cfg!(target_os = "linux") {
+        std::ffi::OsStr::from_bytes(b"non-utf8-\xff.txt")
+    } else {
+        std::ffi::OsStr::new("non-utf8-content.txt")
+    };
+    fs::write(repo.path.join(name), b"before\xfe\n").unwrap();
+    let saved = checked(&repo, &["snapshot", "save"]);
+    let id = saved["snapshot"]["id"].as_str().unwrap();
+    fs::write(repo.path.join(name), b"after\xff\n").unwrap();
+    let result = checked(&repo, &["snapshot", "diff", id]);
+    assert_eq!(result["patch_encoding"], "base64");
+    let patch = base64::engine::general_purpose::STANDARD
+        .decode(result["patch"].as_str().unwrap())
+        .unwrap();
+    let human = support::command(&repo.path, support::groove_binary())
+        .args(["snapshot", "diff", id])
+        .output()
+        .unwrap();
+    assert!(human.status.success());
+    assert_eq!(human.stdout, patch);
+    let recovered = repo.temp.path().join("recovered");
+    checked(
+        &repo,
+        &[
+            "snapshot",
+            "restore",
+            id,
+            "--to",
+            recovered.to_str().unwrap(),
+        ],
+    );
+    let file = repo.temp.path().join("change.patch");
+    fs::write(&file, patch).unwrap();
+    support::git(&recovered, &["apply", file.to_str().unwrap()]);
+    assert_eq!(fs::read(recovered.join(name)).unwrap(), b"after\xff\n");
+}
+
 fn cli(repo: &Repo, args: &[&str]) -> std::process::Output {
     support::groove_in(&repo.path).args(args).output().unwrap()
 }

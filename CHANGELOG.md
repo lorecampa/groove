@@ -38,6 +38,8 @@
   reducing metadata work while preserving bounded wait deadlines and ownership checks.
 - Snapshot diff and in-place restore expose `--max-file-bytes` for their temporary
   and safety captures, so files larger than the default limit can be handled.
+- Snapshot patches preserve non-UTF-8 file contents and quote arbitrary filenames.
+  Human output is byte-exact; JSON marks non-UTF-8 patches with `patch_encoding=base64`.
 
 - Retrying an interrupted saved release captures the still-reserved workspace
   again before reuse. Completed retries reject deleted or unpinned snapshots.
