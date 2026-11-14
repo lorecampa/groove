@@ -23,3 +23,5 @@ changed file; 0 is unlimited). This limit is unused with --to.
 Recovery preserves saved bytes, executable bits and symlinks even if Git
 preferences changed after capture. Active conversion/filter attributes are
 checked before restoring files, including with --to.
+Text, legacy crlf and eol=lf are supported for LF-only blobs. Saved text blobs
+containing carriage returns are refused before materialization.

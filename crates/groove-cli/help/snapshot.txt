@@ -19,7 +19,11 @@ local refs/groove/snapshots/ and the shared object database; ordinary pushes do
 not back them up. Unfinished merges (even without conflicts), rebases, am,
 cherry-picks, reverts, bisects, conflicts, submodules,
 nested repositories, active content filters,
-content-converting attributes, intent-to-add and manual index flags are rejected.
+filter/ident/working-tree-encoding/eol=crlf attributes, intent-to-add and manual
+index flags are rejected. Capture checks saved paths; text, legacy crlf and
+eol=lf are allowed if staging preserves byte sizes. Normalized CRLF files are
+rejected by filename. Saving .gitattributes applies strict whole-tree validation.
+Restore refuses saved text blobs containing carriage returns.
 Unused filter definitions, such as a global Git LFS installation, are harmless.
 Concurrent saves wait for the shared lock up to --git-timeout-ms (default 120000).
 

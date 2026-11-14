@@ -96,6 +96,149 @@ fn unfinished_git_operations_reject_capture_even_with_a_resolved_index() {
 }
 
 #[test]
+fn external_recovery_uses_saved_rules_without_the_sources_later_working_attributes() {
+    let repo = Repo::new();
+    fs::write(repo.path.join("saved.x"), b"saved CRLF\r\n").unwrap();
+    let snapshots = service(&repo);
+    let saved = save(&snapshots);
+    fs::write(repo.path.join(".gitattributes"), b"*.x text eol=crlf\n").unwrap();
+    let destination = repo.temp.path().join("external");
+    snapshots.restore(&saved.id, Some(&destination)).unwrap();
+    assert_eq!(
+        fs::read(destination.join("saved.x")).unwrap(),
+        b"saved CRLF\r\n"
+    );
+    assert!(!destination.join(".gitattributes").exists());
+    assert_eq!(
+        fs::read(repo.path.join(".gitattributes")).unwrap(),
+        b"*.x text eol=crlf\n"
+    );
+}
+
+#[test]
+fn tracked_crlf_edits_are_not_hidden_by_attribute_normalization() {
+    let repo = Repo::new();
+    fs::write(repo.path.join(".gitattributes"), b"*.x text eol=lf\n").unwrap();
+    fs::write(repo.path.join("physical.x"), b"same text\n").unwrap();
+    repo.git(&["add", "."]);
+    repo.git(&["commit", "-qm", "LF baseline"]);
+    fs::write(repo.path.join("physical.x"), b"same text\r\n").unwrap();
+    let error = service(&repo).save(Default::default()).unwrap_err();
+    assert_eq!(error.code, ErrorCode::UnsupportedConfiguration);
+    assert!(error.message.contains("physical.x"));
+}
+
+#[test]
+fn restore_rejects_saved_carriage_returns_under_new_text_rules() {
+    let repo = Repo::new();
+    fs::write(repo.path.join("saved.x"), b"saved CRLF\r\n").unwrap();
+    let snapshots = service(&repo);
+    let saved = save(&snapshots);
+    fs::write(repo.path.join(".git/info/attributes"), b"*.x text eol=lf\n").unwrap();
+    fs::write(repo.path.join("saved.x"), b"later LF work\n").unwrap();
+    let destination = repo.temp.path().join("recovery");
+    for target in [Some(destination.as_path()), None] {
+        let error = snapshots.restore(&saved.id, target).unwrap_err();
+        assert_eq!(error.code, ErrorCode::UnsupportedConfiguration);
+        assert!(error.message.contains("carriage returns"));
+        assert!(!destination.exists());
+        assert_eq!(
+            fs::read(repo.path.join("saved.x")).unwrap(),
+            b"later LF work\n"
+        );
+    }
+}
+
+#[test]
+fn lf_text_attributes_roundtrip_special_filenames_in_place_and_to_a_new_directory() {
+    let repo = Repo::new();
+    fs::write(repo.path.join(".gitattributes"), b"*.x text eol=lf\n").unwrap();
+    repo.git(&["add", ".gitattributes"]);
+    repo.git(&["commit", "-qm", "LF rules"]);
+    let names = ["space name.x", "line\nbreak.x", "2:name.x"];
+    for name in names {
+        fs::write(repo.path.join(name), b"exact LF bytes\nsecond line\n").unwrap();
+    }
+    repo.git(&["add", "--", "2:name.x", "line\nbreak.x"]);
+    let original_index = fs::read(repo.path.join(".git/index")).unwrap();
+    let snapshots = service(&repo);
+    let saved = save(&snapshots);
+    assert_eq!(
+        fs::read(repo.path.join(".git/index")).unwrap(),
+        original_index
+    );
+    let recovery = repo.temp.path().join("LF recovery");
+    snapshots.restore(&saved.id, Some(&recovery)).unwrap();
+    for name in names {
+        assert_eq!(
+            fs::read(recovery.join(name)).unwrap(),
+            b"exact LF bytes\nsecond line\n"
+        );
+        fs::write(repo.path.join(name), b"later LF edit\n").unwrap();
+    }
+    snapshots.restore(&saved.id, None).unwrap();
+    for name in names {
+        assert_eq!(
+            fs::read(repo.path.join(name)).unwrap(),
+            b"exact LF bytes\nsecond line\n"
+        );
+    }
+}
+
+#[test]
+fn crlf_under_lf_attributes_is_rejected_with_the_saved_filename() {
+    let repo = Repo::new();
+    fs::write(repo.path.join(".gitattributes"), b"*.x text eol=lf\n").unwrap();
+    repo.git(&["add", ".gitattributes"]);
+    repo.git(&["commit", "-qm", "LF rules"]);
+    let path = repo.path.join("normalization.x");
+    fs::write(&path, b"CRLF must not silently change\r\n").unwrap();
+    let snapshots = service(&repo);
+    let error = snapshots.save(Default::default()).unwrap_err();
+    assert_eq!(error.code, ErrorCode::UnsupportedConfiguration);
+    assert!(error.message.contains("normalization.x"), "{error:?}");
+    assert!(snapshots.list().unwrap().is_empty());
+    assert_eq!(
+        fs::read(path).unwrap(),
+        b"CRLF must not silently change\r\n"
+    );
+}
+
+#[test]
+fn saving_attributes_uses_strict_whole_tree_validation() {
+    let repo = Repo::new();
+    fs::write(repo.path.join(".gitattributes"), b"*.x text eol=lf\n").unwrap();
+    fs::write(repo.path.join("unchanged.x"), b"unchanged\n").unwrap();
+    repo.git(&["add", "."]);
+    repo.git(&["commit", "-qm", "LF tree"]);
+    fs::write(
+        repo.path.join(".gitattributes"),
+        b"*.x text eol=lf\n# saved attribute change\n",
+    )
+    .unwrap();
+    let error = service(&repo).save(Default::default()).unwrap_err();
+    assert_eq!(error.code, ErrorCode::UnsupportedConfiguration);
+    assert!(error.message.contains("unchanged.x"), "{error:?}");
+    assert!(error.message.contains("attribute"));
+    assert!(error.message.contains(".gitattributes"));
+}
+
+#[test]
+fn unused_converting_paths_do_not_block_saving_other_paths() {
+    let repo = Repo::new();
+    fs::write(
+        repo.path.join(".gitattributes"),
+        b"*.blocked ident\n*.x text eol=lf\n",
+    )
+    .unwrap();
+    fs::write(repo.path.join("unchanged.blocked"), b"no ident expansion\n").unwrap();
+    repo.git(&["add", "."]);
+    repo.git(&["commit", "-qm", "unrelated conversion"]);
+    fs::write(repo.path.join("saved.x"), b"allowed\n").unwrap();
+    save(&service(&repo));
+}
+
+#[test]
 fn unreadable_untracked_directories_fail_capture_without_publishing() {
     if !support::in_subprocess("unreadable_untracked_directories_fail_capture_without_publishing") {
         return;
