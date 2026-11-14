@@ -188,6 +188,7 @@ pub(crate) fn prepare(
             .and_then(|()| verify(&git, repo, &path, oid, config.cleanup_policy))
         {
             Ok(()) => {
+                mark_verified(&path)?;
                 state::checkpoint("verified");
                 return Ok(RecoveryOutcome::Sanitized);
             }
@@ -218,6 +219,7 @@ pub(crate) fn prepare(
     drop(admin);
     normalize(&git, &path, oid, config.cleanup_policy, &[fd])?;
     verify(&git, repo, &path, oid, config.cleanup_policy)?;
+    mark_verified(&path)?;
     state::checkpoint("verified");
     Ok(if exists {
         RecoveryOutcome::Rebuilt
@@ -262,44 +264,60 @@ pub(crate) fn normalize(
     policy: CleanupPolicy,
     fds: &[i32],
 ) -> Result<()> {
-    // Discard index flags and stat-cache assumptions too. A cached "clean" status
-    // must not hide contamination from a previous lease.
     let admin = registration_from_file(path)?;
     let index = admin.join("index");
     repository::no_symlinks(&index)?;
-    let had_index = index.exists();
-    match fs::remove_file(&index) {
-        Ok(()) => (),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
-        Err(e) => return Err(e.into()),
+    let marker = admin.join("groove-verified");
+    repository::no_symlinks(&marker)?;
+    let verified = match fs::metadata(&marker) {
+        Ok(metadata) if metadata.is_file() => Some(metadata),
+        Ok(_) => None,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.into()),
+    };
+    match fs::remove_file(&marker) {
+        Ok(()) => crate::state::sync_dir(&admin)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+        Err(error) => return Err(error.into()),
     }
-    if had_index {
-        // Only a revision switch needs an old inventory. Ordinary same-commit
-        // resets keep the original index-free checkout without an extra write.
-        let changes_revision =
-            match git.run(path, &["rev-parse", "--verify", "--quiet", "HEAD"], fds) {
-                Ok(previous) => trim(&previous) != oid.as_str().as_bytes(),
-                Err(error) if error.git_exit_code().is_some() => false,
-                Err(error) => return Err(error),
-            };
-        // Retain the previous tracked-path inventory so checkout removes files
-        // the destination deletes and ignores. Leave stat entries empty: full
-        // rewriting also breaks hardlinks and restores file creation metadata.
-        // An orphan/unreadable HEAD has no trustworthy inventory; keep the old
-        // index-free checkout behavior rather than rebuilding and losing caches.
-        if changes_revision {
-            if let Err(error) = git.run(path, &["read-tree", "HEAD"], fds) {
-                // Only retry after Git exited. Cancellation, execution and I/O
-                // failures retain their usual recovery/teardown behavior.
-                if error.git_exit_code().is_none() {
-                    return Err(error);
-                }
-                tracing::debug!(%error, "Previous HEAD has no usable tracked-path inventory");
-                repository::no_symlinks(&index)?;
-                match fs::remove_file(&index) {
-                    Ok(()) => (),
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
-                    Err(e) => return Err(e.into()),
+    state::checkpoint("reuse-marker-removed");
+    if !reuse_untouched(git, path, oid, &index, verified.as_ref(), fds)? {
+        // The full path discards flags and stat-cache assumptions and breaks every
+        // tracked hardlink. A missing marker also forces this path after interruption.
+        let had_index = index.exists();
+        match fs::remove_file(&index) {
+            Ok(()) => (),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
+            Err(e) => return Err(e.into()),
+        }
+        if had_index {
+            // Only a revision switch needs an old inventory. Ordinary same-commit
+            // resets keep the original index-free checkout without an extra write.
+            let changes_revision =
+                match git.run(path, &["rev-parse", "--verify", "--quiet", "HEAD"], fds) {
+                    Ok(previous) => trim(&previous) != oid.as_str().as_bytes(),
+                    Err(error) if error.git_exit_code().is_some() => false,
+                    Err(error) => return Err(error),
+                };
+            // Retain the previous tracked-path inventory so checkout removes files
+            // the destination deletes and ignores. Leave stat entries empty: full
+            // rewriting also breaks hardlinks and restores file creation metadata.
+            // An orphan/unreadable HEAD has no trustworthy inventory; keep the old
+            // index-free checkout behavior rather than rebuilding and losing caches.
+            if changes_revision {
+                if let Err(error) = git.run(path, &["read-tree", "HEAD"], fds) {
+                    // Only retry after Git exited. Cancellation, execution and I/O
+                    // failures retain their usual recovery/teardown behavior.
+                    if error.git_exit_code().is_none() {
+                        return Err(error);
+                    }
+                    tracing::debug!(%error, "Previous HEAD has no usable tracked-path inventory");
+                    repository::no_symlinks(&index)?;
+                    match fs::remove_file(&index) {
+                        Ok(()) => (),
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
+                        Err(e) => return Err(e.into()),
+                    }
                 }
             }
         }
@@ -323,6 +341,142 @@ pub(crate) fn normalize(
         fds,
     )?;
     Ok(())
+}
+
+fn mark_verified(path: &Path) -> Result<()> {
+    let admin = registration_from_file(path)?;
+    let marker = admin.join("groove-verified");
+    repository::no_symlinks(&marker)?;
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(marker)?;
+    file.sync_all()?;
+    state::sync_dir(&admin)
+}
+
+/// Reuse stat entries only for paths whose physical metadata predates the last
+/// verified checkout. ctime cannot be backdated by an ordinary task; root/clock
+/// changes are outside this cooperative local-filesystem trust assumption.
+fn reuse_untouched(
+    git: &Git,
+    path: &Path,
+    oid: &crate::CommitOid,
+    index: &Path,
+    verified: Option<&fs::Metadata>,
+    fds: &[i32],
+) -> Result<bool> {
+    use std::{
+        io::{Seek, Write},
+        os::unix::fs::MetadataExt,
+    };
+    let Some(verified) = verified else {
+        return Ok(false);
+    };
+    if !index.try_exists()? || verified.modified()? > std::time::SystemTime::now() {
+        return Ok(false);
+    }
+    let audit = git.audit_index(
+        path,
+        crate::git::Invocation {
+            inherit: fds,
+            ..Default::default()
+        },
+    )?;
+    if audit.assume_unchanged || audit.skip_worktree || audit.conflicts || audit.gitlinks {
+        return Ok(false);
+    }
+    let previous = match git.run(path, &["rev-parse", "--verify", "--quiet", "HEAD"], fds) {
+        Ok(previous) => previous,
+        Err(error) if error.git_exit_code().is_some() => return Ok(false),
+        Err(error) => return Err(error),
+    };
+    if trim(&previous) != oid.as_str().as_bytes() {
+        match git.run(
+            path,
+            &[
+                "diff",
+                "--quiet",
+                "--no-ext-diff",
+                "--no-textconv",
+                "HEAD",
+                oid.as_str(),
+                "--",
+                ":(glob)**/.gitattributes",
+            ],
+            fds,
+        ) {
+            Ok(_) => (),
+            Err(error) if error.git_exit_code() == Some(1) => return Ok(false),
+            Err(error) => return Err(error),
+        }
+    }
+    let verified_at = (verified.mtime(), verified.mtime_nsec());
+    let mut touched = Vec::new();
+    if !touched_paths(path, path, verified_at, false, &mut touched)? {
+        return Ok(false);
+    }
+    if touched.is_empty() {
+        return Ok(true);
+    }
+    let mut input = tempfile::tempfile()?;
+    input.write_all(&touched)?;
+    input.rewind()?;
+    git.run_with(
+        path,
+        &["update-index", "--force-remove", "-z", "--stdin"],
+        crate::git::Invocation {
+            inherit: fds,
+            stdin: Some(input),
+            ..Default::default()
+        },
+    )?;
+    // The path list is NUL-delimited and never passed through revision syntax.
+    debug_assert!(touched.last() == Some(&0));
+    Ok(true)
+}
+
+fn touched_paths(
+    root: &Path,
+    directory: &Path,
+    verified: (i64, i64),
+    ancestor_touched: bool,
+    touched: &mut Vec<u8>,
+) -> Result<bool> {
+    use std::os::unix::{ffi::OsStrExt, fs::MetadataExt};
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        if directory == root && entry.file_name() == ".git" {
+            continue;
+        }
+        let path = entry.path();
+        let metadata = fs::symlink_metadata(&path)?;
+        let changed = ancestor_touched || (metadata.ctime(), metadata.ctime_nsec()) >= verified;
+        if metadata.is_dir() {
+            // A directory swap changes the directory's ctime, not every child's.
+            if !touched_paths(root, &path, verified, changed, touched)? {
+                return Ok(false);
+            }
+        } else if changed {
+            if entry.file_name() == ".gitattributes" {
+                return Ok(false);
+            }
+            let relative = path.strip_prefix(root).map_err(|error| {
+                Error::new(
+                    crate::ErrorCode::RecoveryFailed,
+                    "Touched path escaped its checkout",
+                )
+                .with_source(error)
+            })?;
+            let bytes = relative.as_os_str().as_bytes();
+            if touched.len().saturating_add(bytes.len() + 1) > 32 * 1024 * 1024 {
+                return Ok(false);
+            }
+            touched.extend_from_slice(bytes);
+            touched.push(0);
+        }
+    }
+    Ok(true)
 }
 pub(crate) fn verify(
     git: &Git,

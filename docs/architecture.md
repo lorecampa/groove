@@ -172,11 +172,22 @@ between destination validation and materialization.
 Capacity bounds reservable slots, not process count, artifacts, CPU, memory or Git
 object storage. Waiting has no FIFO guarantee; Git preparation has its own timeout.
 
-Normalization removes the owned index, discarding its flags and stat cache. If
+Normalization removes a `groove-verified` marker from native worktree administration
+before mutation and recreates it only after successful verification. With an index
+and a prior marker, a ctime walk drops index entries for changed files and files
+under changed directories; forced checkout recreates those paths. Untouched tracked
+files keep their inode and mtime across leases. Directory ctime propagation catches
+rename swaps. The trust assumption is that an ordinary task cannot backdate ctime;
+root actions or clock changes invalidate that assumption.
+
+A missing marker/index, hidden-edit flags, changed .gitattributes rules, a touched
+attribute file or a touched-path list above 32 MiB forces a full rewrite. A crash
+after marker removal leaves no reusable verification claim. The full path removes
+the owned index, discarding its flags and stat cache. If
 the previous HEAD is readable and differs from the destination, `read-tree HEAD`
 reconstructs only its tracked-path inventory so checkout can remove paths the
 destination deletes and ignores.
-The index is not refreshed: forced detached checkout rewrites tracked files,
+On that full path the index is not refreshed: forced detached checkout rewrites tracked files,
 breaking shared hardlinks and recreating file metadata. If the previous HEAD is
 unreadable or unborn, any partial index is discarded and checkout proceeds
 without it, preserving in-place recovery and warm caches. Cleanup uses

@@ -221,11 +221,14 @@ checkpoint before discarding these files.
 residue and may be lost during rebuild. External caches can be used with pristine
 slots. Capacity bounds reservations, not process count, artifacts or disk usage.
 
-Acquisition rewrites tracked files even at the same commit, resetting their
-timestamps and breaking hardlinks to prior outputs or external files. Warm reuse
-therefore does not preserve timestamp-based incremental builds: Make and Cargo
-may rebuild retained outputs. Content-addressed compiler caches can still reuse
-validated results; the example below relies on ccache for that reuse.
+Acquisition preserves inode and mtime for untouched tracked files across leases.
+It uses ctime since the last verified checkout to identify paths that need
+rewriting, including chmod, xattr, hardlink, utimes and directory-swap changes.
+This trusts that tasks cannot backdate ctime without root privileges or a clock
+change. Missing verification/index state, hidden-edit flags, attribute-rule
+changes or an oversized touched-path inventory force a complete rewrite.
+Warm caches may therefore benefit timestamp-based builds, but retained outputs
+remain unverified. The example below uses ccache to validate content reuse.
 
 Prefer pristine cleanup for independent tasks. Keep dependency downloads or
 compiler results in an external cache supported by your build tool, outside all
