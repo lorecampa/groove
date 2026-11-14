@@ -1,7 +1,7 @@
 use crate::{Error, Result};
 use std::{
     ffi::OsStr,
-    io::{Read, Write},
+    io::{Read, Seek, Write},
     os::{fd::RawFd, unix::process::CommandExt},
     path::Path,
     process::{Command, Stdio},
@@ -40,6 +40,8 @@ pub(crate) enum OutputMode {
     ScanGitlinks,
     /// Audit index headers while discarding the unbounded tracked-path inventory.
     AuditIndex,
+    /// Stream stdout to a temporary file for bounded batches of later processing.
+    Spool,
 }
 
 /// Optional knobs for one Git subprocess. Defaults describe isolated maintenance.
@@ -57,6 +59,8 @@ pub(crate) struct Invocation<'a> {
     pub stdout_limit: Option<usize>,
     /// How stdout is consumed.
     pub output: OutputMode,
+    /// Filesystem for streamed inventory storage; defaults to the command cwd.
+    pub spool_directory: Option<&'a Path>,
     /// Fail on diagnostics even after exit zero, for ref inventories where Git
     /// may warn and omit an unreadable or broken reference.
     pub reject_stderr: bool,
@@ -133,6 +137,18 @@ impl Git {
         }
         Ok(audit)
     }
+    pub fn spool(
+        &self,
+        cwd: &Path,
+        args: &[&str],
+        mut invocation: Invocation<'_>,
+    ) -> Result<std::fs::File> {
+        invocation.output = OutputMode::Spool;
+        let capture = self.spawn(cwd, args.iter().map(OsStr::new), invocation)?;
+        let mut file = capture.file.expect("spool capture creates its output file");
+        file.rewind()?;
+        Ok(file)
+    }
     fn spawn<'a>(
         &self,
         cwd: &Path,
@@ -141,6 +157,14 @@ impl Git {
     ) -> Result<Capture> {
         tracing::trace!(event = "git.started", "Starting Git operation");
         let output_mode = invocation.output;
+        // Allocate before spawning: a quota/storage error must not strand Git.
+        let spool = if output_mode == OutputMode::Spool {
+            Some(tempfile::tempfile_in(
+                invocation.spool_directory.unwrap_or(cwd),
+            )?)
+        } else {
+            None
+        };
         let scanning = output_mode != OutputMode::Bounded;
         let mut cmd = Command::new("git");
         cmd.current_dir(cwd)
@@ -223,9 +247,10 @@ impl Git {
             Some((sender, receiver)) => (Some(sender), Some(receiver)),
             None => (None, None),
         };
-        let out_thread = thread::spawn(move || capture(stdout, output_mode, limit, prepare_sender));
+        let out_thread =
+            thread::spawn(move || capture(stdout, output_mode, limit, prepare_sender, spool));
         let err_thread =
-            thread::spawn(move || capture(stderr, OutputMode::Bounded, OUTPUT_LIMIT, None));
+            thread::spawn(move || capture(stderr, OutputMode::Bounded, OUTPUT_LIMIT, None, None));
         let (mut commit_sender, input_thread) = if let Some(mut input) = transaction_input {
             let (sender, receiver) = mpsc::channel();
             // Only prepared transactions request piped stdin above.
@@ -435,12 +460,14 @@ struct Capture {
     large: bool,
     gitlink: bool,
     audit: IndexAudit,
+    file: Option<std::fs::File>,
 }
 fn capture(
     mut reader: impl Read,
     mode: OutputMode,
     limit: usize,
     mut prepare: Option<mpsc::Sender<bool>>,
+    mut file: Option<std::fs::File>,
 ) -> std::io::Result<Capture> {
     let mut out = Vec::new();
     let mut large = false;
@@ -459,6 +486,9 @@ fn capture(
         let keep = n.min(limit.saturating_sub(out.len()));
         out.extend_from_slice(&buffer[..keep]);
         large |= keep != n;
+        if let Some(file) = &mut file {
+            file.write_all(&buffer[..n])?;
+        }
         if prepare.is_some() {
             for &byte in &buffer[..n] {
                 let matches = byte == PREPARED[prepared_bytes];
@@ -491,12 +521,32 @@ fn capture(
         large,
         gitlink,
         audit: audit.finish(),
+        file,
     })
 }
 
 #[cfg(test)]
 mod diagnostic_tests {
     use super::*;
+    #[test]
+    fn spooled_inventories_preserve_bytes_beyond_the_capture_limit() {
+        let input = b"path with spaces\n2:name\0".repeat(100_000);
+        let mut capture = capture(
+            input.as_slice(),
+            OutputMode::Spool,
+            32,
+            None,
+            Some(tempfile::tempfile().unwrap()),
+        )
+        .unwrap();
+        assert_eq!(capture.bytes.len(), 32);
+        assert!(capture.large);
+        let mut file = capture.file.take().unwrap();
+        file.rewind().unwrap();
+        let mut restored = Vec::new();
+        file.read_to_end(&mut restored).unwrap();
+        assert_eq!(restored, input);
+    }
     #[test]
     fn diagnostics_bound_json_escaping_and_lossy_unicode_without_cutting_characters() {
         for input in [
