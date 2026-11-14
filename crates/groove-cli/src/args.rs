@@ -420,6 +420,8 @@ pub enum ConfigCommand {
     /// Show this repository's pool settings.
     Show,
     /// Grow capacity and/or change cleanup for future acquisitions.
+    #[command(group(clap::ArgGroup::new("settings").required(true).multiple(true)
+        .args(["capacity", "cleanup", "ready_target", "idle_timeout", "ready_base"])))]
     Set {
         /// Desired ready, unreserved checkouts; cannot exceed resulting capacity. Zero disables replenishment.
         #[arg(long)]
@@ -431,7 +433,7 @@ pub enum ConfigCommand {
         #[arg(long)]
         ready_base: Option<String>,
         /// New capacity (1..=4096); shrinking is rejected.
-        #[arg(long, value_parser = parse_capacity, required_unless_present_any = ["cleanup", "ready_target", "idle_timeout", "ready_base"])]
+        #[arg(long, value_parser = parse_capacity)]
         capacity: Option<usize>,
         /// Cleanup policy for future acquisitions.
         #[arg(long, value_enum)]
@@ -614,5 +616,33 @@ mod tests {
             "00000000-0000-4000-8000-000000000000",
         ];
         assert!(Args::try_parse_from(both).is_err());
+    }
+
+    #[test]
+    fn pool_configuration_requires_any_setting_rather_than_capacity() {
+        let error = Args::try_parse_from(["groove", "config", "set"])
+            .err()
+            .unwrap()
+            .to_string();
+        for (flag, value) in [
+            ("--capacity", "2"),
+            ("--cleanup", "warm"),
+            ("--ready-target", "0"),
+            ("--idle-timeout", "never"),
+            ("--ready-base", "main"),
+        ] {
+            assert!(error.contains(flag), "{error}");
+            assert!(Args::try_parse_from(["groove", "config", "set", flag, value]).is_ok());
+        }
+        assert!(Args::try_parse_from([
+            "groove",
+            "config",
+            "set",
+            "--ready-target",
+            "0",
+            "--idle-timeout",
+            "never"
+        ])
+        .is_ok());
     }
 }

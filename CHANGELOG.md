@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Describe all valid setting alternatives when `config set` has no options,
+  rather than implying capacity is required.
 - Name unavailable repository paths, missing Git executables, repository-discovery
   failures and bare-repository snapshot misuse in primary diagnostics.
 - Report unknown or deleted snapshot IDs as INVALID_ARGUMENT with a named
