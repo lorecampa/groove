@@ -201,6 +201,17 @@ impl Snapshots {
         }
     }
 
+    pub(crate) fn retained_ids(
+        repository: &repository::Repository,
+        timeout: Duration,
+    ) -> Result<BTreeSet<String>> {
+        Ok(Self::for_repository(repository, timeout)
+            .list()?
+            .into_iter()
+            .map(|snapshot| snapshot.id)
+            .collect())
+    }
+
     /// Discover a non-bare Git worktree, without initializing a Groove pool.
     /// The timeout bounds each Git subprocess and each wait for the shared snapshot lock.
     ///

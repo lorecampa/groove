@@ -37,6 +37,59 @@ fn receipt_path(pool: &Pool, id: LeaseId) -> PathBuf {
         .join(format!("finish-{id}.json"))
 }
 
+/// Called under exclusive lifecycle admission after durable deletion. Permanent
+/// locks and request tombstones are retained; they protect ownership and retries.
+pub(crate) fn prune_missing_receipts(
+    repo: &crate::repository::Repository,
+    timeout: std::time::Duration,
+) -> Result<()> {
+    let slots = repo.root.join("slots");
+    if !slots.try_exists()? {
+        return Ok(());
+    }
+    crate::repository::owned_dir(&slots)?;
+    let candidates = std::fs::read_dir(&slots)?
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<std::io::Result<Vec<_>>>()?;
+    if !candidates.iter().any(|path| {
+        path.file_name()
+            .is_some_and(|name| name.as_encoded_bytes().starts_with(b"finish-"))
+    }) {
+        return Ok(());
+    }
+    let retained = Snapshots::retained_ids(repo, timeout)?;
+    let mut removed = false;
+    for path in candidates {
+        let Some(id) = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .and_then(|name| name.strip_prefix("finish-"))
+            .and_then(|name| name.strip_suffix(".json"))
+            .and_then(|id| id.parse::<LeaseId>().ok())
+        else {
+            continue;
+        };
+        let receipt = match state::read::<FinishReceipt>(&path) {
+            Ok(receipt) => receipt,
+            // Unknown or damaged records cannot establish that cleanup is safe.
+            Err(_) => continue,
+        };
+        if receipt.schema_version == state::SCHEMA_VERSION
+            && receipt.lease_id == id
+            && receipt.released
+            && receipt.superseded.is_empty()
+            && !retained.contains(&receipt.snapshot.id)
+        {
+            std::fs::remove_file(path)?;
+            removed = true;
+        }
+    }
+    if removed {
+        state::sync_dir(&slots)?;
+    }
+    Ok(())
+}
+
 fn retire_superseded(pool: &Pool, receipt: &mut FinishReceipt) -> Result<()> {
     for id in &receipt.superseded {
         if *id == receipt.snapshot.id {

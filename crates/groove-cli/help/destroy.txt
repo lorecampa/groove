@@ -12,6 +12,8 @@ the catalog. --pool-id checks a generation inside the selected namespace.
 Completed deletion releases its external .groove-owner root claim once no pool
 uses that root. Retrying destroy finishes interrupted claim cleanup. For a marker
 left by a deleted repository, see the recovery procedure in docs/operations.md.
+It also prunes completed saved-release receipts for deleted snapshots, preserving
+pending pin cleanup, request-key tombstones and all permanent lock files.
 
 Release every reservation and stop ALL writers first. Live lease and
 execution descriptors, protected reservations and orphaned execution records

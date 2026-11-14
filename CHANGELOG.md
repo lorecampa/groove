@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Prune completed saved-release receipts for missing snapshots during destruction,
+  while retaining pending pin cleanup, permanent locks and request-key tombstones.
 - Release external root-owner markers after durable deletion of their last pool,
   safely resume interrupted marker cleanup, and document orphan-marker recovery.
 - Successful saved-release retries unpin superseded checkpoints while retaining

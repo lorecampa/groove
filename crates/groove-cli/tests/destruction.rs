@@ -23,6 +23,69 @@ fn check(output: &std::process::Output) -> Value {
 }
 
 #[test]
+fn destruction_prunes_missing_snapshot_receipts_but_preserves_retry_and_lock_identity() {
+    use std::os::unix::fs::MetadataExt;
+    let repo = Repo::new();
+    let init = [
+        "init",
+        "--capacity",
+        "1",
+        "--ready-target",
+        "0",
+        "--idle-timeout",
+        "never",
+    ];
+    assert_success(&cli(&repo, &init));
+    let mut receipts = Vec::new();
+    for task in ["removed", "retained"] {
+        let lease = assert_success(&cli(
+            &repo,
+            &["acquire", "--task", task, "--request-key", task],
+        ));
+        let id = lease["result"]["lease_id"].as_str().unwrap();
+        let saved = assert_success(&cli(&repo, &["release", "--save", "--lease-id", id]));
+        receipts.push((
+            repo.state().join(format!("slots/finish-{id}.json")),
+            saved["result"]["snapshot"]["id"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+        ));
+    }
+    let coordination: Vec<_> = std::fs::read_dir(repo.state().join("requests"))
+        .unwrap()
+        .map(|entry| {
+            let path = entry.unwrap().path();
+            let metadata = std::fs::metadata(&path).unwrap();
+            let bytes = std::fs::read(&path).unwrap();
+            (path, metadata.ino(), bytes)
+        })
+        .collect();
+    assert_success(&cli(
+        &repo,
+        &["snapshot", "delete", &receipts[0].1, "--force"],
+    ));
+    assert_success(&cli(&repo, &["destroy", "--dry-run"]));
+    assert!(receipts[0].0.exists());
+    assert_success(&cli(&repo, &["destroy"]));
+    assert!(!receipts[0].0.exists());
+    assert!(receipts[1].0.exists());
+    for (path, inode, bytes) in coordination {
+        assert_eq!(std::fs::metadata(&path).unwrap().ino(), inode);
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
+    assert_success(&cli(&repo, &init));
+    let retried = cli(
+        &repo,
+        &["acquire", "--task", "removed", "--request-key", "removed"],
+    );
+    assert!(!retried.status.success());
+    assert_eq!(check(&retried)["error"]["code"], "INVALID_LEASE");
+    let retained = assert_success(&cli(&repo, &["snapshot", "show", &receipts[1].1]));
+    assert_eq!(retained["result"]["snapshot"]["pinned"], true);
+}
+
+#[test]
 fn destroy_contract_includes_preview_rejection_and_generation_preconditions() {
     let repo = Repo::new();
     let output = cli(&repo, &["destroy", "--help"]);
