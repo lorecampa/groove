@@ -52,6 +52,50 @@ fn recovery_rejects_destinations_inside_the_source_including_parent_aliases() {
 }
 
 #[test]
+fn unfinished_git_operations_reject_capture_even_with_a_resolved_index() {
+    let repo = Repo::new();
+    let snapshots = service(&repo);
+    let index = fs::read(repo.path.join(".git/index")).unwrap();
+    let head = repo.git(&["rev-parse", "HEAD"]);
+    fs::write(repo.path.join("pending.txt"), b"preserve pending work").unwrap();
+    // These durable Git markers are the operation state omitted by snapshots.
+    // Keep a conflict-free index to ensure the operation check itself refuses.
+    for marker in [
+        "rebase-merge",
+        "rebase-apply",
+        "CHERRY_PICK_HEAD",
+        "REVERT_HEAD",
+        "sequencer",
+        "BISECT_LOG",
+        "BISECT_START",
+    ] {
+        let path = repo.path.join(".git").join(marker);
+        let directory = matches!(marker, "rebase-merge" | "rebase-apply" | "sequencer");
+        if directory {
+            fs::create_dir(&path).unwrap();
+        } else {
+            fs::write(&path, &head).unwrap();
+        }
+        let error = snapshots.save(Default::default()).unwrap_err();
+        assert_eq!(error.code, ErrorCode::UnsupportedConfiguration, "{marker}");
+        assert!(error.message.contains("Complete or abort"), "{error:?}");
+        assert!(path.exists());
+        assert!(snapshots.list().unwrap().is_empty());
+        assert_eq!(fs::read(repo.path.join(".git/index")).unwrap(), index);
+        assert_eq!(
+            fs::read(repo.path.join("pending.txt")).unwrap(),
+            b"preserve pending work"
+        );
+        if directory {
+            fs::remove_dir(path).unwrap();
+        } else {
+            fs::remove_file(path).unwrap();
+        }
+    }
+    save(&snapshots);
+}
+
+#[test]
 fn unreadable_untracked_directories_fail_capture_without_publishing() {
     if !support::in_subprocess("unreadable_untracked_directories_fail_capture_without_publishing") {
         return;
