@@ -5,6 +5,8 @@ EXAMPLES:
 
 Released slots with observed processes are skipped before cleanup. Stop lingering
 shells, editors and builds; run acquire from outside any slot you want to reuse.
+Git status warnings also prevent handoff: an incomplete final inventory is not a
+verified clean checkout. Resolve the reported Git/filesystem issue before retrying.
 
 Reserves a cleaned, verified checkout of --base (default HEAD) until it is
 explicitly released. HEAD resolves where you run the command, so from a linked

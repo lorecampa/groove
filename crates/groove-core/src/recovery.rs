@@ -542,7 +542,17 @@ pub(crate) fn verify(
     if policy == CleanupPolicy::Pristine {
         args.push("--ignored");
     }
-    if !git.run(path, &args, &[])?.is_empty() {
+    if !git
+        .run_with(
+            path,
+            &args,
+            crate::git::Invocation {
+                reject_stderr: true,
+                ..Default::default()
+            },
+        )?
+        .is_empty()
+    {
         return Err(Error::new(
             crate::ErrorCode::RecoveryFailed,
             "Worktree is not at a clean baseline",

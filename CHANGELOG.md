@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Refuse acquisition when final Git status emits warnings, including exit zero,
+  so an incomplete inventory cannot verify a checkout for its next lease.
 - Include the preference-file path in primary and structured configuration errors,
   so `config global show` identifies the file to repair even when it is invalid.
 - Explain invalid supplied preference values by setting name and expected values,

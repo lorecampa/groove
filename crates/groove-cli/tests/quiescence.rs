@@ -88,7 +88,7 @@ fn unreadable_work_is_preserved_by_release_and_destruction() {
 }
 
 #[test]
-fn successful_git_status_with_warnings_cannot_authorize_release_or_destroy() {
+fn successful_git_status_with_warnings_cannot_authorize_release_destroy_or_acquire() {
     use std::os::unix::fs::PermissionsExt;
     let repo = Repo::new();
     ok(&cli(
@@ -149,6 +149,16 @@ fn successful_git_status_with_warnings_cannot_authorize_release_or_destroy() {
             ok(&cli(&repo, &["release", "--force", "--task", "warnings"]));
         }
     }
+    let output = warned(&["acquire"]);
+    assert_eq!(output.status.code(), Some(6));
+    let error: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(error["error"]["code"], "POOL_UNHEALTHY");
+    assert!(ok(&cli(&repo, &["list"]))["leases"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    assert!(repo.slot(1).join("tracked.txt").exists());
+    ok(&cli(&repo, &["acquire"]));
 }
 
 #[test]
