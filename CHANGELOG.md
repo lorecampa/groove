@@ -18,6 +18,8 @@
   initialization or settings updates can publish them.
 - Acquisition skips slots with corrupt ready metadata and can use other healthy
   slots, while preserving the corrupt slot and its files for recovery.
+- Argument errors honor `--json` and request IDs even when an earlier argument
+  contains non-UTF-8 bytes.
 
 - Retrying an interrupted saved release captures the still-reserved workspace
   again before reuse. Completed retries reject deleted or unpinned snapshots.

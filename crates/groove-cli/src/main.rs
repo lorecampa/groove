@@ -27,16 +27,13 @@ impl Partial {
     fn recover(raw: &[std::ffi::OsString]) -> Self {
         // Help and version short-circuit clap before later flags are recorded, so
         // scan the options (everything before `--`) for the global flags directly.
-        let options: Vec<&str> = raw
-            .iter()
-            .skip(1)
-            .map_while(|arg| arg.to_str().filter(|arg| *arg != "--"))
-            .collect();
+        let options: Vec<_> = raw.iter().skip(1).take_while(|arg| *arg != "--").collect();
         let request_id = options.iter().enumerate().find_map(|(i, arg)| {
+            let arg = arg.to_str()?;
             arg.strip_prefix("--request-id=")
                 .or_else(|| {
-                    (*arg == "--request-id")
-                        .then(|| options.get(i + 1).copied())
+                    (arg == "--request-id")
+                        .then(|| options.get(i + 1).and_then(|value| value.to_str()))
                         .flatten()
                 })
                 .map(str::to_owned)
@@ -50,7 +47,7 @@ impl Partial {
             .try_get_matches_from(raw)
             .is_ok_and(|m| m.get_flag("quiet"));
         Self {
-            format: requested_format(options.contains(&"--json")),
+            format: requested_format(options.iter().any(|arg| *arg == "--json")),
             request_id,
             verbose,
             quiet,
