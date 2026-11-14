@@ -34,6 +34,8 @@
   external locks and pipe writers are not retained after the foreground exits.
 - Background workers record failures in bounded configured logs, including startup
   failures that previously disappeared with their exit status.
+- Back off repeated capacity/preparation scans from 10 to at most 100 milliseconds,
+  reducing metadata work while preserving bounded wait deadlines and ownership checks.
 
 - Retrying an interrupted saved release captures the still-reserved workspace
   again before reuse. Completed retries reject deleted or unpinned snapshots.

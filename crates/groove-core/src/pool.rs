@@ -519,6 +519,7 @@ impl Pool {
         let scan_seed = Uuid::new_v4().as_u128();
         let start = Instant::now();
         let mut failed = BTreeMap::new();
+        let mut retry_delay = Duration::from_millis(10);
         loop {
             let current = self.refreshed()?;
             let mut slots: Vec<_> = current.config.slots.iter().collect();
@@ -679,7 +680,10 @@ impl Pool {
             // capacity. Permit its bounded preparation to finish even with wait=0.
             // Once its record becomes leased, ordinary capacity semantics resume.
             if preparing && start.elapsed() < options.git_timeout {
-                std::thread::sleep(Duration::from_millis(5));
+                std::thread::sleep(
+                    retry_delay.min(options.git_timeout.saturating_sub(start.elapsed())),
+                );
+                retry_delay = (retry_delay * 2).min(Duration::from_millis(100));
                 continue;
             }
             if busy == 0 || options.wait.is_zero() || start.elapsed() >= options.wait {
@@ -700,9 +704,8 @@ impl Pool {
                     })
                     .retryable(busy > 0));
             }
-            std::thread::sleep(
-                Duration::from_millis(10).min(options.wait.saturating_sub(start.elapsed())),
-            );
+            std::thread::sleep(retry_delay.min(options.wait.saturating_sub(start.elapsed())));
+            retry_delay = (retry_delay * 2).min(Duration::from_millis(100));
         }
     }
     /// List durable reuse protections (all CLI reservations).
