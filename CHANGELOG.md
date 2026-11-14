@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Mark release's WORKSPACE_IN_USE refusal retryable, including transient observers,
+  while retaining process checks for Groove and Git instead of trusting names.
 - Repair owner permissions on read-only directories during authorized cleanup
   and removal, preventing build output from jamming reuse or destruction.
 - Treat FIFOs, sockets and devices as unsaved work on release/destruction and

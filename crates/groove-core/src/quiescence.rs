@@ -117,6 +117,7 @@ impl Pool {
                 ErrorCode::WorkspaceInUse,
                 format!("Processes are still using this workspace: {summary}; stop all workspace writers before retrying"),
             )
+            .retryable(true)
             .with_details(|d| d.processes = processes));
         }
         if require_saved {

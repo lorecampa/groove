@@ -359,6 +359,7 @@ fn processes_using_the_workspace_block_release_with_or_without_save_but_not_the_
         args.extend(["--task", "busy"]);
         let refused = error(&cli(&repo, &args));
         assert_eq!(refused["code"], "WORKSPACE_IN_USE", "{args:?}");
+        assert_eq!(refused["retryable"], true);
         let processes = refused["details"]["processes"].as_array().unwrap().clone();
         assert!(processes.iter().any(|p| {
             p["pid"] == watcher.id() && p["command"] == "bash" && p["uses"] == "working_directory"

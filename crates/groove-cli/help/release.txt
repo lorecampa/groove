@@ -18,6 +18,9 @@ Ignored files and empty directories are excluded. Special files (pipes, sockets,
 devices) block normal release and snapshot capture; export or remove them first.
 Forced release without --save allows cleanup to discard them before reuse.
 Export required ignored artifacts separately before releasing.
+WORKSPACE_IN_USE is retryable: allow transient inspection commands to finish,
+then retry after stopping all actual writers. Groove processes are not exempted
+from this advisory scan merely by their executable name.
 Parallel saves wait for snapshot access up to --git-timeout-ms (default 120000).
 A timeout keeps the reservation protected; retry with the same lease ID.
 After a saved retry completes release, superseded checkpoints are unpinned but
