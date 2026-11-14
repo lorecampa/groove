@@ -26,6 +26,44 @@ fn run(pool: &Pool) {
     assert!(report.error.is_none(), "{report:?}");
 }
 #[test]
+fn sequential_releases_retain_one_prepared_checkout_and_three_ignored_caches() {
+    if !support::in_subprocess(
+        "sequential_releases_retain_one_prepared_checkout_and_three_ignored_caches",
+    ) {
+        return;
+    }
+    let repo = Repo::new();
+    let pool = pool(&repo, 4, 1);
+    let leases: Vec<_> = (0..4)
+        .map(|_| pool.reserve(Default::default()).unwrap())
+        .collect();
+    for (index, lease) in leases.iter().enumerate() {
+        fs::create_dir(lease.worktree_path.join("ignored")).unwrap();
+        fs::write(
+            lease.worktree_path.join("ignored/cache"),
+            b"retain until explicitly needed",
+        )
+        .unwrap();
+        pool.release_lease(lease.lease_id).unwrap();
+        run(&pool);
+        assert_eq!(pool.ready_report().unwrap().ready, 1);
+        assert_eq!(
+            leases
+                .iter()
+                .filter(|lease| lease.worktree_path.join("ignored/cache").exists())
+                .count(),
+            index
+        );
+    }
+    for lease in leases.iter().skip(1) {
+        assert_eq!(
+            fs::read(lease.worktree_path.join("ignored/cache")).unwrap(),
+            b"retain until explicitly needed"
+        );
+    }
+}
+
+#[test]
 fn reaching_the_ready_target_leaves_excess_released_checkouts_untouched() {
     if !support::in_subprocess(
         "reaching_the_ready_target_leaves_excess_released_checkouts_untouched",

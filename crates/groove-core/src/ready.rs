@@ -414,19 +414,34 @@ impl Pool {
         )?;
         let oid: crate::CommitOid = String::from_utf8_lossy(&raw).trim().parse()?;
         crate::recovery::validate_config(&git, &self.repo, &oid)?;
-        // Keep the newest idle slots; ordering is advisory and revalidated under
-        // ownership. No descriptors accumulate with pool capacity.
+        // Retain prepared spares before considering newer releases. These hints
+        // are revalidated under ownership, including the current lease identity.
         let mut slots = Vec::new();
         for slot in self.config.slots.keys() {
             match state::read::<SlotRecord>(&self.repo.record_path(slot)) {
-                Ok(record) => slots.push((slot.clone(), record.idle_since_unix_ms.unwrap_or(0))),
+                Ok(record) => {
+                    let prepared = state::read::<Work>(&self.ready_path(slot)).is_ok_and(|work| {
+                        work.schema_version == state::SCHEMA_VERSION
+                            && work.pool_id == self.pool_id
+                            && work.lease_id == record.lease.as_ref().map(|lease| lease.lease_id)
+                            && work.phase == WorkPhase::Ready
+                            && work.oid == oid
+                    });
+                    slots.push((
+                        slot.clone(),
+                        prepared,
+                        record.idle_since_unix_ms.unwrap_or(0),
+                    ));
+                }
                 Err(error) => {
                     report.failures.insert(slot.clone(), error.summary());
                 }
             }
         }
-        slots.sort_by_key(|(_, age)| std::cmp::Reverse(*age));
-        for (slot, _) in slots {
+        slots.sort_by_key(|(_, prepared, age)| {
+            (std::cmp::Reverse(*prepared), std::cmp::Reverse(*age))
+        });
+        for (slot, _, _) in slots {
             if let Some(failure) = recent
                 .as_ref()
                 .and_then(|saved| saved.report.failures.get(&slot))

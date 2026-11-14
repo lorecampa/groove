@@ -24,8 +24,10 @@ ready_base is a local revision; HEAD resolves to the calling checkout's branch o
 commit when set. Global pool_defaults only seed new pools.
 
 Successful init/acquire/release/config set operations start a short-lived worker.
-It prepares available slots and evicts excess idle checkouts while
-preserving the ready target where capacity allows. Foreground commands do not wait
+It prepares available slots and evicts excess idle checkouts while preserving
+the ready target where capacity allows. Already-prepared checkouts for the current
+lease count before newer releases, so another release is left untouched after
+the target is met. Foreground commands do not wait
 for replenishment. Acquisition can wait for a preparing slot within its Git timeout.
 One worker reconciles each pool at a time. There is no daemon: time alone does not
 trigger cleanup. Expired checkouts remain until a later pool operation. Inspection
