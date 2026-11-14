@@ -16,6 +16,8 @@ const OUTPUT_LIMIT: usize = 1024 * 1024;
 const DIAGNOSTIC_LIMIT: usize = 16 * 1024;
 /// Stdout bound for snapshot plumbing, which streams trees and patches.
 const SNAPSHOT_OUTPUT_LIMIT: usize = 128 * 1024 * 1024;
+mod index_audit;
+pub(crate) use index_audit::IndexAudit;
 
 /// Which Git configuration files a subprocess may read.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -36,6 +38,8 @@ pub(crate) enum OutputMode {
     Bounded,
     /// Stream NUL-delimited `ls-tree` records, retaining only whether a gitlink exists.
     ScanGitlinks,
+    /// Audit index headers while discarding the unbounded tracked-path inventory.
+    AuditIndex,
 }
 
 /// Optional knobs for one Git subprocess. Defaults describe isolated maintenance.
@@ -115,6 +119,20 @@ impl Git {
         let args = ["ls-tree", "-r", "-z", oid].into_iter().map(OsStr::new);
         Ok(self.spawn(cwd, args, invocation)?.gitlink)
     }
+    pub fn audit_index(&self, cwd: &Path, mut invocation: Invocation<'_>) -> Result<IndexAudit> {
+        invocation.output = OutputMode::AuditIndex;
+        let args = ["ls-files", "-v", "--stage", "-z"]
+            .into_iter()
+            .map(OsStr::new);
+        let audit = self.spawn(cwd, args, invocation)?.audit;
+        if audit.malformed {
+            return Err(Error::new(
+                crate::ErrorCode::GitError,
+                "Malformed Git index inventory",
+            ));
+        }
+        Ok(audit)
+    }
     fn spawn<'a>(
         &self,
         cwd: &Path,
@@ -122,7 +140,8 @@ impl Git {
         mut invocation: Invocation<'_>,
     ) -> Result<Capture> {
         tracing::trace!(event = "git.started", "Starting Git operation");
-        let scan_tree = invocation.output == OutputMode::ScanGitlinks;
+        let output_mode = invocation.output;
+        let scanning = output_mode != OutputMode::Bounded;
         let mut cmd = Command::new("git");
         cmd.current_dir(cwd)
             .args([
@@ -204,8 +223,9 @@ impl Git {
             Some((sender, receiver)) => (Some(sender), Some(receiver)),
             None => (None, None),
         };
-        let out_thread = thread::spawn(move || capture(stdout, scan_tree, limit, prepare_sender));
-        let err_thread = thread::spawn(move || capture(stderr, false, OUTPUT_LIMIT, None));
+        let out_thread = thread::spawn(move || capture(stdout, output_mode, limit, prepare_sender));
+        let err_thread =
+            thread::spawn(move || capture(stderr, OutputMode::Bounded, OUTPUT_LIMIT, None));
         let (mut commit_sender, input_thread) = if let Some(mut input) = transaction_input {
             let (sender, receiver) = mpsc::channel();
             // Only prepared transactions request piped stdin above.
@@ -350,7 +370,7 @@ impl Git {
         );
         if operation_error.is_some()
             || !status.is_some_and(|s| s.success())
-            || (out.large && !scan_tree)
+            || (out.large && !scanning)
             || err.large
             || (invocation.reject_stderr && !err.bytes.is_empty())
         {
@@ -360,7 +380,7 @@ impl Git {
                         crate::ErrorCode::GitError,
                         if status.is_none() {
                             "Git operation timed out"
-                        } else if (out.large && !scan_tree) || err.large {
+                        } else if (out.large && !scanning) || err.large {
                             "Git operation exceeded its output limit"
                         } else if status.is_some_and(|status| status.success()) {
                             "Git operation returned warnings; its inventory may be incomplete"
@@ -414,10 +434,11 @@ struct Capture {
     bytes: Vec<u8>,
     large: bool,
     gitlink: bool,
+    audit: IndexAudit,
 }
 fn capture(
     mut reader: impl Read,
-    scan_tree: bool,
+    mode: OutputMode,
     limit: usize,
     mut prepare: Option<mpsc::Sender<bool>>,
 ) -> std::io::Result<Capture> {
@@ -427,6 +448,7 @@ fn capture(
     let mut prefix = [0; 7];
     let mut prefix_len = 0;
     let mut gitlink = false;
+    let mut audit = index_audit::Scanner::default();
     let mut prepared_bytes = 0;
     const PREPARED: &[u8] = b"start: ok\nprepare: ok\n";
     loop {
@@ -449,7 +471,10 @@ fn capture(
                 }
             }
         }
-        if scan_tree {
+        if mode == OutputMode::AuditIndex {
+            audit.feed(&buffer[..n]);
+        }
+        if mode == OutputMode::ScanGitlinks {
             for &byte in &buffer[..n] {
                 if byte == 0 {
                     prefix_len = 0;
@@ -465,6 +490,7 @@ fn capture(
         bytes: out,
         large,
         gitlink,
+        audit: audit.finish(),
     })
 }
 

@@ -539,12 +539,8 @@ impl Pool {
         if path.try_exists()? && !interrupted {
             crate::recovery::registration(&self.repo, &path)?;
             let git = Git::new(self.git_timeout);
-            let index = git.run(&path, &["ls-files", "-v", "-z"], &[])?;
-            if index
-                .split(|b| *b == 0)
-                .filter(|entry| !entry.is_empty())
-                .any(|entry| entry.first() != Some(&b'H'))
-            {
+            let index = git.audit_index(&path, Default::default())?;
+            if index.assume_unchanged || index.skip_worktree || index.conflicts || index.gitlinks {
                 return Err(Error::new(
                     ErrorCode::UnsupportedConfiguration,
                     "Idle checkout has index flags or conflicts that can hide changes",
