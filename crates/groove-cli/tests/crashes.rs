@@ -1247,7 +1247,11 @@ fn completed_finish_retry_rejects_deleted_snapshot_and_preserves_successor() {
     let retry = cli(&["release", "--save", "--lease-id", id]);
     assert!(!retry.status.success());
     let error: serde_json::Value = serde_json::from_slice(&retry.stdout).unwrap();
-    assert_eq!(error["error"]["code"], "GIT_ERROR");
+    assert_eq!(error["error"]["code"], "INVALID_ARGUMENT");
+    assert_eq!(
+        error["error"]["message"],
+        format!("Snapshot not found: {snapshot}")
+    );
     assert_eq!(error["error"]["details"]["snapshot_id"], snapshot);
     assert_eq!(error["error"]["details"]["released"], true);
     assert_eq!(
