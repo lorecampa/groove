@@ -29,6 +29,48 @@ fn ok(out: Output) -> Value {
     value["result"].clone()
 }
 #[test]
+fn invalid_supplied_preferences_name_the_key_and_expected_values() {
+    let home = tempfile::tempdir().unwrap();
+    let h = home.path();
+    ok(run(h, &["config", "global", "set", "logging.max_files=12"]));
+    let before = fs::read(h.join("groove/config.toml")).unwrap();
+    for (setting, expected) in [
+        ("logging.level=verbose", "error"),
+        ("logging.enabled=maybe", "boolean"),
+        ("pool_defaults.idle_timeout=banana", "positive"),
+    ] {
+        let output = run(h, &["config", "global", "set", setting]);
+        assert_eq!(output.status.code(), Some(2));
+        let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+        let message = response["error"]["message"].as_str().unwrap();
+        assert!(
+            message.contains(setting.split_once('=').unwrap().0),
+            "{message}"
+        );
+        assert!(message.contains(expected), "{message}");
+        assert!(!message.contains("TOML parse error"), "{message}");
+        if setting.starts_with("logging.level=") {
+            for level in ["error", "warn", "info", "debug", "trace"] {
+                assert!(message.contains(level), "{message}");
+            }
+        }
+        assert_eq!(fs::read(h.join("groove/config.toml")).unwrap(), before);
+    }
+    // Cross-field constraints apply after the entire atomic update, rather than
+    // rejecting max_file_mib against the old max_total_mib mid-update.
+    ok(run(
+        h,
+        &[
+            "config",
+            "global",
+            "set",
+            "logging.max_file_mib=200",
+            "logging.max_total_mib=300",
+        ],
+    ));
+}
+
+#[test]
 fn defaults_updates_precedence_and_validation() {
     let home = tempfile::tempdir().unwrap();
     let h = home.path();

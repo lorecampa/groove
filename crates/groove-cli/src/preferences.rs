@@ -293,6 +293,15 @@ pub fn change(change: Change) -> Result<serde_json::Value> {
                     let mut value = value
                         .parse::<toml_edit::Value>()
                         .unwrap_or_else(|_| toml_edit::Value::from(value.as_str()));
+                    // Decode this supplied value against the actual preference
+                    // types, without validating cross-field limits in isolation.
+                    // Report serde's expected values without TOML source positions.
+                    let mut supplied = toml_edit::DocumentMut::new();
+                    supplied[section][field] = toml_edit::Item::Value(value.clone());
+                    toml::from_str::<Config>(&supplied.to_string()).map_err(|error| {
+                        invalid(format!("Invalid value for {key}: {}", error.message()))
+                            .with_source(error)
+                    })?;
                     if doc.get(section).is_none() {
                         doc[section] = toml_edit::Item::Table(toml_edit::Table::new());
                     }
