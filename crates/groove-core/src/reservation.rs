@@ -347,6 +347,16 @@ impl Pool {
     /// # Errors
     /// Rejects active owners and released/stale generations; protection is never removed.
     pub fn hold_reserved(&self, id: LeaseId) -> Result<Lease> {
+        self.hold_protected(id, false)
+    }
+
+    /// Finish may recapture a partially released generation while its durable
+    /// protection still prevents reuse. Ordinary reservation holders cannot.
+    pub(crate) fn hold_for_finish(&self, id: LeaseId) -> Result<Lease> {
+        self.hold_protected(id, true)
+    }
+
+    fn hold_protected(&self, id: LeaseId, resume_release: bool) -> Result<Lease> {
         let _operation = self.operation()?;
         let pool = self.refreshed()?;
         let info = pool.lease_info(id)?;
@@ -366,7 +376,8 @@ impl Pool {
         let protection: state::ReuseProtection =
             state::read(&pool.repo.protection_path(&info.slot_id))?;
         if record.schema_version != state::SCHEMA_VERSION
-            || record.phase != SlotPhase::Leased
+            || !(record.phase == SlotPhase::Leased
+                || (resume_release && record.phase == SlotPhase::Released))
             || record.lease.as_ref().map(|i| i.lease_id) != Some(id)
             || protection.schema_version != state::SCHEMA_VERSION
             || protection.lease.lease_id != id

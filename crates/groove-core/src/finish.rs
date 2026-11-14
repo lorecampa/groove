@@ -133,7 +133,7 @@ impl Pool {
         let _operation = self.retained_operation()?;
         match self.completed_finish(id)? {
             Some(result) => Ok(result),
-            None => self.hold_reserved(id)?.finish(options),
+            None => self.hold_for_finish(id)?.finish(options),
         }
     }
 
@@ -167,6 +167,12 @@ impl Pool {
                 cleanup: crate::CleanupTiming::Deferred,
             }
         } else if record.phase == SlotPhase::Released {
+            // Release records its result before removing protection. A crash
+            // between those writes leaves a reservation whose files can change.
+            // Reacquire its verified slot lock and capture again before reuse.
+            if self.repo.protection_path(&receipt.slot_id).try_exists()? {
+                return Ok(None);
+            }
             self.release_lease(id)?
         } else {
             return Ok(None);
