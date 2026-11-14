@@ -2,6 +2,7 @@ mod support;
 use serde_json::Value;
 use std::{
     fs,
+    os::unix::process::CommandExt,
     path::Path,
     process::{Output, Stdio},
     time::{Duration, Instant},
@@ -28,6 +29,38 @@ fn acquire(repo: &Repo, task: &str) -> String {
         .as_str()
         .unwrap()
         .to_owned()
+}
+
+#[test]
+fn release_from_inside_the_slot_can_pipe_its_output_to_a_sibling() {
+    let repo = Repo::new();
+    ok(&cli(&repo, &["init", "--capacity", "1"]));
+    let path = acquire(&repo, "piped");
+    let fifo = repo.temp.path().join("pipeline-ready");
+    assert!(support::command(repo.temp.path(), "mkfifo")
+        .arg(&fifo)
+        .status()
+        .unwrap()
+        .success());
+    let mut shell = support::command(Path::new(&path), "sh");
+    shell.process_group(0)
+        .args(["-c", "{ read -r ready < \"$2\"; exec \"$1\" --json release --task piped; } | { printf 'ready\\n' > \"$2\"; exec cat; }", "pipeline"])
+        .arg(support::groove_binary()).arg(&fifo);
+    let output = support::TestChild::spawn(&mut shell)
+        .wait_with_output()
+        .unwrap();
+    let response = support::assert_success(&output);
+    assert_eq!(response["ok"], true, "{response}");
+    let schema: Value =
+        serde_json::from_str(include_str!("../schemas/response-v1.schema.json")).unwrap();
+    jsonschema::validator_for(&schema)
+        .unwrap()
+        .validate(&response)
+        .unwrap();
+    assert!(ok(&cli(&repo, &["list"]))["leases"]
+        .as_array()
+        .unwrap()
+        .is_empty());
 }
 
 #[test]
@@ -123,6 +156,7 @@ fn processes_using_the_workspace_block_release_with_or_without_save_but_not_the_
     // so there is no further exec transition during the process checks.
     let mut watcher = support::TestChild::spawn(
         support::command(Path::new(&path), "bash")
+            .process_group(0)
             .args(["-c", "printf ready > \"$1\"; read -r _", "watcher"])
             .arg(&ready)
             .stdin(Stdio::piped()),

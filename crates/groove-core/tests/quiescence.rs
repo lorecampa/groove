@@ -2,6 +2,7 @@ mod support;
 use groove_core::{ErrorCode, Pool, PoolOptions, ProcessUse};
 use std::{
     fs,
+    os::unix::process::CommandExt,
     time::{Duration, Instant},
 };
 use support::{Repo, TestChild};
@@ -21,6 +22,7 @@ fn refuses_workspace_user(usage: ProcessUse) {
     let lease = pool.reserve(Default::default()).unwrap();
     let ready = repo.temp.path().join("ready");
     let mut command = support::command(repo.temp.path(), "bash");
+    command.process_group(0);
     match usage {
         ProcessUse::WorkingDirectory => {
             command

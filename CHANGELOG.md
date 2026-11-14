@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Exclude the release caller's process group from advisory workspace-user scans,
+  allowing pipelines from inside slots. Destruction still checks every process.
 - Accept sign-extended 32-bit Linux filesystem magic numbers. Add the explicit
   `GROOVE_ALLOW_UNSUPPORTED_FILESYSTEM=1` override for locally qualified storage
   outside the filesystem allowlist, retaining ownership and cleanup safeguards.

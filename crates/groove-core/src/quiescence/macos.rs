@@ -1,5 +1,5 @@
 //! Best-effort Darwin process inspection through libproc, never ownership proof.
-use super::{self_and_ancestors, ProcessUse, WorkspaceProcess};
+use super::{same_process_group, self_and_ancestors, ProcessUse, WorkspaceProcess};
 use crate::Result;
 use std::{
     ffi::OsString,
@@ -35,7 +35,10 @@ pub(super) fn processes_using(root: &Path, skip_ancestors: bool) -> Result<Vec<W
     };
     let mut found = Vec::new();
     for pid in pids()? {
-        if pid <= 1 || skip.contains(&(pid as u32)) {
+        if pid <= 1
+            || skip.contains(&(pid as u32))
+            || (skip_ancestors && same_process_group(pid as u32))
+        {
             continue;
         }
         if let Some(uses) = process_use(pid, root) {
