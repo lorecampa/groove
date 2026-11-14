@@ -12,7 +12,9 @@ minimum-version macOS VM coverage is not established. Other platforms fail to co
 with an explicit error.
 
 Both platforms use flock and close-on-exec descriptors.
-On Linux, NFS, CIFS/SMB, FUSE, SMB2, Coda and AFS are rejected by filesystem type.
+On Linux, recognized types are ext2/3/4, XFS, Btrfs, F2FS, ZFS, tmpfs and overlayfs.
+Overlay backing storage must also be local. Other types, including NFS, CIFS/SMB,
+FUSE/virtiofs, Coda, AFS, 9p and Ceph, are rejected rather than assumed local.
 macOS requires local APFS, including case-sensitive APFS; HFS+, network and FUSE
 filesystems are unsupported. Passing
 that check does not certify flock/fsync or power-loss durability. Managed state

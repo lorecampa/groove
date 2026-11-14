@@ -12,10 +12,7 @@ pub(crate) fn local_fs(path: &Path) -> Result<()> {
     // SAFETY: successful statfs initialized stat.
     let stat = unsafe { stat.assume_init() };
     #[cfg(target_os = "linux")]
-    let supported = ![
-        0x6969, 0xff534d42, 0xfe534d42, 0x65735546, 0x73757245, 0x564c,
-    ]
-    .contains(&(stat.f_type as u64));
+    let supported = linux_fs_supported(stat.f_type as u64);
     #[cfg(target_os = "macos")]
     let supported = {
         let name: Vec<u8> = stat
@@ -29,8 +26,53 @@ pub(crate) fn local_fs(path: &Path) -> Result<()> {
     if !supported {
         return Err(Error::new(
             ErrorCode::UnsupportedConfiguration,
-            "Unsupported filesystem: Groove requires local storage (APFS on macOS); network and FUSE filesystems are unsupported",
+            "Unsupported filesystem: Groove requires a recognized local filesystem (APFS on macOS); network, FUSE and unknown filesystem types are unsupported",
         ));
     }
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn linux_fs_supported(magic: u64) -> bool {
+    // Linux UAPI include/uapi/linux/magic.h; OpenZFS ZFS_SUPER_MAGIC.
+    // A type check cannot certify the underlying storage or power-loss safety.
+    matches!(
+        magic,
+        0xef53 // ext2/3/4
+        | 0x58465342 // XFS
+        | 0x9123683e // Btrfs
+        | 0xf2f52010 // F2FS
+        | 0x2fc12fc1 // ZFS
+        | 0x01021994 // tmpfs
+        | 0x794c7630 // overlayfs (underlying storage must also be local)
+    )
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::linux_fs_supported;
+
+    #[test]
+    fn network_shared_and_unknown_filesystems_are_rejected() {
+        for magic in [
+            0x5346414f, 0x6b414653, // AFS implementations
+            0x01021997, // 9p
+            0x00c36400, // Ceph
+            0x65735546, // FUSE, also used by virtiofs
+            0x6969, 0xff534d42, 0xfe534d42, 0x517b, // NFS/SMB
+            0x73757245, 0x7461636f, // Coda/OCFS2
+            0xdeadbeef, // unknown types must not silently pass
+        ] {
+            assert!(!linux_fs_supported(magic), "{magic:x}");
+        }
+    }
+
+    #[test]
+    fn documented_local_types_remain_supported() {
+        for magic in [
+            0xef53, 0x58465342, 0x9123683e, 0xf2f52010, 0x2fc12fc1, 0x01021994, 0x794c7630,
+        ] {
+            assert!(linux_fs_supported(magic), "{magic:x}");
+        }
+    }
 }
