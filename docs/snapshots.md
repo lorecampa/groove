@@ -26,9 +26,9 @@ groove snapshot restore ID --max-file-bytes 0  # unlimited safety capture
 Save includes staged state, unstaged changes, deletions, executable modes,
 symlinks, and untracked non-ignored files. Ignored files and empty directories
 are excluded, including custom user/system Git ignore rules. Special files such as
-FIFOs, sockets and devices are also excluded: Git does not enumerate them as
-ordinary untracked content. Export needed special/ignored artifacts separately
-before release --save; a successful snapshot does not preserve them. Root paths must be UTF-8;
+FIFOs, sockets and devices are refused: Git does not enumerate or preserve them as
+ordinary untracked content. Export or remove special files before saving; export
+needed ignored artifacts separately before release --save. Root paths must be UTF-8;
 Linux filenames may contain arbitrary non-NUL bytes. macOS APFS requires valid UTF-8
 filenames. A description and optional `--session ID` associate work with a task.
 
