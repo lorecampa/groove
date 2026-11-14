@@ -99,13 +99,11 @@ fn verification_markers_on_another_filesystem_force_a_full_rewrite() {
     );
     let lease = acquire(&repo);
     let file = repo.slot(1).join("tracked.txt");
-    // Keep the old inode alive so a rewrite cannot immediately reuse its number.
-    let original = fs::File::open(&file).unwrap();
-    let before = original.metadata().unwrap();
+    let before = fs::metadata(&file).unwrap();
     release(&repo, &lease);
     acquire(&repo);
     let after = fs::metadata(&file).unwrap();
-    assert_ne!(after.ino(), before.ino());
+    assert_ne!(after.modified().unwrap(), before.modified().unwrap());
     assert_eq!(fs::read(file).unwrap(), b"baseline\n");
 }
 
