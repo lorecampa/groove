@@ -7,6 +7,8 @@ EXAMPLES:
 
 Creates slot metadata and permanent locks. Checkouts materialize on demand by
 default. --ready-target N enables background preparation of N spare checkouts.
+A first commit is required, even with --ready-target 0. Commit the initial files
+before init; standalone snapshot commands also work before the first commit.
 Running init on a ready pool fails with CONFIG_CONFLICT, even with
 identical settings: use `config show` or `config set` instead. An interrupted
 init must be resumed with --resume and the original settings.

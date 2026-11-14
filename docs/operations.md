@@ -45,6 +45,8 @@ groove --repo /other/repo init --capacity 4 --cleanup warm \
 ```
 
 Initialization creates fixed slot metadata; acquisition materializes worktrees.
+A pool requires a first commit, including when no ready spares are requested.
+Standalone snapshots remain available before that first commit.
 New pools default to zero ready spares. Enable preparation explicitly with
 `--ready-target N` or `pool_defaults.ready_target`; existing pool settings are
 unchanged. Idle eviction still defaults to seven days and runs opportunistically.

@@ -7,6 +7,34 @@ use std::{
 };
 use support::{assert_success, Repo};
 #[test]
+fn initializing_an_unborn_repository_explains_the_first_commit_requirement() {
+    let repo = Repo::new();
+    support::git(&repo.path, &["checkout", "--orphan", "empty"]);
+    support::git(&repo.path, &["rm", "-rf", "."]);
+    for target in ["0", "1"] {
+        let output = support::groove_in(&repo.path)
+            .args(["init", "--capacity", "1", "--ready-target", target])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(4));
+        let error: Value = serde_json::from_slice(&output.stdout).unwrap();
+        let schema: Value =
+            serde_json::from_str(include_str!("../schemas/response-v1.schema.json")).unwrap();
+        jsonschema::validator_for(&schema)
+            .unwrap()
+            .validate(&error)
+            .unwrap();
+        assert_eq!(error["error"]["code"], "INVALID_REVISION");
+        assert!(error["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("first commit"));
+        assert!(!repo.state().join("config.json").exists());
+    }
+    cli(&repo, &["snapshot", "save"]);
+}
+
+#[test]
 fn new_pools_default_to_lazy_checkouts_without_changing_existing_policy() {
     let repo = Repo::new();
     let initialized = cli(&repo, &["init", "--capacity", "2"]);
