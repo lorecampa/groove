@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.3.1] - 2026-11-14
+
 ### Added
 
 - A pinned mise development setup shared with security CI and a prerequisite
@@ -10,6 +12,22 @@
 
 ### Fixed
 
+- Retrying an interrupted saved release captures the still-reserved workspace
+  again before reuse. Completed retries reject deleted or unpinned snapshots.
+- Saved-release retries also recapture work after a crash writes release metadata
+  but before durable protection is removed; failed capture keeps reuse blocked.
+- Snapshots reject legacy `crlf` conversion attributes and preserve empty
+  attribute values while checking for conversion, preventing silent byte changes.
+- Plain release refuses detached commits that no ref preserves, matching
+  destruction's safeguard. Its success message also describes background cleanup.
+- Snapshot capture fails on Git's untracked-inventory warnings instead of
+  silently omitting unreadable directories and authorizing a saved release.
+- Snapshots reject unfinished merges, including conflict-free merged indexes,
+  rather than silently omitting merge parents and operation state.
+- Linux cleanup checks mount points, including same-filesystem bind mounts,
+  before checkout normalization, rebuilding, eviction or destruction.
+- Buffer bounded metadata reads so inspection and acquisition do not perform
+  one filesystem read per JSON byte.
 - Test CLI helpers isolate HOME, XDG state/configuration and logging, and core
   snapshot fixtures run with private Git configuration without mutating parallel-test environments.
 - Strengthen snapshot, ownership and protection regressions to assert typed
@@ -22,9 +40,6 @@
   acquisition while conservative background preparation and eviction refuse them.
 - Document mount-namespace and permission limits of process inspection; an empty
   scan never authorizes releasing a workspace whose writers have not stopped.
-
-- Saved-release retries also recapture work after a crash writes release metadata
-  but before durable protection is removed; failed capture keeps reuse blocked.
 - Background preparation stops normalizing checkouts once its ready target is
   met, preserving excess released caches until acquisition or idle eviction.
 - Invalid preparation bases fail immediately with `INVALID_REVISION`, before
@@ -65,27 +80,11 @@
   the public crates, preventing changed skill packages from retaining stale versions.
 - Atomically claim new checkout roots across repositories, rejecting a second
   pool before it publishes a conflicting manifest; destruction retains the claim.
-
-- Retrying an interrupted saved release captures the still-reserved workspace
-  again before reuse. Completed retries reject deleted or unpinned snapshots.
-- Snapshots reject legacy `crlf` conversion attributes and preserve empty
-  attribute values while checking for conversion, preventing silent byte changes.
-- Buffer bounded metadata reads so inspection and acquisition do not perform
-  one filesystem read per JSON byte.
-- Plain release refuses detached commits that no ref preserves, matching
-  destruction's safeguard. Its success message also describes background cleanup.
-- Snapshot capture fails on Git's untracked-inventory warnings instead of
-  silently omitting unreadable directories and authorizing a saved release.
-- Snapshots reject unfinished merges, including conflict-free merged indexes,
-  rather than silently omitting merge parents and operation state.
-- Linux cleanup checks mount points, including same-filesystem bind mounts,
-  before checkout normalization, rebuilding, eviction or destruction.
 - Default worktree roots resolve aliases in HOME or a configured base before
   validating managed descendants, allowing initialization with a symlinked HOME.
 - Pool configuration checks detect selected user/system Git content filters,
   so globally installed filters cannot silently produce unsmudged checkouts;
   unused global filter definitions remain supported.
-
 - Contributor hooks scan staged secrets and validate formatting from the index,
   including fuzz sources. Pushes require a clean checkout at the outgoing commit
   so validation covers the source being published.
