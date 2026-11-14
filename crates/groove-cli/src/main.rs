@@ -69,12 +69,36 @@ fn main() -> ExitCode {
     if let Some(code) = ready::internal(&raw) {
         return ExitCode::from(code);
     }
+    match std::panic::catch_unwind(|| dispatch(&raw)) {
+        Ok(code) => code,
+        Err(_) => {
+            let partial = Partial::recover(&raw);
+            let terminal = terminal::Terminal::new(terminal::Verbosity {
+                verbose: partial.verbose,
+                quiet: partial.quiet,
+            });
+            let error = Error::new(
+                ErrorCode::ProtocolError,
+                "An internal panic interrupted the command; inspect pool state before retrying",
+            );
+            ExitCode::from(output::emit_error(
+                partial.format,
+                partial.request_id.as_deref(),
+                &error,
+                &terminal,
+                None,
+            ))
+        }
+    }
+}
+
+fn dispatch(raw: &[std::ffi::OsString]) -> ExitCode {
     match crate::contract::command()
-        .try_get_matches_from(&raw)
+        .try_get_matches_from(raw)
         .and_then(|matches| Args::from_arg_matches(&matches))
     {
         Ok(args) => ExitCode::from(run(&args)),
-        Err(error) => ExitCode::from(reject(&raw, &error)),
+        Err(error) => ExitCode::from(reject(raw, &error)),
     }
 }
 
