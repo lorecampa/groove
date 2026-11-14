@@ -20,6 +20,8 @@
   timestamps; compiler cache reuse does not promise timestamp-based incremental builds.
 - Explain why forced releases with unsaved files remain available to explicit
   acquisition while conservative background preparation and eviction refuse them.
+- Document mount-namespace and permission limits of process inspection; an empty
+  scan never authorizes releasing a workspace whose writers have not stopped.
 
 - Saved-release retries also recapture work after a crash writes release metadata
   but before durable protection is removed; failed capture keeps reuse blocked.
