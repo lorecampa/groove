@@ -5,7 +5,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// Scan `/proc` for processes using `root`, skipping this process and its ancestors.
+/// Scan `/proc` for processes using `root`. Exclude this process and its ancestors
+/// only when `skip_ancestors` is set; destructive cleanup also checks the caller.
 pub(super) fn processes_using(root: &Path, skip_ancestors: bool) -> Result<Vec<WorkspaceProcess>> {
     let skip = if skip_ancestors {
         self_and_ancestors()

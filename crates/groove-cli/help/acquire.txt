@@ -30,7 +30,8 @@ original location or outside the pool before retrying; preserve its worktree
 registration.
 
 Retries: with --request-key, repeating the same key, base and task
-returns the same reservation, even across restarts. Changed inputs and
+returns the original reservation without cleaning the checkout or resetting edits,
+even across restarts or after the base branch moves. Changed inputs and
 completed keys are rejected; keys never expire, so use a new key per task.
 Without a key, run `groove list` BEFORE retrying a lost response.
 

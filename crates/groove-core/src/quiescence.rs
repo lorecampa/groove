@@ -1,5 +1,4 @@
-//! Best-effort checks that a workspace is safe to hand back: no unsaved changes and
-//! no other processes still using it.
+//! Advisory checks for unsaved work and processes using a workspace.
 //!
 //! These are observations, not ownership: a process can start, or a file can change,
 //! right after a check. They exist to catch the common mistakes (a forgotten watcher,
@@ -86,13 +85,17 @@ impl Pool {
             .any(|lease| lease.lease_id == id))
     }
 
-    /// Fail unless the workspace looks safe to hand back: no other processes using it
-    /// and, when `require_saved`, no unsaved changes. Inactive reservations (for example
-    /// a retried release) are not checked.
+    /// Reject observed workspace users and, when `require_saved`, unsaved work.
+    ///
+    /// The saved-work check covers staged, modified and non-ignored untracked files,
+    /// plus HEAD commits unreachable from any ref. Inactive reservations (for example
+    /// a retried release) are not checked. These observations do not stop writers or
+    /// acquire ownership; callers must stop writers before release even if this succeeds.
     ///
     /// # Errors
     /// [`ErrorCode::WorkspaceInUse`] lists the processes; [`ErrorCode::UnsavedChanges`]
-    /// carries the observed changes. Both are overridable by the caller.
+    /// carries observed file changes or the path of an unpreserved HEAD. Also reports
+    /// lease lookup, missing-checkout, process-enumeration and Git failures.
     pub fn ensure_quiescent(
         &self,
         id: LeaseId,

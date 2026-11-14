@@ -10,7 +10,9 @@ keep their unborn HEAD and original initial branch name.
 
 Without --to, restore works in place: HEAD must equal the saved HEAD, a safety
 snapshot is taken first, and captured files absent from the target are removed.
-On failure the error reports the safety snapshot ID.
+If restoration fails after the safety snapshot is saved, the error includes its
+ID for recovery. Earlier failures may leave no safety snapshot. A failed restore
+can leave partial working-file changes.
 Use --max-file-bytes to raise the safety capture limit (default 100 MiB per
 changed file; 0 is unlimited). This limit is unused with --to.
 Recovery preserves saved bytes, executable bits and symlinks even if Git

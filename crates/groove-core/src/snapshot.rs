@@ -779,6 +779,8 @@ impl Snapshots {
     /// Capture without changing HEAD, working files or the real index.
     /// Preserves physical bytes, executable bits and symlinks independently of
     /// Git checkout preferences. Active content-converting attributes are rejected.
+    /// Ignored files, empty directories and special files are excluded. Stop external
+    /// writers first: the stability checks detect common races but are not atomic.
     ///
     /// ```no_run
     /// use groove_core::{snapshot::{SaveOptions, Snapshots}, DEFAULT_GIT_TIMEOUT};

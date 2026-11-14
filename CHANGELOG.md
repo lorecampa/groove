@@ -13,6 +13,10 @@
   `--help` and the `help` subcommand retain the detailed installed reference,
   including recovery rules and JSON output types. Global options have their own
   help section. Both help forms preserve the versioned JSON envelope with `--json`.
+- Clarify reservation retry, descriptor lifetime, status-scan limits and saved-release
+  error behavior in core rustdoc. Acquisition help now explains that request-key
+  retries preserve edits; restore help describes safety-snapshot and partial-failure
+  limits. Runtime behavior and JSON response fields are unchanged.
 
 ## [0.3.1] - 2026-11-14
 
