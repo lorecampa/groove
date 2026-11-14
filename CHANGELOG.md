@@ -84,6 +84,8 @@
 
 ### Changed
 
+- Document and regression-test normal SIGINT termination while acquiring capacity,
+  distinct from a capacity timeout and without an extra reservation.
 - Document the macOS cleanup boundary: device checks do not detect same-device
   mounts, so mounted directories inside slots must be unmounted before cleanup.
 - New pools default to `ready_target=0`, materializing checkouts on demand.

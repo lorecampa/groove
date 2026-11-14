@@ -180,6 +180,11 @@ before deletion; discard never authorizes removing foreign paths.
 
 ## Task lifecycle
 
+While acquisition waits for capacity, Unix SIGINT terminates the command with the
+normal signal status (130 in a shell), rather than an ACQUIRE_TIMEOUT response.
+A signal can end a command before JSON is emitted. Use the original request key
+to resolve an interrupted acquisition whose outcome is uncertain.
+
 [The portable skill](../skills/groove/SKILL.md) covers acquire, retry, work and
 release --save. Normal commands select a reservation with `--task` (its label) or `--lease-id`; slot IDs
 identify reusable directories for diagnostics.
