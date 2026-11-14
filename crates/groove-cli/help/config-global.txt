@@ -44,6 +44,7 @@ error/warn/info/debug/trace and is independent of -v/--quiet. GROOVE_LOG_DIR and
 GROOVE_LOG_ENABLED=true|false override file settings. Retention applies to CLI
 diagnostics.
 
+Invalid supplied values name the setting and its expected type or allowed values.
 `set` accepts TOML literals or bare strings, validates updates together and saves
 atomically, preserving comments. `unset` restores defaults. Size/count/age limits
 must be positive and max_file_mib cannot exceed max_total_mib. Invalid changes

@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Explain invalid supplied preference values by setting name and expected values,
+  without obscuring them behind TOML parse positions; updates remain atomic.
 - Use singular slot/directory nouns for counts of one in pool summaries.
 - Render unnamed reservations without inventing an "untitled task" label,
   consistent with absent task metadata in list and JSON output.
