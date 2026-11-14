@@ -974,6 +974,11 @@ impl Snapshots {
             };
             let destination =
                 crate::namespace::recovery_destination(&self.repository, &destination)?;
+            if destination.starts_with(&self.root) {
+                return Err(invalid(
+                    "Recovery destination must be outside the source working tree",
+                ));
+            }
             if destination.exists() {
                 return Err(invalid("Recovery destination must not exist"));
             }
