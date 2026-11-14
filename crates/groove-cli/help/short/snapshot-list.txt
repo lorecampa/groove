@@ -1,0 +1,2 @@
+EXAMPLE:
+  groove snapshot list --limit 20

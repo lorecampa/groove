@@ -520,6 +520,8 @@ fn command_help_is_available_without_a_repository_or_valid_config() {
     std::fs::write(config_home.join("groove/config.toml"), "invalid toml [").unwrap();
     let commands: &[&[&str]] = &[
         &[],
+        &["pools"],
+        &["destroy"],
         &["init"],
         &["acquire"],
         &["release"],
@@ -534,9 +536,12 @@ fn command_help_is_available_without_a_repository_or_valid_config() {
         &["config", "global", "path"],
         &["config", "global", "edit"],
         &["config", "global", "set"],
+        &["config", "global", "unset"],
+        &["config", "global", "show"],
         &["snapshot"],
         &["snapshot", "save"],
         &["snapshot", "list"],
+        &["snapshot", "show"],
         &["snapshot", "diff"],
         &["snapshot", "restore"],
         &["snapshot", "delete"],
@@ -557,6 +562,16 @@ fn command_help_is_available_without_a_repository_or_valid_config() {
             assert_eq!(response["ok"], true);
             let help = response["result"]["text"].as_str().unwrap();
             assert!(help.contains("Usage:"), "{command:?}: {help}");
+            if flag == "-h" {
+                assert!(
+                    help.contains("--help for detailed help"),
+                    "{command:?}: {help}"
+                );
+                assert!(!help.contains("OUTPUT TYPES"), "{command:?}: {help}");
+                assert!(!help.contains("PREFERENCE DEFAULTS"), "{command:?}: {help}");
+            } else {
+                assert!(help.contains("-h for concise help"), "{command:?}: {help}");
+            }
             if *command == ["release"] {
                 assert!(help.contains("groove release --lease-id UUID"));
                 assert!(help.contains("groove release --save"));
@@ -578,6 +593,97 @@ fn command_help_is_available_without_a_repository_or_valid_config() {
     assert!(help.contains("safety snapshot"));
     assert!(help.contains("must not exist"));
     assert!(help.contains("HEAD must equal the"));
+}
+
+#[test]
+fn concise_and_detailed_help_preserve_safety_and_json_output() {
+    let temp = tempfile::tempdir().unwrap();
+    let cases: &[(&[&str], &[&str])] = &[
+        (&[], &["Reservations persist", "Stop all writers"]),
+        (&["acquire"], &["detached HEAD", "lost response"]),
+        (
+            &["release"],
+            &["Stop ALL writers", "ignored", "--force", "work can be lost"],
+        ),
+        (
+            &["destroy"],
+            &[
+                "stop ALL writers",
+                "Deletes pool checkouts",
+                "--discard-changes",
+            ],
+        ),
+        (
+            &["snapshot", "save"],
+            &["Stop all writers", "Ignored files", "do not back"],
+        ),
+        (
+            &["snapshot", "restore"],
+            &[
+                "Stop all writers",
+                "overwrites",
+                "removes files",
+                "safety snapshot",
+            ],
+        ),
+        (
+            &["snapshot", "delete"],
+            &["Deletes", "--force", "pinned snapshot"],
+        ),
+        (&["config", "global"], &["every repository"]),
+    ];
+    for (command, safety) in cases {
+        let mut texts = Vec::new();
+        for flag in ["-h", "--help"] {
+            let human = support::groove_human_in(temp.path())
+                .args(*command)
+                .arg(flag)
+                .output()
+                .unwrap();
+            assert!(human.status.success(), "{command:?}: {human:?}");
+            assert!(human.stderr.is_empty());
+            let text = String::from_utf8(human.stdout).unwrap();
+            assert!(text.contains("Global options:"), "{command:?}: {text}");
+            let json = support::groove_in(temp.path())
+                .args(*command)
+                .arg(flag)
+                .output()
+                .unwrap();
+            assert!(json.status.success());
+            assert!(json.stderr.is_empty());
+            let response = check(&json);
+            assert_eq!(response["ok"], true);
+            assert_eq!(response["result"]["text"], text);
+            texts.push(text);
+        }
+        let short = &texts[0];
+        let long = &texts[1];
+        assert!(
+            short.len() < long.len(),
+            "{command:?}: short help must be shorter"
+        );
+        assert!(
+            short.lines().count() < 80,
+            "{command:?}: concise help should be scannable"
+        );
+        for rule in *safety {
+            assert!(short.contains(rule), "{command:?}: missing {rule}: {short}");
+        }
+        assert!(long.contains(if command.is_empty() {
+            "JSON OUTPUT CONTRACT"
+        } else {
+            "OUTPUT TYPES"
+        }));
+
+        // The help subcommand remains an alternate route to the detailed reference.
+        let output = support::groove_human_in(temp.path())
+            .arg("help")
+            .args(*command)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8(output.stdout).unwrap(), *long);
+    }
 }
 
 #[test]

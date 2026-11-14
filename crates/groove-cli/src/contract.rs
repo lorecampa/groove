@@ -19,9 +19,9 @@ pub fn command() -> clap::Command {
 
 fn decorate(mut command: clap::Command, path: &str, schema: &Value) -> clap::Command {
     let mut text = command
-        .get_after_help()
+        .get_after_long_help()
         .map(ToString::to_string)
-        .unwrap_or_default();
+        .unwrap_or_else(|| concise_help(path).to_owned());
     if path == "config global" {
         text.push_str(include_str!("../help/config-global.txt"));
         text.push_str("\nPREFERENCE DEFAULTS (TOML, before environment overrides):\n");
@@ -74,7 +74,16 @@ fn decorate(mut command: clap::Command, path: &str, schema: &Value) -> clap::Com
         }
         text.push_str("  7: stdout could not be written\n");
     }
-    command = command.after_help(text);
+    let invocation = if path.is_empty() {
+        "groove".to_owned()
+    } else {
+        format!("groove {path}")
+    };
+    text.push_str(&format!("\nRun {invocation} -h for concise help.\n"));
+    command = command.after_long_help(text).after_help(format!(
+        "{}\nRun {invocation} --help for detailed help, recovery rules and output types.",
+        concise_help(path)
+    ));
     let children: Vec<_> = command
         .get_subcommands()
         .map(|child| {
@@ -91,6 +100,37 @@ fn decorate(mut command: clap::Command, path: &str, schema: &Value) -> clap::Com
         command = command.mut_subcommand(name, |_| child);
     }
     command
+}
+
+fn concise_help(path: &str) -> &'static str {
+    match path {
+        "" => include_str!("../help/short/overview.txt"),
+        "init" => include_str!("../help/short/init.txt"),
+        "acquire" => include_str!("../help/short/acquire.txt"),
+        "release" => include_str!("../help/short/release.txt"),
+        "destroy" => include_str!("../help/short/destroy.txt"),
+        "pools" => include_str!("../help/short/pools.txt"),
+        "list" => include_str!("../help/short/list.txt"),
+        "show" => include_str!("../help/short/show.txt"),
+        "completions" => include_str!("../help/short/completions.txt"),
+        "snapshot" => include_str!("../help/short/snapshot.txt"),
+        "snapshot save" => include_str!("../help/short/snapshot-save.txt"),
+        "snapshot list" => include_str!("../help/short/snapshot-list.txt"),
+        "snapshot show" => include_str!("../help/short/snapshot-show.txt"),
+        "snapshot diff" => include_str!("../help/short/snapshot-diff.txt"),
+        "snapshot restore" => include_str!("../help/short/snapshot-restore.txt"),
+        "snapshot delete" => include_str!("../help/short/snapshot-delete.txt"),
+        "config" => include_str!("../help/short/config.txt"),
+        "config show" => include_str!("../help/short/config-show.txt"),
+        "config set" => include_str!("../help/short/config-set.txt"),
+        "config global" => include_str!("../help/short/config-global.txt"),
+        "config global show" => include_str!("../help/short/config-global-show.txt"),
+        "config global path" => include_str!("../help/short/config-global-path.txt"),
+        "config global edit" => include_str!("../help/short/config-global-edit.txt"),
+        "config global set" => include_str!("../help/short/config-global-set.txt"),
+        "config global unset" => include_str!("../help/short/config-global-unset.txt"),
+        _ => "",
+    }
 }
 
 fn references(value: &Value, pending: &mut VecDeque<String>) {

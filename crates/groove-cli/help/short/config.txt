@@ -1,0 +1,3 @@
+EXAMPLES:
+  groove config show
+  groove config set --capacity 8

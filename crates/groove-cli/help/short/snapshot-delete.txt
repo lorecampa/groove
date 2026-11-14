@@ -1,0 +1,4 @@
+EXAMPLE:
+  groove snapshot delete ID
+
+Deletes the checkpoint reference. --force also allows deleting a pinned snapshot.

@@ -2,6 +2,8 @@ EXAMPLES:
   groove snapshot restore ID --to ../recovered
   groove snapshot restore ID
 
+Stop all writers before restoring.
+
 --to recovers into a new directory that must not exist. Recovery uses detached
 HEAD for snapshots with a base commit; snapshots from before the first commit
 keep their unborn HEAD and original initial branch name.
