@@ -16,6 +16,8 @@
   rejection categories alongside the files and reservations that must survive.
 - Remove the obsolete project-configuration fuzz corpus after its target and
   managed task execution configuration were removed.
+- Clarify that warm cleanup retains ignored files but acquisition rewrites tracked
+  timestamps; compiler cache reuse does not promise timestamp-based incremental builds.
 
 - Saved-release retries also recapture work after a crash writes release metadata
   but before durable protection is removed; failed capture keeps reuse blocked.
