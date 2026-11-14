@@ -20,10 +20,16 @@ Install the development tools explicitly, then run the security gate:
 cargo install --locked cargo-audit@0.22.2 cargo-deny@0.20.2 cargo-vet@0.10.3
 # Install gitleaks 8.30.1 on PATH, or use an existing mise installation:
 mise install gitleaks@8.30.1
+# Optional personal default, so Git hooks can find the installed version:
+mise use --global gitleaks@8.30.1
 mise exec gitleaks@8.30.1 -- bash scripts/security.sh
 # With all tools already on PATH:
 bash scripts/security.sh
 ```
+
+The pre-commit hook also scans staged additions with Gitleaks, before secrets
+enter local history. It does not scan unstaged or untracked content. Findings
+are redacted and scan failures block the commit.
 
 The gate is also required by `bash scripts/check.sh push`:
 

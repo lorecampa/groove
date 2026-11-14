@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Fixed
+
+- Contributor hooks scan staged secrets and validate formatting from the index,
+  including fuzz sources. Pushes require a clean checkout at the outgoing commit
+  so validation covers the source being published.
+
 ## [0.3.0] - 2026-11-13
 
 ### Removed

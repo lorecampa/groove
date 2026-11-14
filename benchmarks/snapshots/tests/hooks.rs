@@ -56,6 +56,7 @@ impl Fixture {
             ".githooks/pre-commit",
             ".githooks/pre-push",
             "scripts/check.sh",
+            "scripts/check-index.sh",
             "scripts/security.sh",
             "scripts/install-hooks.sh",
         ] {
@@ -207,5 +208,25 @@ fn linked_worktree_push_does_not_leak_git_context() {
     assert_eq!(
         f.ok(&["git", "config", "--get", "core.bare"]).stdout,
         b"false\n"
+    );
+}
+
+#[test]
+fn staged_content_and_outgoing_commit_regressions() {
+    // Run the broader contract scenarios with real Git, Gitleaks and rustfmt.
+    // Only the disposable fixtures' expensive push build gates are stubbed.
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let out = Command::new("bash")
+        .arg(root.join("scripts/test-hooks.sh"))
+        .current_dir(&root)
+        .env_clear()
+        .envs(std::env::vars_os().filter(|(k, _)| !k.to_string_lossy().starts_with("GIT_")))
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
     );
 }

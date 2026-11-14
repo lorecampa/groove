@@ -4,8 +4,7 @@ set -eu
 cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 case "${1:-}" in
   commit)
-    git diff --cached --check
-    cargo fmt --all -- --check
+    bash scripts/check-index.sh
     ;;
   push)
     git diff --check
