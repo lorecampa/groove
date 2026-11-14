@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Create filter-validation scratch directories with owner-only permissions even
+  when the invoking shell has a permissive umask.
 - Fall back to full normalization when the verification marker and checkout use
   different filesystems, or the filesystem needs the explicit override, avoiding
   assumptions about matching timestamp precision and unqualified ctime semantics.
