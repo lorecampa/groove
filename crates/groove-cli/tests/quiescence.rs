@@ -67,6 +67,53 @@ fn release_refuses_unsaved_changes_unless_forced_and_save_preserves_them() {
 }
 
 #[test]
+fn plain_release_preserves_detached_commits_until_saved_or_explicitly_discarded() {
+    for preservation in ["branch", "snapshot", "force"] {
+        let repo = Repo::new();
+        ok(&cli(&repo, &["init", "--capacity", "1"]));
+        let path = acquire(&repo, "committed");
+        let path = Path::new(&path);
+        fs::write(path.join("tracked.txt"), "committed result\n").unwrap();
+        support::git(path, &["add", "tracked.txt"]);
+        support::git(path, &["commit", "-qm", "task result"]);
+        let commit = support::git(path, &["rev-parse", "HEAD"]);
+        let refused = error(&cli(&repo, &["release", "--task", "committed"]));
+        assert_eq!(refused["code"], "UNSAVED_CHANGES");
+        assert_eq!(
+            ok(&cli(&repo, &["list"]))["leases"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(!cli(&repo, &["acquire"]).status.success());
+        assert_eq!(support::git(path, &["rev-parse", "HEAD"]), commit);
+        assert_eq!(
+            fs::read(path.join("tracked.txt")).unwrap(),
+            b"committed result\n"
+        );
+        match preservation {
+            "branch" => {
+                support::git(path, &["branch", "task-result"]);
+                ok(&cli(&repo, &["release", "--task", "committed"]));
+            }
+            "snapshot" => {
+                ok(&cli(&repo, &["release", "--save", "--task", "committed"]));
+            }
+            _ => {
+                ok(&cli(&repo, &["release", "--force", "--task", "committed"]));
+            }
+        }
+        acquire(&repo, "next");
+        if preservation != "force" {
+            assert!(!repo
+                .git(&["for-each-ref", "--contains", &commit])
+                .is_empty());
+        }
+    }
+}
+
+#[test]
 fn processes_using_the_workspace_block_release_with_or_without_save_but_not_the_invoking_shell() {
     let repo = Repo::new();
     ok(&cli(&repo, &["init", "--capacity", "1"]));

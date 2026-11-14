@@ -126,9 +126,34 @@ impl Pool {
                 )
                 .with_details(|d| d.changes = Some(changes)));
             }
+            require_saved_head(&lease.worktree_path, timeout)?;
         }
         Ok(())
     }
+}
+
+/// A clean index does not preserve detached commits. Reflogs can expire, so
+/// require a ref that keeps HEAD reachable before normal release or destruction.
+pub(crate) fn require_saved_head(path: &std::path::Path, timeout: Duration) -> Result<()> {
+    let git = crate::git::Git::new(timeout);
+    let head = git.run(path, &["rev-parse", "--verify", "HEAD^{commit}"], &[])?;
+    let head = std::str::from_utf8(&head)
+        .map_err(|e| Error::new(ErrorCode::GitError, "Invalid HEAD OID").with_source(e))?
+        .trim_end_matches('\n');
+    if git
+        .run(
+            path,
+            &["for-each-ref", "--contains", head, "--format=%(refname)"],
+            &[],
+        )?
+        .is_empty()
+    {
+        return Err(Error::new(
+            ErrorCode::UnsavedChanges,
+            "Workspace HEAD is not preserved by any ref; create a branch or snapshot, or explicitly discard the work",
+        ).with_details(|d| d.path = Some(path.into())));
+    }
+    Ok(())
 }
 
 /// Reject a reservation whose checkout was removed outside Groove (for example

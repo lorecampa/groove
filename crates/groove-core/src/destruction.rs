@@ -177,24 +177,8 @@ fn require_saved(repo: &Repository, path: &Path, timeout: Duration) -> Result<()
         return Err(Error::new(ErrorCode::UnsavedChanges, "Workspace contains residual files or edits; save them or acknowledge loss with --discard-changes")
             .with_details(|d| d.path = Some(path.into())));
     }
-    let head = git.run(path, &["rev-parse", "--verify", "HEAD^{commit}"], &[])?;
-    let head = std::str::from_utf8(&head)
-        .map_err(|e| Error::new(ErrorCode::GitError, "Invalid HEAD OID").with_source(e))?
-        .trim_end_matches('\n');
-    if git
-        .run(
-            path,
-            &["for-each-ref", "--contains", head, "--format=%(refname)"],
-            &[],
-        )?
-        .is_empty()
-    {
-        return Err(Error::new(ErrorCode::UnsavedChanges, "Workspace HEAD is not preserved by any ref; create a branch or snapshot, or use --discard-changes")
-            .with_details(|d| d.path = Some(path.into())));
-    }
-    Ok(())
+    crate::quiescence::require_saved_head(path, timeout)
 }
-
 impl Pool {
     /// Remove an idle pool's checkouts, exact Git registrations and disposable caches.
     ///

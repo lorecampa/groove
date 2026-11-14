@@ -16,6 +16,8 @@
   attribute values while checking for conversion, preventing silent byte changes.
 - Buffer bounded metadata reads so inspection and acquisition do not perform
   one filesystem read per JSON byte.
+- Plain release refuses detached commits that no ref preserves, matching
+  destruction's safeguard. Its success message also describes background cleanup.
 
 - Contributor hooks scan staged secrets and validate formatting from the index,
   including fuzz sources. Pushes require a clean checkout at the outgoing commit
