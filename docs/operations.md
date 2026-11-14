@@ -147,6 +147,19 @@ available. Legacy logs and history are retained without cleanup commands.
 No Git object collection is run. Keeping a small coordination area is intentional:
 deleting permanent locks could create two independent owners for the same path.
 
+After deletion is durable, Groove removes the root's `.groove-owner` claim if no
+active or initializing pool still uses that root. A completed destroy retry also
+finishes claim removal and never removes a later repository's claim. The marker
+is a namespace symlink, not a permanent lock. Retained deleted manifests still
+reserve their root within the original repository until reinitialization.
+
+If the original repository was deleted without destroying its pools, inspect
+the marker with `readlink /absolute/root/.groove-owner`. Confirm that its owning
+Git directory has been permanently removed, stop all writers in the root, and
+preserve any remaining results outside it. Then remove only that `.groove-owner`
+symlink with `unlink /absolute/root/.groove-owner`. Never remove permanent lock
+files or another live repository's marker. A new pool still requires an empty root.
+
 An interruption leaves the pool disabled. Repeat the same destroy command, including
 its discard flag, to resume. Completed retries succeed. For automation, pass
 `--pool-id UUID` from the preview/result so a retry cannot target a replacement pool.

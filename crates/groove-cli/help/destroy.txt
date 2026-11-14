@@ -9,6 +9,9 @@ Omitting --pool targets default. When several non-deleted pools exist, select
 --pool NAME explicitly, including --pool default. Only that pool is removed;
 other pools and their reservations remain intact. Use groove pools to inspect
 the catalog. --pool-id checks a generation inside the selected namespace.
+Completed deletion releases its external .groove-owner root claim once no pool
+uses that root. Retrying destroy finishes interrupted claim cleanup. For a marker
+left by a deleted repository, see the recovery procedure in docs/operations.md.
 
 Release every reservation and stop ALL writers first. Live lease and
 execution descriptors, protected reservations and orphaned execution records

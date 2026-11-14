@@ -1,6 +1,102 @@
 mod support;
 use support::{assert_success, Repo, TestChild};
 
+#[test]
+fn destroyed_root_can_be_claimed_by_another_repository_without_stale_retry_damage() {
+    released_root_claim(false);
+}
+
+#[cfg(feature = "test-hooks")]
+#[test]
+fn interrupted_root_claim_cleanup_resumes_after_durable_deletion() {
+    released_root_claim(true);
+}
+
+fn released_root_claim(interrupt: bool) {
+    let first = Repo::new();
+    let second = Repo::new();
+    let root = first.temp.path().join("reusable-root");
+    let init = |repo: &Repo| {
+        let output = support::groove_in(&repo.path)
+            .args([
+                "init",
+                "--capacity",
+                "1",
+                "--ready-target",
+                "0",
+                "--idle-timeout",
+                "never",
+                "--worktree-root",
+            ])
+            .arg(&root)
+            .output()
+            .unwrap();
+        assert_success(&output)
+    };
+    init(&first);
+    let marker = root.join(".groove-owner");
+    assert!(marker.is_symlink());
+    let preview = support::groove_in(&first.path)
+        .args(["destroy", "--dry-run"])
+        .output()
+        .unwrap();
+    assert_success(&preview);
+    assert!(marker.is_symlink());
+    if interrupt {
+        use std::os::unix::net::UnixListener;
+        let socket = first.temp.path().join("deleted.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let mut child = TestChild::spawn(
+            support::groove_in(&first.path)
+                .arg("destroy")
+                .env("GROOVE_TEST_CHECKPOINT", "pool-deleted")
+                .env("GROOVE_TEST_SOCKET", &socket),
+        );
+        let stream = child
+            .checkpoint(&listener, "pool-deleted", support::PROCESS_TIMEOUT)
+            .unwrap();
+        child.kill().unwrap();
+        child.wait().unwrap();
+        drop(stream);
+        assert!(marker.is_symlink());
+    }
+    assert_success(
+        &support::groove_in(&first.path)
+            .arg("destroy")
+            .output()
+            .unwrap(),
+    );
+    assert!(!marker.is_symlink());
+    init(&second);
+    let owner = std::fs::read_link(&marker).unwrap();
+    let lease = assert_success(
+        &support::groove_in(&second.path)
+            .arg("acquire")
+            .output()
+            .unwrap(),
+    );
+    let file = root.join("wt-0001/valuable.txt");
+    std::fs::write(&file, b"new repository's work").unwrap();
+    assert_success(
+        &support::groove_in(&first.path)
+            .arg("destroy")
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(std::fs::read_link(&marker).unwrap(), owner);
+    assert_eq!(std::fs::read(file).unwrap(), b"new repository's work");
+    let active = assert_success(
+        &support::groove_in(&second.path)
+            .arg("list")
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(
+        active["result"]["leases"][0]["lease_id"],
+        lease["result"]["lease_id"]
+    );
+}
+
 #[cfg(feature = "test-hooks")]
 #[test]
 fn initializer_losing_the_root_race_can_choose_another_root() {

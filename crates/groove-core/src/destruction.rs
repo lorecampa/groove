@@ -358,6 +358,7 @@ impl Pool {
             artifacts: Vec::new(),
         };
         if !initializing && previous.as_ref().is_some_and(|r| r.phase == Phase::Deleted) {
+            crate::namespace::release_root_claim(&repo, &config.worktree_root)?;
             result.deleted = true;
             result.already_deleted = true;
             return Ok(result);
@@ -565,6 +566,7 @@ impl Pool {
         record.phase = Phase::Deleted;
         lifecycle::write(&repo, &record)?;
         state::checkpoint("pool-deleted");
+        crate::namespace::release_root_claim(&repo, root)?;
         result.deleted = true;
         Ok(result)
     }

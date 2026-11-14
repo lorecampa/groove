@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Release external root-owner markers after durable deletion of their last pool,
+  safely resume interrupted marker cleanup, and document orphan-marker recovery.
 - Successful saved-release retries unpin superseded checkpoints while retaining
   their snapshot refs. A durable cleanup journal resumes retirement after crashes,
   including after slot reuse; the final checkpoint stays pinned.
