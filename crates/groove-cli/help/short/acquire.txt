@@ -1,0 +1,5 @@
+EXAMPLE:
+  groove acquire --task fix-parser --request-key issue-42
+
+Starts with detached HEAD. Preserve the lease ID and work in the returned path.
+Retry a lost response with the same request key; without one, inspect groove list first.

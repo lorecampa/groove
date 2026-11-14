@@ -1,0 +1,7 @@
+WORKFLOW:
+  groove init --capacity 4
+  groove acquire --task fix-parser
+  # Work in the returned checkout; create a branch to keep commits.
+  groove release --save --task fix-parser
+
+Stop all writers before release. Reservations persist until explicitly released.

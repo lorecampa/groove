@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Changed
+
+- `-h` prints concise command help with examples and essential safety guidance;
+  `--help` and the `help` subcommand retain the detailed installed reference,
+  including recovery rules and JSON output types. Global options have their own
+  help section. Both help forms preserve the versioned JSON envelope with `--json`.
+
 ## [0.3.1] - 2026-11-14
 
 ### Added

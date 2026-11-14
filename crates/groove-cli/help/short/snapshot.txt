@@ -1,0 +1,6 @@
+EXAMPLES:
+  groove snapshot save 'before refactor'
+  groove snapshot restore ID --to ../recovered
+
+Stop writers before saving or restoring. Snapshots exclude ignored files and
+special files; ordinary pushes do not back them up.

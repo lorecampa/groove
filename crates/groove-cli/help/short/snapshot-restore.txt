@@ -1,0 +1,6 @@
+EXAMPLE:
+  groove snapshot restore ID --to ../recovered
+
+Stop all writers first. --to requires a directory that must not exist.
+Without --to, overwrites files in place and removes files absent from the snapshot;
+HEAD must match the saved HEAD. A safety snapshot is taken first.

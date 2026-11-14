@@ -18,29 +18,50 @@ const DEFAULT_MAX_FILE_BYTES: &str = "104857600";
     name = "groove",
     version = concat!(env!("CARGO_PKG_VERSION"), " (revision ", env!("GROOVE_BUILD_REVISION"), ")"),
     about = "Reusable Git worktree pools and local checkpoints for parallel coding tasks",
-    after_help = help!("overview")
+    after_long_help = help!("overview")
 )]
 pub struct Args {
-    /// Repository path; discovery also works from subdirectories and linked worktrees.
-    #[arg(long, global = true, default_value = ".")]
+    /// Repository path.
+    #[arg(
+        long,
+        global = true,
+        help_heading = "Global options",
+        default_value = ".",
+        long_help = "Repository path; discovery also works from subdirectories and linked worktrees."
+    )]
     pub repo: PathBuf,
-    /// Pool namespace (default: default). Use an explicit name for destroy when several pools exist.
-    #[arg(long, global = true)]
+    /// Pool namespace [default: default].
+    #[arg(
+        long,
+        global = true,
+        help_heading = "Global options",
+        long_help = "Pool namespace (default: default). Use an explicit name for destroy when several pools exist."
+    )]
     pub pool: Option<PoolName>,
-    /// Print one versioned JSON object on stdout instead of text.
-    #[arg(long, global = true)]
+    /// Print one versioned JSON response.
+    #[arg(
+        long,
+        global = true,
+        help_heading = "Global options",
+        long_help = "Print one versioned JSON object on stdout instead of text."
+    )]
     pub json: bool,
-    /// Echo this ID in JSON responses and logs for correlation; not an idempotency key.
-    #[arg(long, global = true)]
+    /// Correlation ID for JSON responses and logs.
+    #[arg(
+        long,
+        global = true,
+        help_heading = "Global options",
+        long_help = "Echo this ID in JSON responses and logs for correlation; not an idempotency key."
+    )]
     pub request_id: Option<String>,
-    /// Show informational diagnostics; -vv adds debug, -vvv adds trace.
-    #[arg(short, long, global = true, action = clap::ArgAction::Count, conflicts_with = "quiet")]
+    /// Increase diagnostics (-vv debug, -vvv trace).
+    #[arg(short, long, global = true, help_heading = "Global options", long_help = "Show informational diagnostics; -vv adds debug, -vvv adds trace.", action = clap::ArgAction::Count, conflicts_with = "quiet")]
     pub verbose: u8,
     /// Hide warnings and progress; errors and results remain.
-    #[arg(short, long, global = true)]
+    #[arg(short, long, global = true, help_heading = "Global options")]
     pub quiet: bool,
-    /// Timeout per Git operation and pool admin/snapshot lock wait, in milliseconds.
-    #[arg(long, global = true, default_value_t = 120_000, value_parser = clap::value_parser!(u64).range(1..))]
+    /// Git/lock timeout (ms).
+    #[arg(long, global = true, help_heading = "Global options", long_help = "Timeout per Git operation and pool admin/snapshot lock wait, in milliseconds.", default_value_t = 120_000, value_parser = clap::value_parser!(u64).range(1..))]
     pub git_timeout_ms: u64,
     #[command(subcommand)]
     pub command: Command,
@@ -92,7 +113,7 @@ impl From<Cleanup> for groove_core::CleanupPolicy {
 #[derive(Subcommand)]
 pub enum Command {
     /// List repository pools, including interrupted pools; hide deleted pools by default.
-    #[command(after_help = help!("pools"))]
+    #[command(after_long_help = help!("pools"))]
     Pools {
         /// Sort pools by name or lifecycle state, then name.
         #[arg(long, value_enum, default_value = "name")]
@@ -107,7 +128,7 @@ pub enum Command {
         disk_usage: bool,
     },
     /// Delete an idle pool's checkouts and legacy caches, retaining snapshots.
-    #[command(after_help = help!("destroy"))]
+    #[command(after_long_help = help!("destroy"))]
     Destroy {
         /// Validate and preview deletion without removing data or changing lifecycle state.
         #[arg(long)]
@@ -120,7 +141,7 @@ pub enum Command {
         pool_id: Option<PoolId>,
     },
     /// Create a pool of reusable worktree slots for this repository.
-    #[command(after_help = help!("init"))]
+    #[command(after_long_help = help!("init"))]
     Init {
         /// Desired ready, unreserved checkouts (default: pool_defaults.ready_target, 1).
         #[arg(long)]
@@ -145,23 +166,33 @@ pub enum Command {
         resume: bool,
     },
     /// Reserve a clean checkout of a commit until it is released.
-    #[command(after_help = help!("acquire"))]
+    #[command(after_long_help = help!("acquire"))]
     Acquire {
-        /// Commit, branch or tag whose files the checkout starts from (HEAD detached there).
-        #[arg(long, default_value = "HEAD")]
+        /// Starting commit, branch or tag; checkout HEAD is detached.
+        #[arg(
+            long,
+            default_value = "HEAD",
+            long_help = "Commit, branch or tag whose files the checkout starts from (HEAD detached there)."
+        )]
         base: String,
-        /// Unique name for this reservation (1..256 bytes, no control characters); later commands select it with --task.
-        #[arg(long)]
+        /// Unique reservation label, selectable with --task.
+        #[arg(
+            long,
+            long_help = "Unique name for this reservation (1..256 bytes, no control characters); later commands select it with --task."
+        )]
         task: Option<String>,
-        /// Idempotency key: retrying the same key/base/task returns the same reservation.
-        #[arg(long)]
+        /// Idempotency key for safe acquisition retries.
+        #[arg(
+            long,
+            long_help = "Idempotency key: retrying the same key/base/task returns the same reservation."
+        )]
         request_key: Option<String>,
         /// Milliseconds to wait for a free slot; 0 scans once.
         #[arg(long, default_value_t = 0)]
         wait_ms: u64,
     },
     /// Return a workspace to the pool; optionally save a pinned snapshot first.
-    #[command(after_help = help!("release"))]
+    #[command(after_long_help = help!("release"))]
     Release {
         #[command(flatten)]
         lease: LeaseSelector,
@@ -171,17 +202,18 @@ pub enum Command {
         /// Description recorded with the pinned snapshot.
         #[arg(long, requires = "save", default_value = "workspace saved")]
         description: String,
-        /// Largest changed file to capture, in bytes; 0 removes the limit.
-        #[arg(long, requires = "save", default_value = DEFAULT_MAX_FILE_BYTES)]
+        /// File size limit in bytes; 0 means unlimited.
+        #[arg(long, requires = "save", default_value = DEFAULT_MAX_FILE_BYTES, long_help = "Largest changed file to capture, in bytes; 0 removes the limit.")]
         max_file_bytes: u64,
-        /// Skip unsaved-change and process checks (with --save, still save changes).
-        /// Without --save, unsaved
-        /// contents are discarded on the next acquisition.
-        #[arg(long)]
+        /// Skip change/process checks; unsaved work can be lost.
+        #[arg(
+            long,
+            long_help = "Skip unsaved-change and process checks (with --save, still save changes). Without --save, unsaved contents are discarded on the next acquisition."
+        )]
         force: bool,
     },
     /// List active reservations, or every slot.
-    #[command(after_help = help!("list"))]
+    #[command(after_long_help = help!("list"))]
     List {
         /// Sort by slot ID or task label, with slot ID breaking ties.
         #[arg(long, value_enum, default_value = "slot")]
@@ -196,7 +228,7 @@ pub enum Command {
         details: bool,
     },
     /// Show pool settings and slots, or one reservation.
-    #[command(after_help = help!("show"), group(clap::ArgGroup::new("collection_options")
+    #[command(after_long_help = help!("show"), group(clap::ArgGroup::new("collection_options")
         .args(["limit", "offset", "unlimited", "sort", "order"]).multiple(true).conflicts_with("OptionalSelector")))]
     Show {
         /// Sort the slot collection by slot ID or task label, then slot ID.
@@ -214,17 +246,17 @@ pub enum Command {
         disk_usage: bool,
     },
     /// Print a shell completion script for commands, options and fixed values.
-    #[command(after_help = help!("completions"))]
+    #[command(after_long_help = help!("completions"))]
     Completions {
         /// Shell to generate completions for; no shell is selected by default.
         #[arg(value_enum)]
         shell: clap_complete::Shell,
     },
     /// Save, inspect, restore and delete local checkpoints.
-    #[command(subcommand, after_help = help!("snapshot"))]
+    #[command(subcommand, after_long_help = help!("snapshot"))]
     Snapshot(SnapshotCommand),
     /// Pool settings and user preferences.
-    #[command(subcommand, after_help = help!("config"))]
+    #[command(subcommand, after_long_help = help!("config"))]
     Config(ConfigCommand),
 }
 
@@ -334,7 +366,7 @@ pub enum SnapshotCommand {
         max_file_bytes: u64,
     },
     /// List snapshots across all linked worktrees (default: newest first).
-    #[command(after_help = help!("snapshot-list"))]
+    #[command(after_long_help = help!("snapshot-list"))]
     List {
         /// Sort snapshots by creation time or snapshot ID; ties use snapshot ID.
         #[arg(long, value_enum, default_value = "created")]
@@ -361,7 +393,7 @@ pub enum SnapshotCommand {
         max_file_bytes: u64,
     },
     /// Restore in place or into a new directory.
-    #[command(after_help = help!("restore"))]
+    #[command(after_long_help = help!("restore"))]
     Restore {
         /// Snapshot ID.
         id: String,

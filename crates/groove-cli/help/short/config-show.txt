@@ -1,0 +1,2 @@
+EXAMPLE:
+  groove config show

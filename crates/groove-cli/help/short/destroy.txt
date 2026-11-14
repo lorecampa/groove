@@ -1,0 +1,6 @@
+EXAMPLE:
+  groove destroy --dry-run
+
+Release every reservation and stop ALL writers first. Deletes pool checkouts and
+ignored files; snapshots and branches remain. Preserve detached commits first.
+--discard-changes allows losing residual edits, never bypassing ownership checks.
