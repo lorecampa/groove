@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Fall back to full normalization when the verification marker and checkout use
+  different filesystems, or the filesystem needs the explicit override, avoiding
+  assumptions about matching timestamp precision and unqualified ctime semantics.
 - Destruction publishes cancellation for the active ready worker and waits up to
   the Git timeout for its descriptors to close. Workers stop between slots;
   stale cancellation tokens cannot cancel a later worker or pool generation.

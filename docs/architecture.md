@@ -186,6 +186,9 @@ files keep their inode and mtime across leases. Directory ctime propagation catc
 rename swaps. The trust assumption is that an ordinary task cannot backdate ctime;
 root actions or clock changes invalidate that assumption.
 
+A marker on another filesystem or an override-only filesystem forces a full
+rewrite: cross-filesystem timestamp precision and unqualified ctime semantics
+cannot establish that a checkout file predates the marker.
 A missing marker/index, hidden-edit flags, changed .gitattributes rules, a touched
 attribute file or a touched-path list above 32 MiB forces a full rewrite. A crash
 after marker removal leaves no reusable verification claim. The full path removes

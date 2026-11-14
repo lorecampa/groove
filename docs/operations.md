@@ -227,6 +227,8 @@ rewriting, including chmod, xattr, hardlink, utimes and directory-swap changes.
 This trusts that tasks cannot backdate ctime without root privileges or a clock
 change. Missing verification/index state, hidden-edit flags, attribute-rule
 changes or an oversized touched-path inventory force a complete rewrite.
+Reuse also requires that the checkout and marker share one recognized filesystem;
+cross-filesystem markers and override-only storage always use a full rewrite.
 Warm caches may therefore benefit timestamp-based builds, but retained outputs
 remain unverified. The example below uses ccache to validate content reuse.
 
