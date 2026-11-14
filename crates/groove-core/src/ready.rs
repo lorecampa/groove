@@ -98,6 +98,32 @@ impl Default for ReadySettings {
     }
 }
 impl ReadySettings {
+    pub(crate) fn validate_revision(
+        &self,
+        repo: &crate::repository::Repository,
+        timeout: Duration,
+    ) -> Result<()> {
+        let revision = format!("{}^{{commit}}", self.ready_base);
+        Git::new(timeout)
+            .run(
+                &repo.origin,
+                &["rev-parse", "--verify", "--end-of-options", &revision],
+                &[],
+            )
+            .map_err(|error| {
+                if error.git_exit_code().is_some() {
+                    Error::new(
+                        ErrorCode::InvalidRevision,
+                        "Ready base must resolve to an existing local commit",
+                    )
+                    .with_source(error)
+                } else {
+                    error
+                }
+            })?;
+        Ok(())
+    }
+
     pub(crate) fn resolve_head(
         &mut self,
         repo: &crate::repository::Repository,
@@ -110,7 +136,7 @@ impl ReadySettings {
                 .or_else(|_| git.run(&repo.origin, &["rev-parse", "--verify", "HEAD"], &[]))?;
             self.ready_base = String::from_utf8_lossy(&base).trim().to_owned();
         }
-        Ok(())
+        self.validate_revision(repo, timeout)
     }
     /// Validate the policy against the complete candidate pool capacity.
     /// # Errors
