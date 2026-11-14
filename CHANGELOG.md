@@ -12,6 +12,8 @@
 
 - Retrying an interrupted saved release captures the still-reserved workspace
   again before reuse. Completed retries reject deleted or unpinned snapshots.
+- Snapshots reject legacy `crlf` conversion attributes and preserve empty
+  attribute values while checking for conversion, preventing silent byte changes.
 
 - Contributor hooks scan staged secrets and validate formatting from the index,
   including fuzz sources. Pushes require a clean checkout at the outgoing commit

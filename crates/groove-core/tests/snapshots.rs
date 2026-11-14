@@ -269,6 +269,57 @@ fn restore_rejects_new_filter_attributes_before_modifying_files() {
         assert_eq!(s.show(&snapshot.id).unwrap().id, snapshot.id);
     }
 }
+
+fn assert_conversion_rejected(rules: &[&str]) {
+    for rule in rules {
+        let repo = Repo::new();
+        let snapshots = service(&repo);
+        fs::write(repo.path.join("tracked.txt"), b"saved\r\n").unwrap();
+        let saved = save(&snapshots);
+        fs::write(repo.path.join(".git/info/attributes"), rule).unwrap();
+        fs::write(repo.path.join("tracked.txt"), b"later\r\n").unwrap();
+        let index = fs::read(repo.path.join(".git/index")).unwrap();
+        let error = snapshots.save(Default::default()).unwrap_err();
+        assert_eq!(error.code, ErrorCode::UnsupportedConfiguration, "{rule}");
+        let destination = repo.temp.path().join("recovered");
+        for target in [None, Some(destination.as_path())] {
+            let error = snapshots.restore(&saved.id, target).unwrap_err();
+            assert_eq!(error.code, ErrorCode::UnsupportedConfiguration, "{rule}");
+            assert!(!destination.exists());
+            assert_eq!(
+                fs::read(repo.path.join("tracked.txt")).unwrap(),
+                b"later\r\n"
+            );
+            assert_eq!(fs::read(repo.path.join(".git/index")).unwrap(), index);
+        }
+        assert_eq!(snapshots.list().unwrap().len(), 1);
+    }
+}
+
+#[test]
+fn legacy_crlf_attributes_reject_capture_and_restore_before_changing_files() {
+    assert_conversion_rejected(&["*.txt crlf", "*.txt crlf=input"]);
+}
+
+#[test]
+fn empty_attribute_values_cannot_hide_content_conversion() {
+    assert_conversion_rejected(&["*.txt diff= text=auto"]);
+}
+
+#[test]
+fn empty_nonconverting_attributes_and_unset_crlf_preserve_bytes() {
+    let repo = Repo::new();
+    fs::write(repo.path.join(".gitattributes"), "*.txt diff= -crlf\n").unwrap();
+    fs::write(repo.path.join("tracked.txt"), b"saved\r\n").unwrap();
+    let snapshots = service(&repo);
+    let saved = save(&snapshots);
+    let destination = repo.temp.path().join("recovered");
+    snapshots.restore(&saved.id, Some(&destination)).unwrap();
+    assert_eq!(
+        fs::read(destination.join("tracked.txt")).unwrap(),
+        b"saved\r\n"
+    );
+}
 #[test]
 fn rejects_large_files_filters_conflicts_and_changed_head() {
     let repo = Repo::new();

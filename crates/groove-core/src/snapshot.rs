@@ -541,10 +541,23 @@ impl Snapshots {
             args.push("--cached");
         }
         let attrs = self.run(&args, index, Some(names), lock)?;
-        let fields: Vec<_> = paths(&attrs).collect();
-        for attr in fields.as_chunks::<3>().0 {
+        // Unlike path lists, attribute triples can contain empty values (diff=).
+        // Drop only the final record terminator, never an empty field.
+        if attrs.is_empty() {
+            return Ok(());
+        }
+        let attrs = attrs
+            .strip_suffix(&[0])
+            .ok_or_else(|| unsupported("Malformed Git attribute response"))?;
+        let fields: Vec<_> = attrs.split(|b| *b == 0).collect();
+        let (triples, remainder) = fields.as_chunks::<3>();
+        if !remainder.is_empty() {
+            return Err(unsupported("Malformed Git attribute response"));
+        }
+        for attr in triples {
             if [
                 b"text".as_slice(),
+                b"crlf",
                 b"eol",
                 b"filter",
                 b"working-tree-encoding",
