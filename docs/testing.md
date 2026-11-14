@@ -120,6 +120,13 @@ exec. Keep explicit contention and
 surviving-child tests; fixture isolation is not a substitute for them. Some older
 fixtures use a mutex and therefore do not establish concurrent fixture scheduling.
 
+Use `groove_in`/`groove_human_in` with a disposable fixture path for CLI commands.
+The shared helper isolates Git configuration, HOME, XDG configuration/state and
+logging; override these only with other fixture-owned paths when testing settings.
+Core snapshot fixtures use `in_subprocess`, which sets private Git configuration
+before the test process starts. Never mutate process-wide environment variables
+from a concurrently scheduled test.
+
 Never fix a timing failure by deleting protection, explicitly unlocking an inherited
 descriptor, adding an arbitrary sleep or serializing the entire suite. Establish the
 cause, arrange the relevant boundary deterministically, and check failure as well as

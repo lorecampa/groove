@@ -96,7 +96,7 @@ fn concurrent_shell_acquisitions_obey_capacity() {
     let mut children = Vec::new();
     for _ in 0..6 {
         children.push(support::TestChild::spawn(
-            support::groove()
+            support::groove_in(&repo.path)
                 .current_dir(&repo.path)
                 .arg("acquire")
                 .stdout(std::process::Stdio::piped())
@@ -121,7 +121,7 @@ fn concurrent_shell_acquisitions_obey_capacity() {
 fn lost_stdout_keeps_a_discoverable_reservation() {
     let repo = Repo::new();
     assert_success(&cli(&repo.path, &["init", "--capacity", "1"]));
-    let status = support::groove()
+    let status = support::groove_in(&repo.path)
         .current_dir(&repo.path)
         .arg("acquire")
         .stdout(support::failed_output())

@@ -10,6 +10,9 @@
 
 ### Fixed
 
+- Test CLI helpers isolate HOME, XDG state/configuration and logging, and core
+  snapshot fixtures run with private Git configuration without mutating parallel-test environments.
+
 - Saved-release retries also recapture work after a crash writes release metadata
   but before durable protection is removed; failed capture keeps reuse blocked.
 - Background preparation stops normalizing checkouts once its ready target is

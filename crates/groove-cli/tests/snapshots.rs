@@ -151,7 +151,7 @@ fn cli_end_to_end_lifecycle() {
 #[test]
 fn lost_response_still_leaves_snapshot() {
     let repo = Repo::new();
-    let status = support::groove()
+    let status = support::groove_in(&repo.path)
         .current_dir(&repo.path)
         .args(["snapshot", "save"])
         .stdout(support::failed_output())

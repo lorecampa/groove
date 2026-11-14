@@ -72,7 +72,7 @@ impl Repo {
     }
 }
 pub fn command(path: &Path, program: impl AsRef<OsStr>) -> Command {
-    let mut c = Command::new(program);
+    let mut c = Command::new(program.as_ref());
     for (key, _) in std::env::vars_os() {
         use std::os::unix::ffi::OsStrExt;
         if key.as_bytes().starts_with(b"GIT_") {
@@ -86,6 +86,8 @@ pub fn command(path: &Path, program: impl AsRef<OsStr>) -> Command {
         .env_remove("GIT_DIR")
         .env_remove("GIT_WORK_TREE")
         .env_remove("GIT_INDEX_FILE");
+    // Shell wrappers may exec Groove too; isolate every fixture subprocess.
+    isolate_home(&mut c, path);
     c
 }
 pub fn git(path: &Path, args: &[&str]) -> String {
@@ -309,6 +311,15 @@ pub fn in_subprocess(name: &str) -> bool {
     let output = TestChild::spawn(
         Command::new(std::env::current_exe().unwrap())
             .args(["--exact", name, "--nocapture"])
+            .env("HOME", temp.path())
+            .env("XDG_CONFIG_HOME", temp.path().join("config"))
+            .env("XDG_STATE_HOME", temp.path().join("state"))
+            .env("XDG_CACHE_HOME", temp.path().join("cache"))
+            .env_remove("GROOVE_LOG_ENABLED")
+            .env_remove("GROOVE_LOG_DIR")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("GROOVE_ISOLATED_TEST", name)
             .env(ENTRY_MARKER, &marker),
     )
@@ -352,11 +363,6 @@ pub fn groove_binary() -> std::ffi::OsString {
     })
 }
 
-/// The groove binary under test, emitting human-readable output.
-pub fn groove_human() -> Command {
-    Command::new(groove_binary())
-}
-
 /// Human-readable Groove with the controlled Git environment, run in `path`.
 pub fn groove_human_in(path: &Path) -> Command {
     let mut command = command(path, groove_binary());
@@ -364,14 +370,7 @@ pub fn groove_human_in(path: &Path) -> Command {
     command
 }
 
-/// The groove binary under test, emitting JSON.
-pub fn groove() -> Command {
-    let mut command = Command::new(groove_binary());
-    command.arg("--json");
-    command
-}
-
-/// [`groove`] with the controlled Git environment of [`command`], run in `path`.
+/// JSON Groove with the controlled Git and user environment, run in `path`.
 pub fn groove_in(path: &Path) -> Command {
     let mut command = command(path, groove_binary());
     isolate_home(&mut command, path);
@@ -387,5 +386,9 @@ fn isolate_home(command: &mut Command, path: &Path) {
         .unwrap_or(path);
     command
         .env("HOME", home)
-        .env("XDG_CONFIG_HOME", home.join("config-home"));
+        .env("XDG_CONFIG_HOME", home.join("config-home"))
+        .env("XDG_STATE_HOME", home.join("state-home"))
+        .env("XDG_CACHE_HOME", home.join("cache-home"))
+        .env_remove("GROOVE_LOG_ENABLED")
+        .env_remove("GROOVE_LOG_DIR");
 }

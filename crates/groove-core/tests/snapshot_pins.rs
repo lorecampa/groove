@@ -13,6 +13,9 @@ fn service(repo: &Repo) -> Snapshots {
 
 #[test]
 fn verified_pins_require_force_and_packed_refs_remain_supported() {
+    if !support::in_subprocess("verified_pins_require_force_and_packed_refs_remain_supported") {
+        return;
+    }
     for format in ["sha1", "sha256"] {
         let repo = Repo::format(format);
         let snapshots = service(&repo);
@@ -44,6 +47,9 @@ fn verified_pins_require_force_and_packed_refs_remain_supported() {
 
 #[test]
 fn corrupt_or_inconsistent_pins_never_authorize_deletion() {
+    if !support::in_subprocess("corrupt_or_inconsistent_pins_never_authorize_deletion") {
+        return;
+    }
     for format in ["sha1", "sha256"] {
         for mode in [
             "malformed",
@@ -107,6 +113,9 @@ fn corrupt_or_inconsistent_pins_never_authorize_deletion() {
 
 #[test]
 fn unreadable_pin_is_an_error_and_leaves_both_refs_untouched() {
+    if !support::in_subprocess("unreadable_pin_is_an_error_and_leaves_both_refs_untouched") {
+        return;
+    }
     // SAFETY: geteuid only returns the caller's effective uid.
     if unsafe { libc::geteuid() } == 0 {
         eprintln!("skipped: root can read mode-000 refs");
@@ -148,6 +157,9 @@ fn unreadable_pin_is_an_error_and_leaves_both_refs_untouched() {
 
 #[test]
 fn reftable_pin_absence_and_forced_deletion_use_the_git_backend() {
+    if !support::in_subprocess("reftable_pin_absence_and_forced_deletion_use_the_git_backend") {
+        return;
+    }
     let version = support::git(std::path::Path::new("."), &["--version"]);
     let parts: Vec<_> = version
         .trim_start_matches("git version ")

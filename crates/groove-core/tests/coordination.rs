@@ -170,6 +170,9 @@ fn inspection_includes_free_reserved_locked_and_quarantined_slots() {
 
 #[test]
 fn finish_pins_results_survives_reuse_and_is_idempotent() {
+    if !support::in_subprocess("finish_pins_results_survives_reuse_and_is_idempotent") {
+        return;
+    }
     let _fixture = FIXTURE.lock().unwrap();
     let repo = Repo::new();
     let pool = pool(&repo, 1);
@@ -202,6 +205,9 @@ fn finish_pins_results_survives_reuse_and_is_idempotent() {
 
 #[test]
 fn failed_checkpoint_keeps_results_and_reservation_protected() {
+    if !support::in_subprocess("failed_checkpoint_keeps_results_and_reservation_protected") {
+        return;
+    }
     let _fixture = FIXTURE.lock().unwrap();
     let repo = Repo::new();
     let pool = pool(&repo, 1);
