@@ -50,6 +50,8 @@
   minimum Rust and current stable remain compatibility build/test targets.
 - Release preparation updates and validates both native plugin versions alongside
   the public crates, preventing changed skill packages from retaining stale versions.
+- Atomically claim new checkout roots across repositories, rejecting a second
+  pool before it publishes a conflicting manifest; destruction retains the claim.
 
 - Retrying an interrupted saved release captures the still-reserved workspace
   again before reuse. Completed retries reject deleted or unpinned snapshots.

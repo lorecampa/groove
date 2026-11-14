@@ -240,7 +240,14 @@ compatibility barriers: release, saved release and deletion refuse them. Use the
 previous version to stop and recover outstanding executions before upgrading.
 Existing logs, history and artifact data are not discarded on upgrade.
 
+New checkout roots retain an immutable `.groove-owner` symlink naming the owning
+repository's canonical namespace directory. Atomic symlink creation prevents independent
+repositories from claiming the same empty root. The marker is read without
+following it, survives destruction, and never confers lease ownership. Legacy
+roots remain supported; do not remove owner markers to transfer storage.
+
 ## Git subprocesses
+
 
 Git runs with argv arrays, a controlled repository-selection environment,
 disabled hooks/prompts/fsmonitor/automatic maintenance, bounded time and captured

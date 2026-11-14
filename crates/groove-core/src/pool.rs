@@ -160,7 +160,7 @@ impl Pool {
                     "No interrupted initialization to resume",
                 ));
             }
-            if requested.exists() && fs::read_dir(&requested)?.next().is_some() {
+            if requested.exists() && crate::namespace::root_has_contents(&repo, &requested)? {
                 return Err(Error::new(
                     crate::ErrorCode::ConfigConflict,
                     "Worktree root must initially be empty",
@@ -178,9 +178,20 @@ impl Pool {
             lock_identity: locking::identity(&lifecycle_gate)?,
             discard_changes: false,
         };
-        crate::lifecycle::write(&repo, &lifecycle)?;
         repository::mkdir(&requested)?;
         repository::owned_dir(&requested)?;
+        state::checkpoint("init-before-root-claim");
+        if let Err(error) = crate::namespace::claim_root(&repo, &requested) {
+            if error.code == crate::ErrorCode::ConfigConflict && !options.resume {
+                // Another repository won the root race. This invocation has
+                // published only its own intent, so allow a different root on
+                // retry without touching the winner's storage or permanent locks.
+                fs::remove_file(&intent)?;
+                state::sync_dir(&repo.root)?;
+            }
+            return Err(error);
+        }
+        crate::lifecycle::write(&repo, &lifecycle)?;
         for name in ["slots", "tmp"] {
             repository::mkdir(&repo.root.join(name))?;
         }
