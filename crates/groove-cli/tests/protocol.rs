@@ -755,7 +755,7 @@ fn human_output_is_the_default_and_json_is_opt_in() {
     let init = human(&["init", "--capacity", "1"]);
     assert!(init.status.success());
     let text = String::from_utf8(init.stdout).unwrap();
-    assert!(text.starts_with("Initialized a pool of 1 slots."), "{text}");
+    assert!(text.starts_with("Initialized a pool of 1 slot."), "{text}");
     assert!(serde_json::from_str::<Value>(&text).is_err());
     let acquired = human(&["acquire", "--task", "human"]);
     assert!(String::from_utf8_lossy(&acquired.stdout).contains("reserved for 'human'"));
