@@ -144,17 +144,36 @@ pub(crate) fn require_saved_head(path: &std::path::Path, timeout: Duration) -> R
     let head = std::str::from_utf8(&head)
         .map_err(|e| Error::new(ErrorCode::GitError, "Invalid HEAD OID").with_source(e))?
         .trim_end_matches('\n');
+    let common = git.run(
+        path,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        &[],
+    )?;
+    let common = std::str::from_utf8(&common)
+        .map_err(|error| {
+            Error::new(ErrorCode::GitError, "Invalid common Git directory").with_source(error)
+        })?
+        .trim_end_matches('\n');
     if git
-        .run(
-            path,
-            &["for-each-ref", "--contains", head, "--format=%(refname)"],
-            &[],
+        .run_with(
+            std::path::Path::new(common),
+            &[
+                "for-each-ref",
+                "--count=1",
+                "--contains",
+                head,
+                "--format=%(refname)",
+            ],
+            crate::git::Invocation {
+                reject_stderr: true,
+                ..Default::default()
+            },
         )?
         .is_empty()
     {
         return Err(Error::new(
             ErrorCode::UnsavedChanges,
-            "Workspace HEAD is not preserved by any ref; create a branch or snapshot, or explicitly discard the work",
+            "Workspace HEAD is not preserved by a shared ref; create a branch, tag, stash or snapshot, or explicitly discard the work",
         ).with_details(|d| d.path = Some(path.into())));
     }
     Ok(())

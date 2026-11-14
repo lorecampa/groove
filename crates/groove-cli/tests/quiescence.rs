@@ -184,6 +184,68 @@ fn release_from_inside_the_slot_can_pipe_its_output_to_a_sibling() {
 }
 
 #[test]
+fn private_worktree_and_bisect_refs_do_not_preserve_a_released_commit() {
+    for preservation in ["branch", "tag", "stash", "snapshot"] {
+        let repo = Repo::new();
+        ok(&cli(
+            &repo,
+            &[
+                "init",
+                "--capacity",
+                "1",
+                "--ready-target",
+                "0",
+                "--idle-timeout",
+                "never",
+            ],
+        ));
+        let path = acquire(&repo, "private-ref");
+        let path = Path::new(&path);
+        fs::write(path.join("tracked.txt"), b"detached result\n").unwrap();
+        support::git(path, &["add", "tracked.txt"]);
+        support::git(path, &["commit", "-qm", "detached work"]);
+        for reference in ["refs/worktree/private", "refs/bisect/private"] {
+            support::git(path, &["update-ref", reference, "HEAD"]);
+            let refused = error(&cli(&repo, &["release", "--task", "private-ref"]));
+            assert_eq!(refused["code"], "UNSAVED_CHANGES", "{reference}");
+            assert_eq!(
+                ok(&cli(&repo, &["list"]))["leases"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                1
+            );
+            assert_eq!(
+                fs::read(path.join("tracked.txt")).unwrap(),
+                b"detached result\n"
+            );
+        }
+        match preservation {
+            "branch" => {
+                support::git(path, &["branch", "saved-result"]);
+            }
+            "tag" => {
+                support::git(path, &["tag", "saved-result"]);
+            }
+            "stash" => {
+                fs::write(path.join("tracked.txt"), b"stash contents\n").unwrap();
+                support::git(path, &["stash", "push", "-qm", "preserve HEAD"]);
+            }
+            "snapshot" => {
+                support::assert_success(
+                    &support::groove_in(path)
+                        .args(["snapshot", "save"])
+                        .output()
+                        .unwrap(),
+                );
+            }
+            _ => unreachable!(),
+        }
+        ok(&cli(&repo, &["release", "--task", "private-ref"]));
+    }
+}
+
+#[test]
 fn release_refuses_unsaved_changes_unless_forced_and_save_preserves_them() {
     let repo = Repo::new();
     ok(&cli(&repo, &["init", "--capacity", "2"]));
