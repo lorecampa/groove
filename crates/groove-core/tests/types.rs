@@ -1,4 +1,4 @@
-use groove_core::{CommitOid, Error, ErrorCode, LeaseId, SlotId};
+use groove_core::{CommitOid, Error, ErrorCode, LeaseId, PoolId, SlotId};
 use std::{collections::BTreeMap, error::Error as _};
 
 #[test]
@@ -13,6 +13,8 @@ fn pool_names_are_portable_and_cannot_escape_their_namespace() {
     ] {
         let parsed: PoolName = name.parse().unwrap();
         assert_eq!(parsed.as_str(), name);
+        assert_eq!(parsed.to_string(), name);
+        assert_eq!(String::from(parsed.clone()), name);
         assert_eq!(serde_json::to_value(&parsed).unwrap(), name);
     }
     for name in [
@@ -40,6 +42,45 @@ fn pool_names_are_portable_and_cannot_escape_their_namespace() {
         );
     }
     assert_eq!(PoolName::default().as_str(), "default");
+}
+
+#[test]
+fn pool_ids_accept_only_uuid_v4_and_preserve_their_wire_identity() {
+    let text = "00000000-0000-4000-8000-000000000001";
+    let id: PoolId = text.parse().unwrap();
+    assert_eq!(id.to_string(), text);
+    assert_eq!(String::from(id), text);
+    assert_eq!(PoolId::try_from(text.to_owned()).unwrap(), id);
+    assert_eq!(serde_json::to_value(id).unwrap(), serde_json::json!(text));
+    assert_eq!(
+        serde_json::from_value::<PoolId>(serde_json::json!(text)).unwrap(),
+        id
+    );
+    for invalid in [
+        "00000000-0000-0000-0000-000000000000",
+        "00000000-0000-1000-8000-000000000001",
+        "00000000-0000-3000-8000-000000000001",
+        "00000000-0000-5000-8000-000000000001",
+        "00000000-0000-7000-8000-000000000001",
+        "not-a-uuid",
+    ] {
+        assert_eq!(
+            invalid.parse::<PoolId>().unwrap_err().code,
+            ErrorCode::InvalidArgument,
+            "{invalid}"
+        );
+        assert_eq!(
+            PoolId::try_from(invalid.to_owned()).unwrap_err().code,
+            ErrorCode::InvalidArgument,
+            "{invalid}"
+        );
+        assert!(
+            serde_json::from_value::<PoolId>(serde_json::json!(invalid)).is_err(),
+            "{invalid}"
+        );
+    }
+    let malformed = "not-a-uuid".parse::<PoolId>().unwrap_err();
+    assert!(malformed.source().unwrap().is::<uuid::Error>());
 }
 
 #[test]
