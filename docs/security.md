@@ -14,16 +14,13 @@ the release builder. Keep Rust/Cargo, Git and the operating system patched.
 Git 2.40 is a feature minimum, not a security baseline. Lockfile scanners do not
 establish the security of those external tools or of code without an advisory.
 
-Install the development tools explicitly, then run the security gate:
+Install Gitleaks 8.30.1 using the [upstream installation
+instructions](https://github.com/gitleaks/gitleaks#installing) and ensure
+`gitleaks` is on `PATH`. Install the Cargo security tools, then run the gate:
 
 ```sh
 cargo install --locked cargo-audit@0.22.2 cargo-deny@0.20.2 cargo-vet@0.10.3
-# Install gitleaks 8.30.1 on PATH, or use an existing mise installation:
-mise install gitleaks@8.30.1
-# Optional personal default, so Git hooks can find the installed version:
-mise use --global gitleaks@8.30.1
-mise exec gitleaks@8.30.1 -- bash scripts/security.sh
-# With all tools already on PATH:
+gitleaks version
 bash scripts/security.sh
 ```
 
