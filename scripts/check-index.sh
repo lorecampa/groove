@@ -3,6 +3,7 @@
 set -eu
 cd "$(git rev-parse --show-toplevel)"
 git diff --cached --check
+bash scripts/check-tools.sh commit
 gitleaks git --pre-commit --staged --redact --no-banner
 
 index_tree=$(mktemp -d "${TMPDIR:-/tmp}/groove-index-check.XXXXXX")

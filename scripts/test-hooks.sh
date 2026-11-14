@@ -16,7 +16,7 @@ git config user.name 'Hook tests'
 git config user.email 'hooks@example.invalid'
 cp -R "$source_root/.githooks" .
 mkdir scripts
-cp "$source_root"/scripts/{check.sh,check-index.sh,security.sh} scripts/
+cp "$source_root"/scripts/{check.sh,check-index.sh,check-tools.sh,security.sh} scripts/
 git config core.hooksPath .githooks
 cat > Cargo.toml <<'MANIFEST'
 [package]
@@ -55,6 +55,7 @@ STUB
 chmod +x "$fixture/bin/gitleaks"
 expect_failure env PATH="$fixture/bin:$PATH" git commit --allow-empty -qm 'Must reject unavailable scanner'
 grep -q 'scanner unavailable' "$fixture/failure.log"
+grep -q 'mise install' "$fixture/failure.log"
 rm "$fixture/bin/gitleaks"
 
 # A secret staged then hidden by a clean working copy must still be rejected.

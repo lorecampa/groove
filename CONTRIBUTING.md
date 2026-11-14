@@ -13,7 +13,12 @@ The optional manual/release CI matrix covers minimum Rust and current stable.
 
 Groove is a Linux/macOS Rust workspace. Rust 1.89 and Git 2.40 are compatibility
 minimums; use the patched contributor toolchain and a security-maintained Git.
-Install the pinned audit/policy tools from [security maintenance](docs/security.md).
+For the recommended development setup, install [mise](https://mise.jdx.dev/getting-started.html),
+then run `mise trust` and `mise install` in this checkout. [mise.toml](mise.toml)
+pins the security tools; `mise run doctor` checks prerequisites. Activate mise
+in your shell, or prefix commands such as Git commits and pushes with
+`mise exec --`. Hooks use tools on `PATH` and also work with manual installs;
+see [security maintenance](docs/security.md).
 Node/npm are
 used only for the optional build-tool compatibility test. See
 [testing](docs/testing.md) for local checks and deterministic crash tests.

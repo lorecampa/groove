@@ -57,6 +57,7 @@ impl Fixture {
             ".githooks/pre-push",
             "scripts/check.sh",
             "scripts/check-index.sh",
+            "scripts/check-tools.sh",
             "scripts/security.sh",
             "scripts/install-hooks.sh",
         ] {
@@ -229,4 +230,21 @@ fn staged_content_and_outgoing_commit_regressions() {
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
+}
+
+#[test]
+fn unavailable_scanner_explains_developer_setup_without_committing() {
+    let mut f = Fixture::new();
+    f.env.insert("TEST_FAIL_SECRETS".into(), "true".into());
+    let out = f.call(&["git", "commit", "-qm", "unavailable scanner"]);
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("Cannot run development tool: gitleaks version"));
+    assert!(stderr.contains("mise install"));
+    assert!(stderr.contains("on PATH"));
+    assert!(!f
+        .call(&["git", "rev-parse", "--verify", "HEAD"])
+        .status
+        .success());
+    assert!(!fs::read_to_string(&f.log).unwrap().contains("fmt --all"));
 }
