@@ -19,6 +19,12 @@ macOS requires local APFS, including case-sensitive APFS; HFS+, network and FUSE
 filesystems are unsupported. Passing
 that check does not certify flock/fsync or power-loss durability. Managed state
 must be owned by you and not writable by group/others.
+For a local filesystem outside the recognized list, such as bcachefs, JFS or
+exFAT, explicitly set `GROOVE_ALLOW_UNSUPPORTED_FILESYSTEM=1` for Groove commands
+after checking that the storage supplies local flock, atomic rename and fsync
+semantics. This bypasses only filesystem-type qualification; ownership, mount,
+locking and path checks still apply. Other values do not enable the override.
+The override does not establish network-filesystem correctness or durability.
 APFS filenames must be valid UTF-8. Names that differ only by case or Unicode
 normalization may collide on the destination filesystem; repositories must use
 names that the selected volume can represent distinctly.

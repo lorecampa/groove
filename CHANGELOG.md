@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Accept sign-extended 32-bit Linux filesystem magic numbers. Add the explicit
+  `GROOVE_ALLOW_UNSUPPORTED_FILESYSTEM=1` override for locally qualified storage
+  outside the filesystem allowlist, retaining ownership and cleanup safeguards.
 - Explain that an empty repository needs its first commit before pool initialization,
   including with zero ready spares; standalone snapshots still support unborn HEAD.
 - Report corrupt ready-slot metadata as unhealthy in `list --slots` and `show`,
