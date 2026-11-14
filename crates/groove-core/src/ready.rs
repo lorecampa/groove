@@ -114,7 +114,7 @@ impl ReadySettings {
                 if error.git_exit_code().is_some() {
                     Error::new(
                         ErrorCode::InvalidRevision,
-                        "Ready base must resolve to an existing local commit",
+                        "Ready base must resolve to an existing local commit; create a first commit before initializing an empty repository",
                     )
                     .with_source(error)
                 } else {

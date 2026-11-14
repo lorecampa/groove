@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Explain that an empty repository needs its first commit before pool initialization,
+  including with zero ready spares; standalone snapshots still support unborn HEAD.
 - Report corrupt ready-slot metadata as unhealthy in `list --slots` and `show`,
   with its failure, matching acquisition's refusal to reuse that slot.
 - Remove a failed `snapshot restore --to` checkout and its Git registration,
