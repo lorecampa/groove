@@ -11,6 +11,9 @@ commands can select it with --task NAME instead of the lease ID. An active label
 cannot be reused: a second acquire with it fails with INVALID_ARGUMENT naming the
 existing lease and path. Labels and keys must not contain control characters.
 
+On macOS, unmount directories inside slots first: acquisition has no mount-table
+safeguard. Linux checks visible mounts, including same-device bind mounts.
+
 Cleanup follows the pool's policy: pristine (default) removes ignored files;
 warm retains them only when reusing a healthy checkout. Retained files are not
 validated build outputs and may disappear during rebuild. Run and validate your

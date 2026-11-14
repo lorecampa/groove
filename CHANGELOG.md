@@ -26,6 +26,8 @@
 
 ### Changed
 
+- Document the macOS cleanup boundary: device checks do not detect same-device
+  mounts, so mounted directories inside slots must be unmounted before cleanup.
 - New pools default to `ready_target=0`, materializing checkouts on demand.
   Existing pool settings and explicit preparation targets are preserved.
 - `-h` prints concise command help with examples and essential safety guidance;
