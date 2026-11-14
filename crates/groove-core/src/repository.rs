@@ -29,6 +29,21 @@ impl Repository {
                 .with_source(e));
             }
         }
+        let origin = fs::canonicalize(repo).map_err(|error| {
+            Error::new(
+                crate::ErrorCode::InvalidArgument,
+                format!("Repository path {} is unavailable: {error}", repo.display()),
+            )
+            .with_details(|details| details.path = Some(repo.into()))
+            .with_source(error)
+        })?;
+        if !origin.is_dir() {
+            return Err(Error::new(
+                crate::ErrorCode::InvalidArgument,
+                format!("Repository path {} is not a directory", origin.display()),
+            )
+            .with_details(|details| details.path = Some(origin)));
+        }
         let git = Git::new(timeout);
         let version = git.run(repo, &["--version"], &[])?;
         let version = String::from_utf8_lossy(&version);
@@ -46,11 +61,33 @@ impl Repository {
                 "Git 2.40 or newer is required",
             ));
         }
-        let out = git.run(
-            repo,
-            &["rev-parse", "--path-format=absolute", "--git-common-dir"],
-            &[],
-        )?;
+        let out = git
+            .run(
+                repo,
+                &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+                &[],
+            )
+            .map_err(|mut error| {
+                let cause = error
+                    .details
+                    .git
+                    .as_ref()
+                    .and_then(|failure| {
+                        failure
+                            .stderr
+                            .lines()
+                            .map(str::trim)
+                            .find(|line| !line.is_empty())
+                    })
+                    .map(|line| line.chars().take(400).collect::<String>())
+                    .unwrap_or_else(|| error.message.clone());
+                error.message = format!(
+                    "Could not discover a Git repository at {}: {}",
+                    origin.display(),
+                    cause
+                );
+                error
+            })?;
         let raw = out.strip_suffix(b"\n").unwrap_or(&out);
         let text = std::str::from_utf8(raw).map_err(|e| {
             Error::new(
@@ -63,7 +100,6 @@ impl Repository {
         utf8(&common)?;
         no_symlinks(&common)?;
         local_fs(&common)?;
-        let origin = fs::canonicalize(repo).unwrap_or_else(|_| repo.to_path_buf());
         Ok(Self {
             root: common.join("groove"),
             name: crate::PoolName::default(),
