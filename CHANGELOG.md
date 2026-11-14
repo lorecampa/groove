@@ -44,6 +44,8 @@
   worktree removal, checking recovery and permanent lock preservation.
 - Build packaged executables separately from test targets, preventing development
   dependencies from enabling features in the shipped binary.
+- CI test jobs install the pinned Gitleaks scanner required by contributor-hook
+  regressions on Linux and macOS, independently of the security job.
 
 - Retrying an interrupted saved release captures the still-reserved workspace
   again before reuse. Completed retries reject deleted or unpinned snapshots.
