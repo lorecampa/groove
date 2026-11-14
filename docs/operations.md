@@ -142,7 +142,11 @@ artifact entries cause an error before removal starts.
 
 Deletion removes configured workspaces, exact native registrations and disposable
 artifact caches. Permanent locks, journals, saved-release receipts, execution history/logs,
-branches, snapshots and the checkout root itself survive. Snapshot commands remain
+branches and snapshots survive, except that completed saved-release receipts are
+pruned when their snapshot no longer exists and no pin retirement is pending.
+Damaged receipts are preserved. Request-key tombstones and permanent request/label
+locks are retained to honor never-expiring retry identities and lock-inode guarantees.
+The checkout root itself survives. Snapshot commands remain
 available. Legacy logs and history are retained without cleanup commands.
 No Git object collection is run. Keeping a small coordination area is intentional:
 deleting permanent locks could create two independent owners for the same path.

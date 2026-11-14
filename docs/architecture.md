@@ -135,6 +135,9 @@ retrying with the same discard policy revalidates ownership/paths/processes and
 completes removal. Already-removed paths are accepted. It then archives the manifest
 and publishes `deleted`. Roots, unknown files in checkout roots, permanent locks,
 request journals, receipts and logs/history remain; snapshots and branches are independent.
+Completed receipts whose snapshots no longer exist are pruned after durable
+deletion, unless their pin-retirement journal is still pending. Permanent
+request/label locks and never-expiring key tombstones retain their identities.
 Once deletion is durable, the external `.groove-owner` symlink is removed when
 no active/pending pool uses the root. A crash before marker cleanup is repaired by
 a completed destroy retry; a later repository's replacement claim is preserved.

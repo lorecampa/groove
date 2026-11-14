@@ -40,7 +40,7 @@ impl Default for DestroyOptions {
     }
 }
 
-/// Removal plan or completed deletion. Retained coordination/history is never purged.
+/// Removal plan or completed deletion. Permanent coordination is retained.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DestroyResult {
@@ -189,8 +189,9 @@ impl Pool {
     /// Remove an idle pool's checkouts, exact Git registrations and disposable caches.
     ///
     /// All reservations must first be finished/released and every writer stopped.
-    /// Permanent locks, request-key tombstones, finish receipts, logs/history,
+    /// Permanent locks, request-key tombstones, recoverable finish receipts, logs/history,
     /// branches and snapshots survive. The checkout root itself is retained.
+    /// Completed receipts for missing snapshots may be pruned; pending pin cleanup is kept.
     /// A durable deletion record blocks allocation after interruption; retry with
     /// the same `discard_changes` policy. A new `init` is allowed only after completion.
     ///
@@ -359,6 +360,7 @@ impl Pool {
         };
         if !initializing && previous.as_ref().is_some_and(|r| r.phase == Phase::Deleted) {
             crate::namespace::release_root_claim(&repo, &config.worktree_root)?;
+            crate::finish::prune_missing_receipts(&repo, options.git_timeout)?;
             result.deleted = true;
             result.already_deleted = true;
             return Ok(result);
@@ -567,6 +569,7 @@ impl Pool {
         lifecycle::write(&repo, &record)?;
         state::checkpoint("pool-deleted");
         crate::namespace::release_root_claim(&repo, root)?;
+        crate::finish::prune_missing_receipts(&repo, options.git_timeout)?;
         result.deleted = true;
         Ok(result)
     }
