@@ -36,3 +36,8 @@ animation.
 
 Version output records the source revision (or unknown without source metadata).
 Source archives can supply GROOVE_BUILD_REVISION as a full commit ID at build time.
+
+FILESYSTEM OVERRIDE:
+GROOVE_ALLOW_UNSUPPORTED_FILESYSTEM=1 bypasses filesystem-type qualification.
+Use only after verifying local flock, atomic rename and fsync semantics; this
+does not bypass ownership, mount or path checks. See docs/operations.md.

@@ -1,5 +1,9 @@
 use crate::{Error, ErrorCode, Result};
-use std::{ffi::CString, os::unix::ffi::OsStrExt, path::Path};
+use std::{
+    ffi::{CString, OsStr},
+    os::unix::ffi::OsStrExt,
+    path::Path,
+};
 
 pub(crate) fn local_fs(path: &Path) -> Result<()> {
     let c = CString::new(path.as_os_str().as_bytes())
@@ -23,10 +27,17 @@ pub(crate) fn local_fs(path: &Path) -> Result<()> {
             .collect();
         stat.f_flags & libc::MNT_LOCAL as u32 != 0 && name == b"apfs"
     };
-    if !supported {
+    require_supported(
+        supported,
+        std::env::var_os("GROOVE_ALLOW_UNSUPPORTED_FILESYSTEM").as_deref(),
+    )
+}
+
+fn require_supported(supported: bool, override_value: Option<&OsStr>) -> Result<()> {
+    if !supported && override_value != Some(OsStr::new("1")) {
         return Err(Error::new(
             ErrorCode::UnsupportedConfiguration,
-            "Unsupported filesystem: Groove requires a recognized local filesystem (APFS on macOS); network, FUSE and unknown filesystem types are unsupported",
+            "Unsupported filesystem: Groove requires a recognized local filesystem (APFS on macOS); set GROOVE_ALLOW_UNSUPPORTED_FILESYSTEM=1 only after verifying local flock, atomic rename and fsync support",
         ));
     }
     Ok(())
@@ -37,7 +48,9 @@ fn linux_fs_supported(magic: u64) -> bool {
     // Linux UAPI include/uapi/linux/magic.h; OpenZFS ZFS_SUPER_MAGIC.
     // A type check cannot certify the underlying storage or power-loss safety.
     matches!(
-        magic,
+        // Some 32-bit statfs ABIs sign-extend f_type. Linux filesystem magic
+        // numbers occupy 32 bits, including Btrfs/F2FS values with bit 31 set.
+        magic as u32,
         0xef53 // ext2/3/4
         | 0x58465342 // XFS
         | 0x9123683e // Btrfs
@@ -51,6 +64,15 @@ fn linux_fs_supported(magic: u64) -> bool {
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::linux_fs_supported;
+
+    #[test]
+    fn signed_32_bit_filesystem_types_keep_their_unsigned_identity() {
+        for magic in [0x9123683e_u32, 0xf2f52010_u32] {
+            assert!(linux_fs_supported(magic as u64));
+            assert!(linux_fs_supported(magic as i32 as i64 as u64));
+        }
+        assert!(!linux_fs_supported(0xffff_ffff_ff53_4d42)); // SMB
+    }
 
     #[test]
     fn network_shared_and_unknown_filesystems_are_rejected() {
@@ -73,6 +95,29 @@ mod tests {
             0xef53, 0x58465342, 0x9123683e, 0xf2f52010, 0x2fc12fc1, 0x01021994, 0x794c7630,
         ] {
             assert!(linux_fs_supported(magic), "{magic:x}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod override_tests {
+    use super::*;
+
+    #[test]
+    fn unsupported_filesystems_require_an_explicit_exact_override() {
+        require_supported(false, Some(OsStr::new("1"))).unwrap();
+        require_supported(true, None).unwrap();
+        for value in [
+            None,
+            Some(OsStr::new("0")),
+            Some(OsStr::new("true")),
+            Some(OsStr::new("")),
+        ] {
+            let error = require_supported(false, value).unwrap_err();
+            assert_eq!(error.code, ErrorCode::UnsupportedConfiguration);
+            assert!(error
+                .message
+                .contains("GROOVE_ALLOW_UNSUPPORTED_FILESYSTEM=1"));
         }
     }
 }
