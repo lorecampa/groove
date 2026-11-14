@@ -20,6 +20,8 @@
   slots, while preserving the corrupt slot and its files for recovery.
 - Argument errors honor `--json` and request IDs even when an earlier argument
   contains non-UTF-8 bytes.
+- Human argument errors display their error code on the summary line instead
+  of leaving a dangling code after clap's usage text.
 
 - Retrying an interrupted saved release captures the still-reserved workspace
   again before reuse. Completed retries reject deleted or unpinned snapshots.

@@ -162,7 +162,15 @@ pub fn emit_error(
     args: Option<&crate::args::Args>,
 ) -> u8 {
     let hint = error_hint(error, args);
-    let mut message = format!("error: {} ({})\n", error.message, error.code);
+    let (summary, body) = error
+        .message
+        .split_once('\n')
+        .unwrap_or((&error.message, ""));
+    let mut message = format!("error: {summary} ({})\n", error.code);
+    if !body.trim_end().is_empty() {
+        message.push_str(body.trim_end());
+        message.push('\n');
+    }
     let details = serde_json::to_value(&error.details).unwrap_or_default();
     if details.as_object().is_some_and(|d| !d.is_empty()) {
         message.push_str(&fields(&details, 1));

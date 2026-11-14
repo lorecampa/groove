@@ -94,6 +94,23 @@ fn json_argument_errors_survive_non_utf8_arguments_before_the_flag() {
 }
 
 #[test]
+fn argument_error_codes_stay_with_the_summary_before_usage() {
+    let repo = Repo::new();
+    let output = cli(&repo.path, &["unknown-command"]);
+    failure(&output, 2, "INVALID_ARGUMENT");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let summary = stderr
+        .lines()
+        .find(|line| line.starts_with("error: "))
+        .unwrap();
+    assert!(summary.ends_with("(INVALID_ARGUMENT)"));
+    assert!(stderr.contains("Usage:"));
+    assert!(!stderr
+        .lines()
+        .any(|line| line.trim() == "(INVALID_ARGUMENT)"));
+}
+
+#[test]
 fn a_deleted_working_directory_is_reported_plainly() {
     let repo = Repo::new();
     assert_success(&cli(&repo.path, &["init", "--capacity", "1"]));
