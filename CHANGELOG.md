@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Scope snapshot attribute checks to saved paths, support byte-preserving text,
+  legacy crlf and eol=lf rules, and reject normalized files by name. Saving
+  .gitattributes uses strict whole-tree checks; restore refuses CR-containing text
+  blobs. Batched staged-size queries preserve special filenames.
 - Stream restore tree inventories through temporary files and bounded attribute
   batches, avoiding whole-tree Git output limits during in-place and new recovery.
 - Refuse release and destruction when Git status emits warnings, even after exit

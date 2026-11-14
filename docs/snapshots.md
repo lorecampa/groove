@@ -149,7 +149,12 @@ Unfinished merges (including conflict-free merges), rebases, am, cherry-picks,
 reverts, bisects, conflicts, submodules
 (including clean gitlinks), nested untracked repositories,
 assume-unchanged or manual skip-worktree flags, intent-to-add entries,
-and active content-converting attributes (including filters) are rejected. Merely
+and active filters, ident, working-tree-encoding and eol=crlf are rejected. Capture
+checks only saved paths. Text, legacy crlf and eol=lf rules are allowed when
+staging preserves physical file sizes; normalized CRLF files are refused with
+their filename. Saving a .gitattributes file widens validation to the whole tree
+and rejects active text/conversion rules there. Restore rejects carriage returns
+in saved text blobs under saved or effective destination rules. Merely
 installing Git LFS or defining an unused filter does not block snapshots. Restore
 checks the saved paths against both saved and effective destination attributes
 before materializing files, including recovery with `--to`. This prevents silent loss of

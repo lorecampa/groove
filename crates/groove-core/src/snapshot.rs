@@ -503,7 +503,7 @@ impl Snapshots {
         let lock = self.lock()?;
         self.list_inner(&lock)
     }
-    fn validate(&self) -> Result<()> {
+    fn validate(&self, lock: &SnapshotLock) -> Result<()> {
         // Index contents alone cannot describe pending parents, sequencer steps
         // or bisect state, even after conflicts have been staged as resolved.
         for (marker, operation) in [
@@ -547,9 +547,35 @@ impl Snapshots {
                 "Clear manual skip-worktree flags before saving",
             ));
         }
-        let mut names = self.run(&["ls-files", "-z"], None, None, None)?;
-        names.extend_from_slice(&self.run(UNTRACKED_ARGS, None, None, None)?);
-        self.validate_attributes(&names, None, false, None)?;
+        let mut names = self.run(DIFF_FILES_ARGS, None, None, Some(lock))?;
+        names.extend_from_slice(&self.run(
+            &[
+                "diff",
+                "--cached",
+                "--name-only",
+                "--no-renames",
+                "-z",
+                "--",
+            ],
+            None,
+            None,
+            Some(lock),
+        )?);
+        let untracked = self.run(UNTRACKED_ARGS, None, None, Some(lock))?;
+        names.extend_from_slice(&untracked);
+        let strict = paths(&names).any(|name| {
+            name.rsplit(|byte| *byte == b'/').next() == Some(b".gitattributes".as_slice())
+        });
+        if strict {
+            let all = self.spool_names(&["ls-files", "-z"], None, lock)?;
+            path_batches(all, |names| {
+                self.validate_attributes(names, None, false, Some(lock), true)
+                    .map(|_| ())
+            })?;
+            self.validate_attributes(&untracked, None, false, Some(lock), true)?;
+        } else {
+            self.validate_attributes(&names, None, false, Some(lock), false)?;
+        }
         if audit.may_have_intent
             && self.run(
                 &[
@@ -584,7 +610,7 @@ impl Snapshots {
         Ok(())
     }
 
-    /// Reject active conversion rules, rather than harmless installed filter definitions.
+    /// Permit LF-preserving text rules and reject other active conversion rules.
     /// A scratch index lets restore check the saved attributes before checkout runs them.
     fn validate_attributes(
         &self,
@@ -592,7 +618,8 @@ impl Snapshots {
         index: Option<&Path>,
         cached: bool,
         lock: Option<&SnapshotLock>,
-    ) -> Result<()> {
+        strict: bool,
+    ) -> Result<BTreeSet<Vec<u8>>> {
         let mut args = vec!["check-attr", "--all", "-z", "--stdin"];
         if cached {
             args.push("--cached");
@@ -601,7 +628,7 @@ impl Snapshots {
         // Unlike path lists, attribute triples can contain empty values (diff=).
         // Drop only the final record terminator, never an empty field.
         if attrs.is_empty() {
-            return Ok(());
+            return Ok(BTreeSet::new());
         }
         let attrs = attrs
             .strip_suffix(&[0])
@@ -611,27 +638,42 @@ impl Snapshots {
         if !remainder.is_empty() {
             return Err(unsupported("Malformed Git attribute response"));
         }
+        let mut text_paths = BTreeSet::new();
         for attr in triples {
-            if [
-                b"text".as_slice(),
-                b"crlf",
-                b"eol",
-                b"filter",
-                b"working-tree-encoding",
-                b"ident",
-            ]
-            .contains(&attr[1])
-                && attr[2] != b"unset"
-            {
-                return Err(unsupported(
-                    "Content-converting Git attributes are not yet supported by snapshots",
-                ));
+            if attr[2] == b"unset" || attr[2] == b"unspecified" {
+                continue;
+            }
+            let text = [b"text".as_slice(), b"crlf", b"eol"].contains(&attr[1]);
+            let refused = [b"filter".as_slice(), b"working-tree-encoding", b"ident"]
+                .contains(&attr[1])
+                || (attr[1] == b"eol" && attr[2] != b"lf")
+                || (strict && text);
+            if refused {
+                return Err(unsupported(format!(
+                    "File {} uses unsupported attribute {}={}{}",
+                    OsStr::from_bytes(attr[0]).to_string_lossy(),
+                    String::from_utf8_lossy(attr[1]),
+                    String::from_utf8_lossy(attr[2]),
+                    if strict {
+                        " while saving .gitattributes"
+                    } else {
+                        ""
+                    }
+                )));
+            }
+            if text {
+                text_paths.insert(attr[0].to_vec());
             }
         }
-        Ok(())
+        Ok(text_paths)
     }
 
-    fn validate_restore_attributes(&self, snapshot: &Snapshot, lock: &SnapshotLock) -> Result<()> {
+    fn validate_restore_attributes(
+        &self,
+        snapshot: &Snapshot,
+        lock: &SnapshotLock,
+        include_working: bool,
+    ) -> Result<()> {
         let temp = tempfile::Builder::new()
             .prefix("scratch-")
             .tempdir_in(&self.state)?;
@@ -644,8 +686,47 @@ impl Snapshots {
         )?;
         let names = self.spool_names(&["ls-files", "-z"], Some(&index), lock)?;
         path_batches(names, |names| {
-            self.validate_attributes(names, Some(&index), true, Some(lock))
+            let mut text =
+                self.validate_attributes(names, Some(&index), true, Some(lock), false)?;
+            if include_working {
+                text.extend(self.validate_attributes(names, None, false, Some(lock), false)?);
+            }
+            self.reject_blob_carriage_returns(&index, &text, lock)
         })
+    }
+    fn reject_blob_carriage_returns(
+        &self,
+        index: &Path,
+        paths: &BTreeSet<Vec<u8>>,
+        lock: &SnapshotLock,
+    ) -> Result<()> {
+        if paths.is_empty() {
+            return Ok(());
+        }
+        let mut input = tempfile::tempfile()?;
+        for path in paths {
+            input.write_all(b":0:")?;
+            input.write_all(path)?;
+            input.write_all(&[0])?;
+        }
+        input.rewind()?;
+        if Git::new(self.timeout).contains_carriage_returns(
+            &self.root,
+            &["cat-file", "--batch", "-z"],
+            Invocation {
+                inherit: &lock.descriptors(),
+                stdin: Some(input),
+                env: &[
+                    ("GIT_INDEX_FILE", index.as_os_str()),
+                    ("GIT_LITERAL_PATHSPECS", OsStr::new("1")),
+                ],
+                reject_stderr: true,
+                ..Invocation::snapshot()
+            },
+        )? {
+            return Err(unsupported("Saved text paths contain carriage returns; restore would risk changing their bytes"));
+        }
+        Ok(())
     }
     fn spool_names(
         &self,
@@ -726,6 +807,53 @@ impl Snapshots {
         Ok(stamps)
     }
     /// Fail if HEAD, the real index or any captured path changed while capturing.
+    fn verify_staged_sizes(
+        &self,
+        index: &Path,
+        stamps: &[(PathBuf, Option<Stamp>)],
+        lock: &SnapshotLock,
+    ) -> Result<()> {
+        let mut queries = Vec::new();
+        let mut files = Vec::new();
+        for (path, stamp) in stamps {
+            if let Some((size, _, _, mode)) = stamp {
+                if mode & 0o170000 == 0o100000 {
+                    let relative = path.strip_prefix(&self.root).map_err(|error| {
+                        invalid("Capture path escaped its worktree").with_source(error)
+                    })?;
+                    queries.extend_from_slice(b":0:");
+                    queries.extend_from_slice(relative.as_os_str().as_bytes());
+                    queries.push(0);
+                    files.push((path, size));
+                }
+            }
+        }
+        if files.is_empty() {
+            return Ok(());
+        }
+        let sizes = self.run(
+            &["cat-file", "--batch-check=%(objectsize)", "-z"],
+            Some(index),
+            Some(&queries),
+            Some(lock),
+        )?;
+        let sizes = std::str::from_utf8(&sizes)
+            .map_err(|error| invalid("Invalid staged-size response").with_source(error))?;
+        let sizes: Vec<_> = sizes.lines().collect();
+        if sizes.len() != files.len() {
+            return Err(invalid("Incomplete staged-size response"));
+        }
+        for ((path, physical), staged) in files.into_iter().zip(sizes) {
+            let staged = staged
+                .parse::<u64>()
+                .map_err(|error| invalid("Invalid staged blob size").with_source(error))?;
+            if staged != *physical {
+                return Err(unsupported(format!("Git attributes normalize the bytes of {}; working size {physical}, staged size {staged}", path.display())));
+            }
+        }
+        Ok(())
+    }
+
     fn ensure_stable(&self, before: &Observation, lock: &SnapshotLock) -> Result<()> {
         let changed = before.head != self.head()?
             || before.index != self.index_bytes()?
@@ -788,7 +916,7 @@ impl Snapshots {
         lock: &SnapshotLock,
         publish: bool,
     ) -> Result<Snapshot> {
-        self.validate()?;
+        self.validate(lock)?;
         let head = self.head()?;
         let original = self.index_bytes()?;
         let temp = tempfile::Builder::new()
@@ -803,11 +931,26 @@ impl Snapshots {
         let index_tree = text(self.run(&["write-tree"], Some(&index), None, Some(lock))?)?;
         let untracked = self.run(UNTRACKED_ARGS, Some(&index), None, Some(lock))?;
         let changed = self.run(DIFF_FILES_ARGS, Some(&index), None, Some(lock))?;
+        let staged = self.run(
+            &[
+                "diff",
+                "--cached",
+                "--name-only",
+                "--no-renames",
+                "-z",
+                "--",
+            ],
+            None,
+            None,
+            Some(lock),
+        )?;
         let selected: BTreeSet<Vec<u8>> = paths(&changed)
             .chain(paths(&untracked))
+            .chain(paths(&staged))
             .map(<[u8]>::to_vec)
             .collect();
         let stamps = self.stage_changes(&index, &selected, options, lock)?;
+        self.verify_staged_sizes(&index, &stamps, lock)?;
         let work_tree = text(self.run(&["write-tree"], Some(&index), None, Some(lock))?)?;
         crate::state::checkpoint("snapshot-captured");
         let observation = Observation {
@@ -849,7 +992,8 @@ impl Snapshots {
     }
     /// Capture without changing HEAD, working files or the real index.
     /// Preserves physical bytes, executable bits and symlinks independently of
-    /// Git checkout preferences. Active content-converting attributes are rejected.
+    /// Git checkout preferences. LF-preserving text rules are supported; other
+    /// active conversion attributes and byte-normalizing files are rejected.
     /// Ignored files, empty directories and special files are excluded. Stop external
     /// writers first: the stability checks detect common races but are not atomic.
     ///
@@ -1058,7 +1202,9 @@ impl Snapshots {
             }
             // Check the saved tree plus effective shared/user attributes before
             // creating a recovery worktree or allowing checkout conversion/filtering.
-            self.validate_restore_attributes(&s, &lock)?;
+            // The source's later working attributes do not belong to a new
+            // destination. Its effective rules are checked by target.apply.
+            self.validate_restore_attributes(&s, &lock, false)?;
             let destination_text = repository::utf8(&destination)?;
             // Claim the absent destination ourselves, independently of the
             // caller's umask, before Git may populate it or cleanup may remove it.
@@ -1131,7 +1277,7 @@ impl Snapshots {
                 "HEAD differs from snapshot base; use restore --to <directory>",
             ));
         }
-        self.validate()?;
+        self.validate(&lock)?;
         // Capture first so every deletion during apply has a recovery object.
         let safety = self.capture(
             &SaveOptions {
@@ -1206,7 +1352,7 @@ impl Snapshots {
     }
 
     fn apply(&self, s: &Snapshot, current: Option<&Snapshot>, lock: &SnapshotLock) -> Result<()> {
-        self.validate_restore_attributes(s, lock)?;
+        self.validate_restore_attributes(s, lock, true)?;
         // Git can overwrite ignored files during checkout. Reject collisions explicitly first.
         let ignored = self.run(
             &[
@@ -1229,7 +1375,7 @@ impl Snapshots {
         // current index, so check every path about to be restored.
         let mut target_paths = BTreeSet::new();
         path_batches(target, |names| {
-            self.validate_attributes(names, None, false, Some(lock))?;
+            self.validate_attributes(names, None, false, Some(lock), false)?;
             target_paths.extend(paths(names).map(Vec::from));
             Ok(())
         })?;

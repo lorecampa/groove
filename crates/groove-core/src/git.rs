@@ -42,6 +42,8 @@ pub(crate) enum OutputMode {
     AuditIndex,
     /// Stream stdout to a temporary file for bounded batches of later processing.
     Spool,
+    /// Inspect streamed blob bytes without retaining their contents.
+    ScanCarriageReturns,
 }
 
 /// Optional knobs for one Git subprocess. Defaults describe isolated maintenance.
@@ -148,6 +150,17 @@ impl Git {
         let mut file = capture.file.expect("spool capture creates its output file");
         file.rewind()?;
         Ok(file)
+    }
+    pub fn contains_carriage_returns(
+        &self,
+        cwd: &Path,
+        args: &[&str],
+        mut invocation: Invocation<'_>,
+    ) -> Result<bool> {
+        invocation.output = OutputMode::ScanCarriageReturns;
+        Ok(self
+            .spawn(cwd, args.iter().map(OsStr::new), invocation)?
+            .carriage_returns)
     }
     fn spawn<'a>(
         &self,
@@ -461,6 +474,7 @@ struct Capture {
     gitlink: bool,
     audit: IndexAudit,
     file: Option<std::fs::File>,
+    carriage_returns: bool,
 }
 fn capture(
     mut reader: impl Read,
@@ -476,6 +490,7 @@ fn capture(
     let mut prefix_len = 0;
     let mut gitlink = false;
     let mut audit = index_audit::Scanner::default();
+    let mut carriage_returns = false;
     let mut prepared_bytes = 0;
     const PREPARED: &[u8] = b"start: ok\nprepare: ok\n";
     loop {
@@ -504,6 +519,9 @@ fn capture(
         if mode == OutputMode::AuditIndex {
             audit.feed(&buffer[..n]);
         }
+        if mode == OutputMode::ScanCarriageReturns {
+            carriage_returns |= buffer[..n].contains(&b'\r');
+        }
         if mode == OutputMode::ScanGitlinks {
             for &byte in &buffer[..n] {
                 if byte == 0 {
@@ -522,6 +540,7 @@ fn capture(
         gitlink,
         audit: audit.finish(),
         file,
+        carriage_returns,
     })
 }
 
