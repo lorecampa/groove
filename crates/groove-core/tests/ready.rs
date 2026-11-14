@@ -199,15 +199,35 @@ fn idle_eviction_keeps_target_and_slot_capacity() {
     assert_eq!(leases.len(), 3);
 }
 #[test]
-fn invalid_base_is_reported_without_touching_reservations() {
+fn invalid_base_is_rejected_before_changing_settings_or_reservations() {
     let repo = Repo::new();
     let pool = pool(&repo, 2, 1);
     let lease = pool.reserve(Default::default()).unwrap();
+    let config = pool.settings().unwrap().state_dir.join("config.json");
+    let before = fs::read(&config).unwrap();
+    let error = pool
+        .configure(PoolUpdate {
+            ready_base: Some("missing-reference".into()),
+            ..Default::default()
+        })
+        .unwrap_err();
+    assert_eq!(error.code, ErrorCode::InvalidRevision);
+    assert_eq!(fs::read(config).unwrap(), before);
+    assert_eq!(pool.protected_leases().unwrap()[0].lease_id, lease.lease_id);
+}
+
+#[test]
+fn a_ready_base_deleted_after_configuration_is_reported_without_touching_reservations() {
+    let repo = Repo::new();
+    let pool = pool(&repo, 2, 1);
+    let lease = pool.reserve(Default::default()).unwrap();
+    repo.git(&["branch", "ready-base"]);
     pool.configure(PoolUpdate {
-        ready_base: Some("missing-reference".into()),
+        ready_base: Some("ready-base".into()),
         ..Default::default()
     })
     .unwrap();
+    repo.git(&["branch", "-D", "ready-base"]);
     let generation = pool.request_ready().unwrap().unwrap();
     pool.run_ready(generation).unwrap();
     assert!(pool.ready_report().unwrap().error.is_some());
@@ -316,11 +336,13 @@ fn saved_release_with_later_staging_changes_is_not_discarded() {
 fn failed_pass_backoff_does_not_slide_and_policy_change_retries_immediately() {
     let repo = Repo::new();
     let pool = pool(&repo, 1, 1);
+    repo.git(&["branch", "missing"]);
     pool.configure(PoolUpdate {
         ready_base: Some("missing".into()),
         ..Default::default()
     })
     .unwrap();
+    repo.git(&["branch", "-D", "missing"]);
     let generation = pool.request_ready().unwrap().unwrap();
     pool.run_ready(generation).unwrap();
     let first = pool.ready_report().unwrap();

@@ -60,6 +60,9 @@ impl Pool {
             ));
         }
         let repo = Repository::discover_named(repo.as_ref(), name, options.git_timeout)?;
+        if let Some(ready) = &options.ready {
+            ready.validate_revision(&repo, options.git_timeout)?;
+        }
         repository::mkdir(&repo.root)?;
         repository::owned_dir(&repo.root)?;
         repository::mkdir(&repo.root.join("locks"))?;
