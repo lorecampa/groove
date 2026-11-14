@@ -330,6 +330,8 @@ pub(crate) fn validate_slot_path(
     repository::owned_dir(&config.worktree_root)?;
     let path = config.worktree_root.join(slot.as_str());
     repository::no_symlinks(&path)?;
+    #[cfg(target_os = "linux")]
+    crate::platform::mounts::reject_below(&path)?;
     if let Ok(m) = fs::symlink_metadata(&path) {
         if !m.is_dir() {
             return Err(Error::new(
@@ -507,6 +509,8 @@ pub(crate) fn remove_owned(repo: &Repository, path: &Path) -> Result<()> {
 pub(crate) fn validate_disposal(repo: &Repository, path: &Path) -> Result<Option<PathBuf>> {
     let refusal = |reason: &str| disposal_refusal(path, reason);
     repository::no_symlinks(path)?;
+    #[cfg(target_os = "linux")]
+    crate::platform::mounts::reject_below(path)?;
     let registrations = repo.common.join("worktrees");
     let claim = matching_registration(repo, path)?;
     if !path.try_exists()? {
