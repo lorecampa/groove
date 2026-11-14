@@ -254,6 +254,42 @@ pub(crate) fn claim_root(repo: &Repository, root: &Path) -> Result<()> {
     }
 }
 
+/// Release an external namespace claim only after publishing deletion. The
+/// caller holds lifecycle and repository admin exclusion. Claims are symlinks,
+/// never descriptor-owning permanent lock files.
+pub(crate) fn release_root_claim(repo: &Repository, root: &Path) -> Result<()> {
+    for other in repositories(repo)? {
+        let pending = intent(&other)?;
+        let deleted =
+            lifecycle::read(&other)?.is_some_and(|record| record.phase == PoolPhase::Deleted);
+        if !deleted || pending.is_some() {
+            let mut roots = pending
+                .into_iter()
+                .map(|intent| intent.worktree_root)
+                .collect::<Vec<_>>();
+            if let Some(config) = config(&other)? {
+                roots.push(config.worktree_root);
+            }
+            for claimed in roots {
+                if overlaps(root, &claimed)? {
+                    return Ok(());
+                }
+            }
+        }
+    }
+    let marker = root.join(ROOT_CLAIM);
+    match fs::read_link(&marker) {
+        Ok(owner) if owner == repo.namespace_root() => {
+            fs::remove_file(&marker)?;
+            state::sync_dir(root)
+        }
+        // A completed retry may observe a later repository's legitimate claim.
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
 pub(crate) fn root_has_contents(repo: &Repository, root: &Path) -> Result<bool> {
     validate_external_claim(repo, root)?;
     for entry in fs::read_dir(root)? {
