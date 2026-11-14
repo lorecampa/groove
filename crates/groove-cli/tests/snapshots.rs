@@ -16,6 +16,60 @@ fn checked(repo: &Repo, args: &[&str]) -> Value {
     response["result"].clone()
 }
 #[test]
+fn diff_and_restore_honor_the_current_file_capture_limit() {
+    let repo = Repo::new();
+    let saved = checked(&repo, &["snapshot", "save"]);
+    let id = saved["snapshot"]["id"].as_str().unwrap();
+    fs::write(repo.path.join("tracked.txt"), b"larger current work\n").unwrap();
+    for command in ["diff", "restore"] {
+        let output = cli(&repo, &["snapshot", command, id, "--max-file-bytes", "1"]);
+        assert_eq!(output.status.code(), Some(2));
+        let error: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(error["error"]["code"], "INVALID_ARGUMENT");
+        assert_eq!(
+            fs::read(repo.path.join("tracked.txt")).unwrap(),
+            b"larger current work\n"
+        );
+        assert_eq!(
+            checked(&repo, &["snapshot", "list"])["snapshots"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+    assert!(
+        checked(&repo, &["snapshot", "diff", id, "--max-file-bytes", "0"])["patch"]
+            .as_str()
+            .unwrap()
+            .contains("+larger current work")
+    );
+    let restored = checked(&repo, &["snapshot", "restore", id, "--max-file-bytes", "0"]);
+    assert_eq!(
+        fs::read(repo.path.join("tracked.txt")).unwrap(),
+        b"baseline\n"
+    );
+    let safety = restored["safety_snapshot_id"].as_str().unwrap();
+    let recovered = repo.temp.path().join("safety");
+    checked(
+        &repo,
+        &[
+            "snapshot",
+            "restore",
+            safety,
+            "--to",
+            recovered.to_str().unwrap(),
+            "--max-file-bytes",
+            "1",
+        ],
+    );
+    assert_eq!(
+        fs::read(recovered.join("tracked.txt")).unwrap(),
+        b"larger current work\n"
+    );
+}
+
+#[test]
 fn cli_end_to_end_lifecycle() {
     let repo = Repo::new();
     fs::write(repo.path.join("new"), "saved\n").unwrap();

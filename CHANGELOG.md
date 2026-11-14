@@ -36,6 +36,8 @@
   failures that previously disappeared with their exit status.
 - Back off repeated capacity/preparation scans from 10 to at most 100 milliseconds,
   reducing metadata work while preserving bounded wait deadlines and ownership checks.
+- Snapshot diff and in-place restore expose `--max-file-bytes` for their temporary
+  and safety captures, so files larger than the default limit can be handled.
 
 - Retrying an interrupted saved release captures the still-reserved workspace
   again before reuse. Completed retries reject deleted or unpinned snapshots.

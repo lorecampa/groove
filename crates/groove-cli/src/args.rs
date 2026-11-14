@@ -353,6 +353,10 @@ pub enum SnapshotCommand {
         id: String,
         /// Target snapshot ID; omit to compare with current files.
         other: Option<String>,
+        /// Largest changed current file to capture, in bytes; 0 removes the limit.
+        /// Unused when comparing two saved snapshots.
+        #[arg(long, default_value = DEFAULT_MAX_FILE_BYTES)]
+        max_file_bytes: u64,
     },
     /// Restore in place or into a new directory.
     #[command(after_help = help!("restore"))]
@@ -362,6 +366,10 @@ pub enum SnapshotCommand {
         /// Recover into this new directory instead of overwriting current files.
         #[arg(long)]
         to: Option<PathBuf>,
+        /// Largest changed file in the safety snapshot, in bytes; 0 removes the limit.
+        /// Unused with --to.
+        #[arg(long, default_value = DEFAULT_MAX_FILE_BYTES)]
+        max_file_bytes: u64,
     },
     /// Delete one snapshot.
     Delete {
