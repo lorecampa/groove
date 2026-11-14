@@ -9,6 +9,9 @@ outside the source working tree and all pool roots; existing parent symlinks are
 resolved before checking. Recovery uses detached HEAD for snapshots with a base
 commit; snapshots from before the first commit
 keep their unborn HEAD and original initial branch name.
+On error, the new checkout and registration are removed. If cleanup also fails,
+error details identify the partial destination and secondary failure. Process
+death can interrupt cleanup; inspect the destination before retrying.
 
 Without --to, restore works in place: HEAD must equal the saved HEAD, a safety
 snapshot is taken first, and captured files absent from the target are removed.

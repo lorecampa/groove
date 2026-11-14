@@ -993,55 +993,77 @@ impl Snapshots {
             if destination.exists() {
                 return Err(invalid("Recovery destination must not exist"));
             }
+            if self.recovery_registered(&destination, &lock)? {
+                return Err(invalid("Recovery destination already has a Git worktree registration; recover or remove that registration before retrying"));
+            }
             // Check the saved tree plus effective shared/user attributes before
             // creating a recovery worktree or allowing checkout conversion/filtering.
             self.validate_restore_attributes(&s, &lock)?;
             let destination_text = repository::utf8(&destination)?;
-            if let Some(head) = &s.head {
-                self.run(
-                    &[
-                        "worktree",
-                        "add",
-                        "--detach",
-                        "--no-checkout",
-                        destination_text,
-                        head,
-                    ],
-                    None,
-                    None,
-                    Some(&lock),
-                )?;
-            } else {
-                // An unborn source has no base for worktree add. Create an independent recovery repository.
-                let format = self.string(&["rev-parse", "--show-object-format"])?;
-                let mut init = vec!["init".to_owned(), format!("--object-format={format}")];
-                if let Some(branch) = s.branch.as_deref() {
-                    let branch = branch
-                        .strip_prefix("refs/heads/")
-                        .ok_or_else(|| invalid("Invalid unborn snapshot branch"))?;
-                    // Git validates the saved name; an option value cannot become an argument.
-                    init.push(format!("--initial-branch={branch}"));
-                }
-                init.push(destination_text.to_owned());
-                let args: Vec<_> = init.iter().map(String::as_str).collect();
-                self.run(&args, None, None, Some(&lock))?;
-                Git::new(self.timeout).run(
-                    &destination,
-                    &[
-                        "fetch",
-                        "--no-tags",
-                        repository::utf8(&self.common)?,
-                        &Self::reference(id)?,
-                    ],
-                    &lock.descriptors(),
-                )?;
+            // Claim the absent destination ourselves, independently of the
+            // caller's umask, before Git may populate it or cleanup may remove it.
+            use std::os::unix::fs::DirBuilderExt;
+            if let Some(parent) = destination.parent() {
+                fs::create_dir_all(parent)?;
             }
-            let target = Self::open(&destination, self.timeout)?;
-            target.apply(&s, None, &lock)?;
-            return Ok(RestoreResult {
-                path: destination.to_owned(),
-                snapshot_id: id.to_owned(),
-                safety_snapshot_id: None,
+            fs::DirBuilder::new().mode(0o700).create(&destination)?;
+            let restored = (|| {
+                if let Some(head) = &s.head {
+                    self.run(
+                        &[
+                            "worktree",
+                            "add",
+                            "--detach",
+                            "--no-checkout",
+                            destination_text,
+                            head,
+                        ],
+                        None,
+                        None,
+                        Some(&lock),
+                    )?;
+                } else {
+                    // An unborn source has no base for worktree add. Create an independent recovery repository.
+                    let format = self.string(&["rev-parse", "--show-object-format"])?;
+                    let mut init = vec!["init".to_owned(), format!("--object-format={format}")];
+                    if let Some(branch) = s.branch.as_deref() {
+                        let branch = branch
+                            .strip_prefix("refs/heads/")
+                            .ok_or_else(|| invalid("Invalid unborn snapshot branch"))?;
+                        // Git validates the saved name; an option value cannot become an argument.
+                        init.push(format!("--initial-branch={branch}"));
+                    }
+                    init.push(destination_text.to_owned());
+                    let args: Vec<_> = init.iter().map(String::as_str).collect();
+                    self.run(&args, None, None, Some(&lock))?;
+                    Git::new(self.timeout).run(
+                        &destination,
+                        &[
+                            "fetch",
+                            "--no-tags",
+                            repository::utf8(&self.common)?,
+                            &Self::reference(id)?,
+                        ],
+                        &lock.descriptors(),
+                    )?;
+                }
+                crate::state::checkpoint("snapshot-recovery-created");
+                let target = Self::open(&destination, self.timeout)?;
+                target.apply(&s, None, &lock)?;
+                Ok(RestoreResult {
+                    path: destination.to_owned(),
+                    snapshot_id: id.to_owned(),
+                    safety_snapshot_id: None,
+                })
+            })();
+            return restored.map_err(|error: Error| {
+                match self.remove_failed_recovery(&destination, s.head.is_some(), &lock) {
+                    Ok(()) => error,
+                    Err(cleanup) => error.with_details(|details| {
+                        details.secondary_error = Some(cleanup.summary());
+                        details.path = Some(destination.clone());
+                    }),
+                }
             });
         }
         if self.head()? != s.head {
@@ -1074,6 +1096,55 @@ impl Snapshots {
             safety_snapshot_id: Some(safety.id),
         })
     }
+    fn recovery_registered(&self, destination: &Path, lock: &SnapshotLock) -> Result<bool> {
+        let output = Git::new(self.timeout).run_with(
+            &self.common,
+            &["worktree", "list", "--porcelain", "-z"],
+            Invocation {
+                inherit: &lock.descriptors(),
+                reject_stderr: true,
+                ..Invocation::snapshot()
+            },
+        )?;
+        Ok(output.split(|byte| *byte == 0).any(|record| {
+            record.strip_prefix(b"worktree ") == Some(destination.as_os_str().as_bytes())
+        }))
+    }
+
+    fn remove_failed_recovery(
+        &self,
+        destination: &Path,
+        linked: bool,
+        lock: &SnapshotLock,
+    ) -> Result<()> {
+        repository::no_symlinks(destination)?;
+        if destination.try_exists()? {
+            use std::os::unix::fs::MetadataExt;
+            repository::owned_dir(destination)?;
+            crate::destruction::validate_tree(destination, fs::metadata(destination)?.dev())?;
+        }
+        if linked && self.recovery_registered(destination, lock)? {
+            self.run(
+                &[
+                    "worktree",
+                    "remove",
+                    "--force",
+                    "--force",
+                    repository::utf8(destination)?,
+                ],
+                None,
+                None,
+                Some(lock),
+            )?;
+        } else if destination.try_exists()? {
+            fs::remove_dir_all(destination)?;
+        }
+        if let Some(parent) = destination.parent() {
+            crate::state::sync_dir(parent)?;
+        }
+        Ok(())
+    }
+
     fn apply(&self, s: &Snapshot, current: Option<&Snapshot>, lock: &SnapshotLock) -> Result<()> {
         self.validate_restore_attributes(s, lock)?;
         // Git can overwrite ignored files during checkout. Reject collisions explicitly first.

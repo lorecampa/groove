@@ -3,6 +3,100 @@ use serde_json::Value;
 use std::{fs, process::Stdio};
 use support::{assert_success, Repo};
 #[test]
+fn failure_before_registration_removes_the_claimed_recovery_directory() {
+    use std::os::unix::fs::PermissionsExt;
+    let repo = Repo::new();
+    let snapshot = checked(&repo, &["snapshot", "save"]);
+    let id = snapshot["snapshot"]["id"].as_str().unwrap();
+    let registrations = support::git(&repo.path, &["worktree", "list", "--porcelain"]);
+    let destination = repo.temp.path().join("failed-before-add");
+    let bin = repo.temp.path().join("failing-git");
+    fs::create_dir(&bin).unwrap();
+    let shim = bin.join("git");
+    fs::write(&shim, "#!/bin/sh\ncase \" $* \" in *\" worktree add \"*) printf 'injected add failure\\n' >&2; exit 33 ;; esac\nexec \"$GROOVE_REAL_GIT\" \"$@\"\n").unwrap();
+    fs::set_permissions(shim, fs::Permissions::from_mode(0o700)).unwrap();
+    let real = support::command(&repo.path, "sh")
+        .args(["-c", "command -v git"])
+        .output()
+        .unwrap();
+    assert!(real.status.success());
+    let output = support::groove_in(&repo.path)
+        .env(
+            "PATH",
+            format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()),
+        )
+        .env(
+            "GROOVE_REAL_GIT",
+            String::from_utf8_lossy(&real.stdout).trim(),
+        )
+        .args(["snapshot", "restore", id, "--to"])
+        .arg(&destination)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(7));
+    let error: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(error["error"]["details"]["git"]["exit_code"], 33);
+    assert!(
+        error["error"]["details"].get("secondary_error").is_none(),
+        "{error}"
+    );
+    assert!(!destination.exists());
+    assert_eq!(
+        support::git(&repo.path, &["worktree", "list", "--porcelain"]),
+        registrations
+    );
+    checked(
+        &repo,
+        &[
+            "snapshot",
+            "restore",
+            id,
+            "--to",
+            destination.to_str().unwrap(),
+        ],
+    );
+}
+
+#[test]
+fn failed_recovery_never_removes_a_preexisting_missing_worktree_registration() {
+    let repo = Repo::new();
+    let snapshot = checked(&repo, &["snapshot", "save"]);
+    let id = snapshot["snapshot"]["id"].as_str().unwrap();
+    let destination = repo.temp.path().join("existing-registration");
+    support::git(
+        &repo.path,
+        &[
+            "worktree",
+            "add",
+            "--detach",
+            "--no-checkout",
+            destination.to_str().unwrap(),
+            "HEAD",
+        ],
+    );
+    fs::remove_dir_all(&destination).unwrap();
+    let registrations = support::git(&repo.path, &["worktree", "list", "--porcelain"]);
+    let output = cli(
+        &repo,
+        &[
+            "snapshot",
+            "restore",
+            id,
+            "--to",
+            destination.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(output.status.code(), Some(2));
+    let error: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(error["error"]["code"], "INVALID_ARGUMENT");
+    assert!(!destination.exists());
+    assert_eq!(
+        support::git(&repo.path, &["worktree", "list", "--porcelain"]),
+        registrations
+    );
+}
+
+#[test]
 fn arbitrary_bytes_and_filenames_produce_applicable_patches() {
     use base64::Engine;
     use std::os::unix::ffi::OsStrExt;
@@ -247,6 +341,88 @@ fn crash_publication_and_concurrent_writer_boundaries() {
         .unwrap()
         .is_empty());
 }
+#[cfg(feature = "test-hooks")]
+#[test]
+fn failed_linked_recovery_removes_its_checkout_and_registration() {
+    failed_recovery_is_cleaned_up(false);
+}
+
+#[cfg(feature = "test-hooks")]
+#[test]
+fn failed_unborn_recovery_removes_its_independent_repository() {
+    failed_recovery_is_cleaned_up(true);
+}
+
+#[cfg(feature = "test-hooks")]
+fn failed_recovery_is_cleaned_up(unborn: bool) {
+    use std::{io::Write, os::unix::net::UnixListener, path::PathBuf};
+    let repo = Repo::new();
+    if unborn {
+        support::git(&repo.path, &["checkout", "--orphan", "unborn"]);
+        support::git(&repo.path, &["rm", "-rf", "."]);
+    }
+    fs::write(repo.path.join("saved.txt"), b"recoverable result\n").unwrap();
+    let snapshot = checked(&repo, &["snapshot", "save"]);
+    let id = snapshot["snapshot"]["id"].as_str().unwrap();
+    let registrations = support::git(&repo.path, &["worktree", "list", "--porcelain"]);
+    let destination = repo.temp.path().join("recovery");
+    let socket = repo.temp.path().join("failed-restore.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let mut command = support::groove_in(&repo.path);
+    command
+        .args(["snapshot", "restore", id, "--to"])
+        .arg(&destination)
+        .env("GROOVE_TEST_CHECKPOINT", "snapshot-recovery-created")
+        .env("GROOVE_TEST_SOCKET", &socket);
+    let mut child = support::TestChild::spawn(&mut command);
+    let mut stream = child
+        .checkpoint(
+            &listener,
+            "snapshot-recovery-created",
+            support::PROCESS_TIMEOUT,
+        )
+        .unwrap();
+    // Refuse the real-index update after working files have been materialized.
+    let admin = PathBuf::from(support::git(
+        &destination,
+        &["rev-parse", "--absolute-git-dir"],
+    ));
+    fs::write(admin.join("index.lock"), b"injected failure").unwrap();
+    stream.write_all(b"continue\n").unwrap();
+    drop(stream);
+    let output = child.wait_with_output().unwrap();
+    assert!(!output.status.success());
+    let error: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(error["error"]["code"], "GIT_ERROR", "{error}");
+    assert!(
+        error["error"]["details"].get("secondary_error").is_none(),
+        "{error}"
+    );
+    assert!(!destination.exists());
+    assert_eq!(
+        support::git(&repo.path, &["worktree", "list", "--porcelain"]),
+        registrations
+    );
+    assert_eq!(
+        fs::read(repo.path.join("saved.txt")).unwrap(),
+        b"recoverable result\n"
+    );
+    checked(
+        &repo,
+        &[
+            "snapshot",
+            "restore",
+            id,
+            "--to",
+            destination.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(
+        fs::read(destination.join("saved.txt")).unwrap(),
+        b"recoverable result\n"
+    );
+}
+
 #[cfg(feature = "test-hooks")]
 #[test]
 fn interrupted_restore_has_a_recoverable_safety_snapshot() {

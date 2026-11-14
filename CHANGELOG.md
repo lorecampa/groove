@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Remove a failed `snapshot restore --to` checkout and its Git registration,
+  retaining the original error and reporting any cleanup failure separately.
 - Reject snapshots during rebase, am, cherry-pick, revert and bisect operations,
   including sequences with a conflict-free index, so operation state cannot be lost.
 - Reject snapshot recovery destinations inside the source working tree, including
