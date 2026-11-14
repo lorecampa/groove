@@ -16,6 +16,15 @@ impl Fixture {
             .tempdir()
             .unwrap();
         let f = Self { temp };
+        for kind in [".claude-plugin", ".codex-plugin"] {
+            let directory = f.path(&format!("plugins/groove/{kind}"));
+            fs::create_dir_all(&directory).unwrap();
+            fs::write(
+                directory.join("plugin.json"),
+                "{\"name\":\"groove\",\"version\":\"0.1.0\",\"description\":\"fixture\"}\n",
+            )
+            .unwrap();
+        }
         fs::write(
             f.path("Cargo.toml"),
             r#"[workspace]
@@ -167,8 +176,29 @@ fn prepare_changes_version_lock_and_notes_without_committing_or_tagging() {
     assert_eq!(f.git(&["tag"]), "");
     assert_eq!(
         f.git(&["diff", "--name-only"]).lines().collect::<Vec<_>>(),
-        ["CHANGELOG.md", "Cargo.lock", "Cargo.toml"]
+        [
+            "CHANGELOG.md",
+            "Cargo.lock",
+            "Cargo.toml",
+            "plugins/groove/.claude-plugin/plugin.json",
+            "plugins/groove/.codex-plugin/plugin.json"
+        ]
     );
+    for kind in [".claude-plugin", ".codex-plugin"] {
+        let path = f.path(&format!("plugins/groove/{kind}/plugin.json"));
+        let mut plugin: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(plugin["version"], "0.2.0");
+        assert_eq!(plugin["description"], "fixture");
+        plugin["version"] = "0.1.0".into();
+        let original = fs::read(&path).unwrap();
+        fs::write(&path, serde_json::to_vec(&plugin).unwrap()).unwrap();
+        assert!(
+            String::from_utf8_lossy(&f.tool(&["validate"], false).stderr)
+                .contains("Plugin version must match")
+        );
+        fs::write(&path, original).unwrap();
+    }
     let output = f.path("notes.md");
     f.tool(&["notes", "--output", output.to_str().unwrap()], true);
     assert_eq!(fs::read_to_string(output).unwrap(), "- First release.\n");

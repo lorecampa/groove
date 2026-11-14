@@ -48,6 +48,8 @@
   regressions on Linux and macOS, independently of the security job.
 - Hosted formatting and Clippy checks use the contributor's pinned toolchain;
   minimum Rust and current stable remain compatibility build/test targets.
+- Release preparation updates and validates both native plugin versions alongside
+  the public crates, preventing changed skill packages from retaining stale versions.
 
 - Retrying an interrupted saved release captures the still-reserved workspace
   again before reuse. Completed retries reject deleted or unpinned snapshots.

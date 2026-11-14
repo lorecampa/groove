@@ -3,6 +3,11 @@ use semver::Version;
 use std::{collections::BTreeSet, fs, path::Path};
 use toml::Value;
 
+const PLUGINS: &[&str] = &[
+    "plugins/groove/.claude-plugin/plugin.json",
+    "plugins/groove/.codex-plugin/plugin.json",
+];
+
 pub(crate) fn version(text: &str) -> Result<Version> {
     let version = Version::parse(text)?;
     require(
@@ -35,6 +40,14 @@ impl Release {
         let manifest = read_toml(&self.root.join("Cargo.toml"))?;
         let current = text(&manifest, &["workspace", "package", "version"])?;
         version(current)?;
+        for path in PLUGINS {
+            let plugin: serde_json::Value =
+                serde_json::from_slice(&fs::read(self.root.join(path))?)?;
+            require(
+                plugin["version"].as_str() == Some(current),
+                format!("Plugin version must match workspace version: {path}"),
+            )?;
+        }
         let members = field(&manifest, &["workspace", "members"])?
             .as_array()
             .ok_or_else(|| Error::Invalid("Expected workspace member list".into()))?;
@@ -143,6 +156,7 @@ impl Release {
         if fuzz_manifest.exists() {
             paths.extend([fuzz_manifest.clone(), self.root.join("fuzz/Cargo.lock")]);
         }
+        paths.extend(PLUGINS.iter().map(|path| self.root.join(path)));
         let original: Vec<_> = paths.iter().map(fs::read).collect::<std::io::Result<_>>()?;
         let changelog =
             String::from_utf8(original[2].clone()).map_err(|e| Error::Invalid(e.to_string()))?;
@@ -173,6 +187,15 @@ impl Release {
             document["workspace"]["dependencies"]["groove-core"]["version"] =
                 toml_edit::value(next);
             fs::write(&paths[0], document.to_string())?;
+            for path in PLUGINS {
+                let path = self.root.join(path);
+                let mut plugin: serde_json::Value = serde_json::from_slice(&fs::read(&path)?)?;
+                plugin["version"] = next.into();
+                fs::write(
+                    path,
+                    format!("{}\n", serde_json::to_string_pretty(&plugin)?),
+                )?;
+            }
             if fuzz_manifest.exists() {
                 let mut fuzz =
                     fs::read_to_string(&fuzz_manifest)?.parse::<toml_edit::DocumentMut>()?;
