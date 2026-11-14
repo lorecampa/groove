@@ -174,6 +174,12 @@ Neither publishes results. The next acquisition may discard all files in the slo
 residue and may be lost during rebuild. External caches can be used with pristine
 slots. Capacity bounds reservations, not process count, artifacts or disk usage.
 
+Acquisition rewrites tracked files even at the same commit, resetting their
+timestamps and breaking hardlinks to prior outputs or external files. Warm reuse
+therefore does not preserve timestamp-based incremental builds: Make and Cargo
+may rebuild retained outputs. Content-addressed compiler caches can still reuse
+validated results; the example below relies on ccache for that reuse.
+
 Prefer pristine cleanup for independent tasks. Keep dependency downloads or
 compiler results in an external cache supported by your build tool, outside all
 pool roots, and let the tool validate compatibility. Warm cleanup is useful when
