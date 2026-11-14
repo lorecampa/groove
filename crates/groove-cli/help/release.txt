@@ -46,3 +46,8 @@ For pools with an automatic ready policy, release also triggers background spare
 preparation and excess idle eviction. Released contents can therefore disappear
 before another acquisition. Pinned saved contents remain recoverable; unexpected
 later edits block background cleanup. Ignored artifacts must be exported first.
+After --force without --save leaves unsaved files, the slot is available for an
+explicit acquire, but automatic preparation and eviction conservatively refuse
+it because no checkpoint proves those files were present at release. Acquire
+performs the authorized cleanup. Use --save for automatic preparation with a
+recoverable checkpoint, or disable the ready policy for strictly lazy reuse.
