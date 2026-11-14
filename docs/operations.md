@@ -169,6 +169,13 @@ Neither publishes results. The next acquisition may discard all files in the slo
 
 ## Cleanup and shared state
 
+A forced release without a snapshot can leave a slot available but unsuitable
+for background preparation or eviction. The worker cannot distinguish residual
+unsaved files from edits made after release, so it refuses both. An explicit
+acquisition still normalizes the slot under its ordinary ownership checks.
+Use `release --save` when background preparation should preserve a recoverable
+checkpoint before discarding these files.
+
 `pristine` removes tracked edits, untracked files and ignored files on acquisition.
 `warm` retains ignored files only in healthy reused checkouts; they are unverified
 residue and may be lost during rebuild. External caches can be used with pristine

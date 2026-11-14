@@ -18,6 +18,8 @@
   managed task execution configuration were removed.
 - Clarify that warm cleanup retains ignored files but acquisition rewrites tracked
   timestamps; compiler cache reuse does not promise timestamp-based incremental builds.
+- Explain why forced releases with unsaved files remain available to explicit
+  acquisition while conservative background preparation and eviction refuse them.
 
 - Saved-release retries also recapture work after a crash writes release metadata
   but before durable protection is removed; failed capture keeps reuse blocked.
