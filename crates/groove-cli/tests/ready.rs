@@ -31,6 +31,109 @@ fn wait_ready(pool: &Pool, count: usize) {
     }
 }
 #[test]
+fn background_workers_do_not_retain_external_lock_descriptors() {
+    if !support::in_subprocess("background_workers_do_not_retain_external_lock_descriptors") {
+        return;
+    }
+    use std::os::{
+        fd::AsRawFd,
+        unix::{fs::PermissionsExt, process::CommandExt},
+    };
+    let repo = Repo::new();
+    cli(
+        &repo,
+        &[
+            "init",
+            "--capacity",
+            "1",
+            "--ready-target",
+            "0",
+            "--idle-timeout",
+            "never",
+        ],
+    );
+    let pool = Pool::open(&repo.path).unwrap();
+    let real_git = support::command(&repo.path, "sh")
+        .args(["-c", "command -v git"])
+        .output()
+        .unwrap();
+    assert!(real_git.status.success());
+    let real_git = String::from_utf8(real_git.stdout).unwrap();
+    let bin = repo.temp.path().join("bin");
+    fs::create_dir(&bin).unwrap();
+    let script = bin.join("git");
+    fs::write(
+        &script,
+        r#"#!/bin/bash
+if [[ ${GROOVE_INTERNAL_READY_WORKER:-} == 1 && ! -e "$GROOVE_WORKER_ENTERED" ]]; then
+  printf entered > "$GROOVE_WORKER_ENTERED"
+  for ((i=0; i<1500; i++)); do
+    [[ -e "$GROOVE_WORKER_RESUME" ]] && break
+    sleep 0.01
+  done
+fi
+exec "$GROOVE_REAL_GIT" "$@"
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    let entered = repo.temp.path().join("entered");
+    let resume = repo.temp.path().join("resume");
+    struct Resume(std::path::PathBuf);
+    impl Drop for Resume {
+        fn drop(&mut self) {
+            let _ = fs::write(&self.0, b"go");
+        }
+    }
+    let unblock = Resume(resume.clone());
+    let path = std::env::join_paths(
+        std::iter::once(bin).chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
+    )
+    .unwrap();
+    let lock_path = repo.temp.path().join("external.lock");
+    let lock = fs::File::create(&lock_path).unwrap();
+    let fd = lock.as_raw_fd();
+    // SAFETY: flock borrows the live file; fcntl in the child only clears CLOEXEC.
+    assert_eq!(unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    let mut command = support::groove_in(&repo.path);
+    command
+        .args(["config", "set", "--ready-target", "1"])
+        .env("PATH", path)
+        .env("GROOVE_REAL_GIT", real_git.trim())
+        .env("GROOVE_WORKER_ENTERED", &entered)
+        .env("GROOVE_WORKER_RESUME", &resume);
+    // SAFETY: only async-signal-safe fcntl executes after fork; lock stays owned until wait.
+    unsafe {
+        command.pre_exec(move || {
+            if libc::fcntl(fd, libc::F_SETFD, 0) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let child = support::TestChild::spawn(&mut command);
+    assert_success(&child.wait_with_output().unwrap());
+    let deadline = Instant::now() + support::PROCESS_TIMEOUT;
+    while !entered.exists() {
+        assert!(
+            Instant::now() < deadline,
+            "worker did not enter Git barrier"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    drop(lock);
+    let observer = fs::File::open(&lock_path).unwrap();
+    // SAFETY: the independently opened descriptor remains live through the syscall.
+    let acquired = unsafe { libc::flock(observer.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0;
+    drop(unblock);
+    wait_ready(&pool, 1);
+    assert!(
+        acquired,
+        "detached worker retained the caller's external lock"
+    );
+}
+
+#[test]
 fn cli_defaults_prepare_and_replenish_without_a_public_worker_command() {
     if !support::in_subprocess("cli_defaults_prepare_and_replenish_without_a_public_worker_command")
     {

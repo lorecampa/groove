@@ -30,6 +30,8 @@
   advertised by list help and recovery hints.
 - Linux filesystem validation accepts only documented local types; AFS, 9p,
   Ceph and unknown types no longer pass an incomplete network blocklist.
+- Detached preparation workers close caller-inherited descriptors at exec, so
+  external locks and pipe writers are not retained after the foreground exits.
 
 - Retrying an interrupted saved release captures the still-reserved workspace
   again before reuse. Completed retries reject deleted or unpinned snapshots.

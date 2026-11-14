@@ -76,6 +76,27 @@ fn spawn(args: &Args) -> Result<()> {
     let Some(generation) = pool.ready_generation()? else {
         return Ok(());
     };
+    // Snapshot inherited descriptors before spawning. Rust's own descriptors,
+    // including any subsequently opened logging/spawn pipes, are CLOEXEC.
+    // Enumerate instead of trusting RLIMIT_NOFILE: a caller may have lowered
+    // its limit after opening a high-numbered descriptor.
+    let directory = if cfg!(target_os = "linux") {
+        "/proc/self/fd"
+    } else {
+        "/dev/fd"
+    };
+    let mut inherited = Vec::new();
+    for entry in std::fs::read_dir(directory)? {
+        let entry = entry?;
+        if let Some(fd) = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse::<i32>().ok())
+            .filter(|fd| *fd > 2)
+        {
+            inherited.push(fd);
+        }
+    }
     let mut command = Process::new(std::env::current_exe()?);
     command
         .arg("--internal-ready-worker")
@@ -92,12 +113,25 @@ fn spawn(args: &Args) -> Result<()> {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    // SAFETY: setsid is async-signal-safe and the child has not created threads.
-    // No caller descriptors are deliberately inherited; Groove locks are CLOEXEC.
+    // SAFETY: setsid/fcntl are async-signal-safe; the descriptor list was allocated
+    // before fork. Marking CLOEXEC preserves Rust's spawn-error pipe until exec.
     unsafe {
-        command.pre_exec(|| {
+        command.pre_exec(move || {
             if libc::setsid() < 0 {
                 return Err(std::io::Error::last_os_error());
+            }
+            for &fd in &inherited {
+                let flags = libc::fcntl(fd, libc::F_GETFD);
+                if flags < 0 {
+                    let error = std::io::Error::last_os_error();
+                    if error.raw_os_error() == Some(libc::EBADF) {
+                        continue;
+                    }
+                    return Err(error);
+                }
+                if libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
             }
             Ok(())
         });
