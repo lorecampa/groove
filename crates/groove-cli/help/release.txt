@@ -32,9 +32,11 @@ saved. release --force without --save discards the reservation; the next
 acquisition rebuilds it.
 
 Retry a lost response with the original --lease-id, --save setting and --pool
-selection. With --save, durable receipts reuse the original snapshot even after
-slot reuse or pool deletion. Once a receipt exists, do not edit more files before
-retrying. Without --save, retries can become stale after reassignment. Task labels
+selection. With --save, a still-reserved checkout is saved again on retry; capture
+failure keeps its reservation protected. Completed releases reuse their snapshot
+even after slot reuse or pool deletion, but fail if it was deleted or is no longer
+pinned. Older checkpoints remain pinned until explicitly deleted. Without --save,
+retries can become stale after reassignment. Task labels
 can be reused after release; retrying by --task could select a newer reservation.
 Stale lease IDs can never release a later task's workspace.
 

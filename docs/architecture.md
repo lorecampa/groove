@@ -228,8 +228,10 @@ process cannot release that reservation.
 ## Saved release and legacy compatibility
 
 `release --save` ensures durable reuse protection, saves and pins a snapshot,
-persists a receipt, then releases. A saved receipt makes retries stable across
-crashes and slot reuse. Snapshot failure retains the reservation; capture requires
+persists a receipt, then releases. Retries of an active reservation capture its
+current state again; older checkpoints remain pinned. Completed retries validate
+and return their saved snapshot without touching a successor checkout, including
+after pool deletion. Snapshot failure retains the reservation; capture requires
 stopped writers. Release never merges, pushes or publishes task results.
 
 Groove does not launch or supervise task commands. The runner owns their lifetime.
