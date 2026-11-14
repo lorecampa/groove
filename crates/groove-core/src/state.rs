@@ -132,7 +132,11 @@ fn read_unlabelled<T: serde::de::DeserializeOwned>(path: &Path, limit: u64) -> R
         ));
     }
     // Limit the reader as well as the initial metadata check against growth.
-    serde_json::from_reader(std::io::Read::take(file, limit + 1)).map_err(Error::from)
+    serde_json::from_reader(std::io::BufReader::new(std::io::Read::take(
+        file,
+        limit + 1,
+    )))
+    .map_err(Error::from)
 }
 pub(crate) fn write<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     write_unlabelled(path, value).at(path)

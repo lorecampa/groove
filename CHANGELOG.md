@@ -14,6 +14,8 @@
   again before reuse. Completed retries reject deleted or unpinned snapshots.
 - Snapshots reject legacy `crlf` conversion attributes and preserve empty
   attribute values while checking for conversion, preventing silent byte changes.
+- Buffer bounded metadata reads so inspection and acquisition do not perform
+  one filesystem read per JSON byte.
 
 - Contributor hooks scan staged secrets and validate formatting from the index,
   including fuzz sources. Pushes require a clean checkout at the outgoing commit
