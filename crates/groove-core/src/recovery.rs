@@ -45,7 +45,7 @@ pub(crate) fn validate_config(git: &Git, repo: &Repository, oid: &crate::CommitO
 
 fn validate_user_filters(git: &Git, repo: &Repository, oid: &crate::CommitOid) -> Result<()> {
     use crate::git::Invocation;
-    use std::collections::BTreeSet;
+    use std::{collections::BTreeSet, os::unix::fs::PermissionsExt};
     let config = git.run_with(
         &repo.origin,
         &["config", "--null", "--list"],
@@ -98,7 +98,9 @@ fn validate_user_filters(git: &Git, repo: &Repository, oid: &crate::CommitOid) -
     // the scratch tree: a tracked directory named `index` is valid Git content.
     let scratch = tempfile::Builder::new()
         .prefix("groove-filter-")
+        .permissions(fs::Permissions::from_mode(0o700))
         .tempdir_in(&repo.common)?;
+    state::checkpoint("filter-scratch-created");
     let index = scratch.path().join("index");
     let worktree = scratch.path().join("worktree");
     fs::create_dir(&worktree)?;

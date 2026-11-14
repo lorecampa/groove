@@ -158,6 +158,59 @@ fn unused_global_filters_work_in_acquisition_and_the_common_directory_worker() {
 }
 
 #[test]
+#[cfg(feature = "test-hooks")]
+fn filter_scratch_is_private_even_with_a_permissive_umask() {
+    use std::{
+        io::Write,
+        os::unix::{fs::PermissionsExt, net::UnixListener},
+    };
+    let repo = Repo::new();
+    assert_success(&cli(
+        &repo.path,
+        &["init", "--capacity", "1", "--ready-target", "0"],
+    ));
+    let config = repo.temp.path().join("unused-filter.gitconfig");
+    fs::write(&config, "[filter \"lfs\"]\nprocess = false\n").unwrap();
+    let socket = repo.temp.path().join("scratch.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let mut command = support::command(&repo.path, "sh");
+    command
+        .args(["-c", "umask 000; exec \"$@\"", "groove-private-scratch"])
+        .arg(support::groove_binary())
+        .args(["--json", "acquire"])
+        .env("GIT_CONFIG_GLOBAL", config)
+        .env("GROOVE_TEST_CHECKPOINT", "filter-scratch-created")
+        .env("GROOVE_TEST_SOCKET", socket);
+    let mut child = support::TestChild::spawn(&mut command);
+    let mut stream = child
+        .checkpoint(
+            &listener,
+            "filter-scratch-created",
+            support::PROCESS_TIMEOUT,
+        )
+        .unwrap();
+    let scratch: Vec<_> = fs::read_dir(repo.path.join(".git"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("groove-filter-")
+        })
+        .collect();
+    assert_eq!(scratch.len(), 1);
+    assert_eq!(
+        fs::metadata(&scratch[0]).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    stream.write_all(b"continue\n").unwrap();
+    drop(stream);
+    assert_success(&child.wait_with_output().unwrap());
+    assert!(!scratch[0].exists());
+}
+
+#[test]
 fn filter_scratch_layout_does_not_collide_with_an_index_directory() {
     let repo = Repo::new();
     fs::create_dir(repo.path.join("index")).unwrap();
