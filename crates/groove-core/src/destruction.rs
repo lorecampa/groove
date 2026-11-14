@@ -248,7 +248,7 @@ impl Pool {
         }
         repository::owned_dir(&repo.root)?;
         repository::owned_dir(&repo.root.join("locks"))?;
-        let gate = lifecycle::gate(&repo, true)?;
+        let gate = lifecycle::destroy_gate(&repo, options.git_timeout)?;
         let previous = lifecycle::read(&repo)?;
         let intent_path = repo.root.join("initializing.json");
         // A new init can die after publishing intent but before assigning its new

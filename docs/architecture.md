@@ -116,8 +116,14 @@ so no queued exclusive waiter can deadlock a nested shared operation. The guard 
 not retained by an idle `Pool` handle. Normal slot/execution/admin locking and
 descriptor inheritance remain authoritative for surviving children.
 
-`init` and `destroy` take exclusive admission before admin exclusion. Destroy
-probes every existing slot/execution lock nonblockingly, including unpublished
+`init` takes exclusive admission before admin exclusion. Destroy first tries
+exclusive admission; on contention it requests cancellation of an observed ready worker under short admin
+exclusion, releases that exclusion, and polls admission up to the Git timeout.
+The worker checks its generation-specific cancellation token between slots.
+Tokens are advisory: the ready/lifecycle descriptors remain ownership authority.
+No exclusive waiter is queued, preserving nested shared-admission safety.
+Once admitted, destroy takes admin exclusion and probes every existing
+slot/execution lock nonblockingly, including unpublished
 growth and retired slots, and checks that every configured identity still exists.
 It never waits for slot ownership while holding admin. Live/protected reservations
 and orphan execution records always refuse deletion; no discard option bypasses them.

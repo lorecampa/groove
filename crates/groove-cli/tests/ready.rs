@@ -520,6 +520,90 @@ fn released_retry_during_preparation_never_unlocks_the_worker() {
 
 #[cfg(feature = "test-hooks")]
 #[test]
+fn destruction_cancels_the_worker_between_slots_and_waits_for_its_descriptors() {
+    use std::{
+        io::Write,
+        os::unix::{fs::MetadataExt, net::UnixListener},
+    };
+    let repo = Repo::new();
+    Pool::init(
+        &repo.path,
+        PoolOptions {
+            capacity: 3,
+            ready: Some(ReadySettings {
+                ready_target: 3,
+                ..Default::default()
+            }),
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let pool = Pool::open(&repo.path).unwrap();
+    let lock = repo.state().join("locks/ready.lock");
+    let inode = fs::metadata(&lock).unwrap().ino();
+    let (mut preparer, worker_listener) = worker(&repo, &pool, "ready-between-slots");
+    let mut worker_stream = preparer
+        .checkpoint(
+            &worker_listener,
+            "ready-between-slots",
+            support::PROCESS_TIMEOUT,
+        )
+        .unwrap();
+    assert!(repo.slot(1).exists());
+    assert!(!repo.slot(2).exists());
+    let socket = repo.temp.path().join("cancel.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let mut destroyer = support::TestChild::spawn(
+        support::groove_in(&repo.path)
+            .args(["--git-timeout-ms", "5000", "destroy"])
+            .env("GROOVE_TEST_CHECKPOINT", "ready-cancel-requested")
+            .env("GROOVE_TEST_SOCKET", &socket),
+    );
+    let mut destroy_stream = destroyer
+        .checkpoint(
+            &listener,
+            "ready-cancel-requested",
+            support::PROCESS_TIMEOUT,
+        )
+        .unwrap();
+    assert!(repo.state().join("ready-cancel.json").exists());
+    let lifecycle: Value =
+        serde_json::from_slice(&fs::read(repo.state().join("lifecycle.json")).unwrap()).unwrap();
+    assert_eq!(lifecycle["phase"], "ready");
+    worker_stream.write_all(b"continue\n").unwrap();
+    drop(worker_stream);
+    assert!(preparer.wait().unwrap().success());
+    assert!(!repo.slot(2).exists());
+    assert!(!repo.slot(3).exists());
+    destroy_stream.write_all(b"continue\n").unwrap();
+    drop(destroy_stream);
+    assert_success(&destroyer.wait_with_output().unwrap());
+    assert!(!repo.slot(1).exists());
+    assert_eq!(fs::metadata(&lock).unwrap().ino(), inode);
+    // A cancellation targets this worker token, never a recreated generation.
+    Pool::init(
+        &repo.path,
+        PoolOptions {
+            capacity: 3,
+            ready: Some(ReadySettings {
+                ready_target: 1,
+                ..Default::default()
+            }),
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let replacement = Pool::open(&repo.path).unwrap();
+    let generation = replacement.request_ready().unwrap().unwrap();
+    replacement.run_ready(generation).unwrap();
+    assert_eq!(replacement.ready_report().unwrap().ready, 1);
+    assert_eq!(fs::metadata(lock).unwrap().ino(), inode);
+}
+
+#[cfg(feature = "test-hooks")]
+#[test]
 fn destruction_refuses_a_live_preparer_then_preserves_its_permanent_lock() {
     if !support::in_subprocess(
         "destruction_refuses_a_live_preparer_then_preserves_its_permanent_lock",
@@ -540,9 +624,15 @@ fn destruction_refuses_a_live_preparer_then_preserves_its_permanent_lock() {
         )
         .unwrap();
     assert_eq!(
-        Pool::destroy(&repo.path, Default::default())
-            .unwrap_err()
-            .code,
+        Pool::destroy(
+            &repo.path,
+            groove_core::DestroyOptions {
+                git_timeout: Duration::from_millis(100),
+                ..Default::default()
+            }
+        )
+        .unwrap_err()
+        .code,
         groove_core::ErrorCode::ConfigConflict
     );
     child.kill().unwrap();
