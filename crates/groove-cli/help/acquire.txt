@@ -19,9 +19,11 @@ warm retains them only when reusing a healthy checkout. Retained files are not
 validated build outputs and may disappear during rebuild. Run and validate your
 build directly in the returned checkout. Build-tool caches outside pool roots can
 survive pristine cleanup; the build tool owns their compatibility and sharing.
-Tracked files are rewritten even at the same commit to reset metadata and break
-hardlinks. Warm reuse does not preserve timestamps for incremental builds;
-content-addressed compiler caches can still reuse compatible results.
+Untouched tracked files keep inode and mtime. Files whose ctime changed since the
+last verified checkout are rewritten, including metadata and hardlink changes.
+This trusts that ctime cannot be backdated without root or a clock change.
+Missing verification/index state, hidden index flags, attribute changes or a
+large touched inventory force a full rewrite. Retained build outputs still need validation.
 
 Capacity: a zero --wait-ms scans once; a positive value bounds waiting for a
 free slot (not checkout preparation, which has its own Git timeouts). There is

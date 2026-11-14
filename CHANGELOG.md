@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Reuse untouched tracked files by ctime since the last verified checkout, keeping
+  inode and mtime across leases. Missing markers/indexes, hidden flags, attribute
+  changes and oversized touched lists fall back to the full rewrite. Interrupted
+  normalization cannot retain a stale verification marker.
 - Validate configured filters against the requested tree in a scratch worktree,
   including subdirectory callers and common-directory workers. Unused global
   drivers remain harmless; malformed driver names are rejected before checkout.
@@ -103,8 +107,9 @@
   rejection categories alongside the files and reservations that must survive.
 - Remove the obsolete project-configuration fuzz corpus after its target and
   managed task execution configuration were removed.
-- Clarify that warm cleanup retains ignored files but acquisition rewrites tracked
-  timestamps; compiler cache reuse does not promise timestamp-based incremental builds.
+- Clarify warm cache behavior: 0.3.1 rewrote tracked timestamps; the subsequent
+  ctime reuse fix preserves untouched files across leases while retained build
+  outputs still require validation.
 - Explain why forced releases with unsaved files remain available to explicit
   acquisition while conservative background preparation and eviction refuse them.
 - Document mount-namespace and permission limits of process inspection; an empty
