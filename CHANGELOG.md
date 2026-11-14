@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Report corrupt ready-slot metadata as unhealthy in `list --slots` and `show`,
+  with its failure, matching acquisition's refusal to reuse that slot.
 - Remove a failed `snapshot restore --to` checkout and its Git registration,
   retaining the original error and reporting any cleanup failure separately.
 - Reject snapshots during rebase, am, cherry-pick, revert and bisect operations,

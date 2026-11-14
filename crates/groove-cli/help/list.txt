@@ -7,6 +7,7 @@ By default lists active reservations, including ones left by interrupted
 commands. --slots lists slots with their status, reason and suggested next
 action. --details adds bounded local Git status (staged, modified, untracked).
 Observations never prove ownership or that writers have stopped.
+Corrupt ready-slot metadata is reported as unhealthy with its failure.
 
 Returns at most 50 entries by default, ordered by slot ID. Use --limit N to
 change the page size, --offset N to continue, or --unlimited for the complete list.

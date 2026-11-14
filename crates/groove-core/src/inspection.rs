@@ -169,6 +169,7 @@ impl Pool {
 
     fn observe_slot(&self, slot: &SlotId, identity: Identity) -> SlotInspection {
         let mut failure = Failure::default();
+        failure.keep(self.validate_ready_state(slot));
         let lock_held = failure
             .keep(SlotGuard::try_lock(
                 &self.repo.lock_path(slot),
