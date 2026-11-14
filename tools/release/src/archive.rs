@@ -106,6 +106,7 @@ impl Release {
         // otherwise reuse artifacts from a prior temporary tree at the same
         // version (including libraries built from older package contents).
         let build = scratch.path().join("build");
+        let production = scratch.path().join("production");
         let mut package_patch = Vec::new();
         let mut build_patch = Vec::new();
         for name in PACKAGES {
@@ -148,6 +149,30 @@ impl Release {
             }
             command.extend(build_patch.clone());
             self.runner.run(&self.root, "cargo", command)?;
+            if name == "groove-cli" {
+                // Test targets activate dev-dependency features. Build the shipped
+                // executables separately, without those targets or their artifacts.
+                let mut command = args![
+                    "build",
+                    "--bins",
+                    "--locked",
+                    "--manifest-path",
+                    package.join("Cargo.toml"),
+                    "--target-dir",
+                    production
+                ];
+                if auditable {
+                    command.insert(0, "auditable".into());
+                }
+                if let Some(target) = target {
+                    command.extend(args!["--target", target]);
+                }
+                if release {
+                    command.push("--release".into());
+                }
+                command.extend(build_patch.clone());
+                self.runner.run(&self.root, "cargo", command)?;
+            }
             if name == "groove-core" {
                 // Packaging resolves the local metadata; compilation uses ONLY the extracted core.
                 // Real crates.io publication below never uses these overrides.
@@ -162,7 +187,7 @@ impl Release {
             }
         }
         let profile = if release { "release" } else { "debug" };
-        let binaries = build.join(target.unwrap_or_default()).join(profile);
+        let binaries = production.join(target.unwrap_or_default()).join(profile);
         self.smoke(&binaries, &version)?;
         // Expose only smoke-tested executables at the documented bundle path;
         // all compiler outputs and extracted sources remain invocation-local.

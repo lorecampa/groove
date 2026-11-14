@@ -42,6 +42,8 @@
   Human output is byte-exact; JSON marks non-UTF-8 patches with `patch_encoding=base64`.
 - Cover interruption immediately before background eviction as well as after
   worktree removal, checking recovery and permanent lock preservation.
+- Build packaged executables separately from test targets, preventing development
+  dependencies from enabling features in the shipped binary.
 
 - Retrying an interrupted saved release captures the still-reserved workspace
   again before reuse. Completed retries reject deleted or unpinned snapshots.

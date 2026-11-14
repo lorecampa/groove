@@ -401,16 +401,27 @@ fn repeated_package_checks_compile_the_current_archive_at_the_same_version() {
     fs::write(
         &manifest,
         format!(
-            "{}\n[[bin]]\nname = \"groove\"\npath = \"src/main.rs\"\n",
+            "{}\n[[bin]]\nname = \"groove\"\npath = \"src/main.rs\"\n\n[dev-dependencies]\ngroove-core = {{ version = \"0.1.0\", path = \"../groove-core\", features = [\"dev-only\"] }}\n",
             fs::read_to_string(&manifest).unwrap()
         ),
     )
     .unwrap();
     let core = f.path("crates/groove-core/src/lib.rs");
     let cli = f.path("crates/groove-cli/src/main.rs");
-    fs::write(&core, "pub fn old_api() {}\n").unwrap();
+    let core_manifest = f.path("crates/groove-core/Cargo.toml");
+    fs::write(
+        &core_manifest,
+        format!(
+            "{}\n[features]\ndev-only = []\n",
+            fs::read_to_string(&core_manifest).unwrap()
+        ),
+    )
+    .unwrap();
+    let core_source = "pub fn old_api() {}\npub fn development_feature() -> bool { cfg!(feature = \"dev-only\") }\n";
+    fs::write(&core, core_source).unwrap();
     let source = r#"fn main() {
     groove_core::old_api();
+    assert!(!groove_core::development_feature(), "Shipped binary enabled a dev-dependency feature");
     let cwd = std::env::current_dir().unwrap();
     let result = match std::env::args().nth(2).unwrap().as_str() {
         "--version" => "{\"text\":\"groove 0.1.0\"}".to_string(),
@@ -436,7 +447,7 @@ fn repeated_package_checks_compile_the_current_archive_at_the_same_version() {
     f.commit();
     for new_api in [false, true] {
         if new_api {
-            fs::write(&core, "pub fn new_api() {}\n").unwrap();
+            fs::write(&core, core_source.replace("old_api", "new_api")).unwrap();
             fs::write(&cli, source.replace("old_api", "new_api")).unwrap();
             f.commit();
         }
