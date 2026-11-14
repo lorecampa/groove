@@ -82,12 +82,20 @@ pub fn run(context: &Context<'_>, command: &SnapshotCommand) -> Result<Output> {
             Output::text(json!({ "snapshots": snapshots }), text)?.paginated(pagination)
         }
         SnapshotCommand::Show { id } => snapshot_output(service.show(id)?),
-        SnapshotCommand::Diff { id, other } => {
-            let patch = service.diff(id, other.as_deref())?;
+        SnapshotCommand::Diff {
+            id,
+            other,
+            max_file_bytes,
+        } => {
+            let patch = service.diff_with_limit(id, other.as_deref(), *max_file_bytes)?;
             Output::raw(json!({ "patch": patch }), patch)
         }
-        SnapshotCommand::Restore { id, to } => {
-            let restored = service.restore(id, to.as_deref())?;
+        SnapshotCommand::Restore {
+            id,
+            to,
+            max_file_bytes,
+        } => {
+            let restored = service.restore_with_limit(id, to.as_deref(), *max_file_bytes)?;
             let text = format!(
                 "Restored {} into {}.",
                 restored.snapshot_id,

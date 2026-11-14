@@ -17,8 +17,10 @@ groove snapshot list
 groove snapshot show ID
 groove snapshot diff ID            # versus current files, including untracked
 groove snapshot diff ID OTHER_ID
+groove snapshot diff ID --max-file-bytes 0  # unlimited current-file capture
 groove snapshot restore ID --to ../recovery
 groove snapshot restore ID         # automatic safety checkpoint first
+groove snapshot restore ID --max-file-bytes 0  # unlimited safety capture
 ```
 
 Save includes staged state, unstaged changes, deletions, executable modes,

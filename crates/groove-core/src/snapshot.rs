@@ -818,6 +818,20 @@ impl Snapshots {
     /// failures, and non-UTF-8 patches. Comparing against working files also has
     /// the capture restrictions of [`Self::save`], without publishing a snapshot.
     pub fn diff(&self, id: &str, other: Option<&str>) -> Result<String> {
+        self.diff_with_limit(id, other, SaveOptions::default().max_file_bytes)
+    }
+
+    /// Produce a patch with a custom current-file capture limit; zero is unlimited.
+    /// The limit is unused when comparing two saved snapshots.
+    ///
+    /// # Errors
+    /// Has the same errors as [`Self::diff`], using the supplied limit for capture.
+    pub fn diff_with_limit(
+        &self,
+        id: &str,
+        other: Option<&str>,
+        max_file_bytes: u64,
+    ) -> Result<String> {
         let lock = self.lock()?;
         let a = self.load(id, &lock)?;
         let b = match other {
@@ -826,6 +840,7 @@ impl Snapshots {
                 let s = self.capture(
                     &SaveOptions {
                         description: "temporary diff".into(),
+                        max_file_bytes,
                         ..Default::default()
                     },
                     &lock,
@@ -889,6 +904,21 @@ impl Snapshots {
     /// include its ID in the error details; a failed restore can leave partial
     /// working-file changes, so retain that snapshot for recovery.
     pub fn restore(&self, id: &str, destination: Option<&Path>) -> Result<RestoreResult> {
+        self.restore_with_limit(id, destination, SaveOptions::default().max_file_bytes)
+    }
+
+    /// Restore with a custom safety-snapshot file limit; zero is unlimited.
+    /// The limit is unused when recovering into a new directory.
+    ///
+    /// # Errors
+    /// Has the same errors as [`Self::restore`]. Exceeding the safety capture limit
+    /// leaves the current workspace unchanged.
+    pub fn restore_with_limit(
+        &self,
+        id: &str,
+        destination: Option<&Path>,
+        max_file_bytes: u64,
+    ) -> Result<RestoreResult> {
         let mut lock = self.lock()?;
         // A main-checkout recovery must also exclude root/settings replacement
         // between checking its destination and finishing the new worktree. Pass
@@ -970,6 +1000,7 @@ impl Snapshots {
         let safety = self.capture(
             &SaveOptions {
                 description: format!("before restoring {id}"),
+                max_file_bytes,
                 ..Default::default()
             },
             &lock,
