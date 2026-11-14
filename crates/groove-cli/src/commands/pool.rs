@@ -235,10 +235,23 @@ fn slot_table(inspection: &PoolInspection) -> String {
                 task_label(slot.lease.as_ref().filter(|_| slot.lease_active)),
                 git,
                 slot.reason.clone(),
+                slot.failure.clone().unwrap_or_else(|| "-".into()),
+                slot.next_action.clone(),
             ]
         })
         .collect();
-    table(&["SLOT", "STATUS", "TASK", "CHANGES", "REASON"], &rows)
+    table(
+        &[
+            "SLOT",
+            "STATUS",
+            "TASK",
+            "CHANGES",
+            "REASON",
+            "FAILURE",
+            "NEXT ACTION",
+        ],
+        &rows,
+    )
 }
 
 fn sort_slots(slots: &mut [SlotInspection], sort: SlotSort) {
