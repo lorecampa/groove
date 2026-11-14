@@ -86,6 +86,9 @@
 
 ### Fixed
 
+- macOS CI runs the current ownership, readiness and snapshot test targets on
+  case-sensitive APFS instead of naming removed execution and cache suites.
+
 - Controlled workspace benchmarks disable automatic preparation and idle
   eviction, preserving concurrent workload workers and legacy lazy baselines.
   Affected profile versions advance; cleanup errors now fail the run instead

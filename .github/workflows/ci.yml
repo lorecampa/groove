@@ -146,17 +146,13 @@ jobs:
       - run: cargo doc --workspace --no-deps --locked
         env:
           RUSTDOCFLAGS: -D warnings
-      - name: APFS reflink cache regression
-        run: cargo test -p groove-core --test preparation --locked -- --ignored reflink
-        env:
-          GROOVE_TEST_REFLINK_ROOT: /private/tmp
       - name: Packaged production binaries
         if: matrix.rust == '1.89.0'
         run: |
           bash scripts/release.sh packages
           target=$(rustc -vV | sed -n 's/^host: //p')
           bash scripts/release.sh bundle --bin-dir target/package-check/debug --target "$target" --output "$RUNNER_TEMP/distribution"
-      - name: Case-sensitive APFS process, cache and snapshot regressions
+      - name: Case-sensitive APFS ownership, readiness and snapshot regressions
         if: matrix.rust == '1.89.0'
         run: |
           image="$RUNNER_TEMP/groove-apfs.sparseimage"
@@ -169,9 +165,8 @@ jobs:
           mkdir "$mount/scratch/CaseProbe"
           test ! -e "$mount/scratch/caseprobe"
           rmdir "$mount/scratch/CaseProbe"
-          GROOVE_TEST_ROOT="$mount/scratch" TMPDIR="$mount/scratch" cargo test -p groove-core --test snapshots --test preparation --test quiescence --test fork_inheritance --locked
-          GROOVE_TEST_ROOT="$mount/scratch" TMPDIR="$mount/scratch" cargo test -p groove-cli --test execution --locked
-          GROOVE_TEST_REFLINK_ROOT="$mount/scratch" cargo test -p groove-core --test preparation --locked -- --ignored reflink
+          GROOVE_TEST_ROOT="$mount/scratch" TMPDIR="$mount/scratch" cargo test -p groove-core --test snapshots --test ready --test quiescence --test fork_inheritance --locked
+          GROOVE_TEST_ROOT="$mount/scratch" TMPDIR="$mount/scratch" cargo test -p groove-cli --test durable --test ready --test quiescence --locked
   audit:
     uses: ./.github/workflows/security.yml
     with:
