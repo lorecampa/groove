@@ -334,6 +334,13 @@ fn killed_eviction_resumes_without_replacing_locks_or_losing_capacity() {
     {
         return;
     }
+    for checkpoint in ["ready-before-eviction", "owned-registrations-removed"] {
+        interrupted_eviction(checkpoint);
+    }
+}
+
+#[cfg(feature = "test-hooks")]
+fn interrupted_eviction(checkpoint: &str) {
     use std::os::unix::fs::MetadataExt;
     let repo = Repo::new();
     let pool = initialized(&repo);
@@ -351,17 +358,19 @@ fn killed_eviction_resumes_without_replacing_locks_or_losing_capacity() {
     .unwrap();
     let lock = repo.state().join("locks/wt-0001.lock");
     let inode = fs::metadata(&lock).unwrap().ino();
-    let (mut child, listener) = worker(&repo, &pool, "owned-registrations-removed");
+    let (mut child, listener) = worker(&repo, &pool, checkpoint);
     let stream = child
-        .checkpoint(
-            &listener,
-            "owned-registrations-removed",
-            support::PROCESS_TIMEOUT,
-        )
+        .checkpoint(&listener, checkpoint, support::PROCESS_TIMEOUT)
         .unwrap();
     child.kill().unwrap();
     assert!(!child.wait().unwrap().success());
     drop(stream);
+    if checkpoint == "ready-before-eviction" {
+        assert_eq!(
+            fs::read(repo.slot(1).join("tracked.txt")).unwrap(),
+            b"baseline\n"
+        );
+    }
     pool.run_ready(generation).unwrap();
     assert_eq!(fs::metadata(lock).unwrap().ino(), inode);
     assert!(!repo.slot(1).exists());
