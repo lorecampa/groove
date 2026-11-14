@@ -159,7 +159,10 @@ restoration follows the destination's sparse checkout configuration. The pool's
 more restrictive supported-configuration rules remain unchanged.
 
 No hooks or external diff/textconv commands are executed. The operation timeout
-applies to each Git subprocess and each snapshot lock wait. Large Git responses have a bounded 128 MiB limit;
+applies to each Git subprocess and each snapshot lock wait. Restore tree inventories
+stream through temporary files on the snapshot-state filesystem and bounded
+attribute batches, avoiding large inventories in a small RAM-backed /tmp. Other large Git
+responses have a bounded 128 MiB limit;
 exceeding it fails explicitly. This is intended for supported local Linux filesystems
 or local APFS on macOS and
 Git 2.40+, matching Groove's platform contract.

@@ -8,7 +8,7 @@ use std::{
     collections::BTreeSet,
     ffi::OsStr,
     fs,
-    io::{Seek, Write},
+    io::{Read, Seek, Write},
     os::{
         fd::{AsFd, AsRawFd},
         unix::ffi::OsStrExt,
@@ -65,6 +65,34 @@ fn now() -> u64 {
 }
 fn paths(bytes: &[u8]) -> impl Iterator<Item = &[u8]> {
     bytes.split(|b| *b == 0).filter(|p| !p.is_empty())
+}
+
+/// Keep complete NUL-delimited paths together, bounding each attribute query.
+fn path_batches(mut input: impl Read, mut consume: impl FnMut(&[u8]) -> Result<()>) -> Result<()> {
+    let mut buffer = [0; 8192];
+    let mut batch = Vec::new();
+    loop {
+        let count = input.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        for &byte in &buffer[..count] {
+            batch.push(byte);
+            if byte == 0 && batch.len() >= 4 * 1024 * 1024 {
+                consume(&batch)?;
+                batch.clear();
+            } else if batch.len() > 8 * 1024 * 1024 {
+                return Err(invalid("Git path exceeds the inventory record limit"));
+            }
+        }
+    }
+    if !batch.is_empty() {
+        if batch.last() != Some(&0) {
+            return Err(invalid("Unterminated Git path inventory"));
+        }
+        consume(&batch)?;
+    }
+    Ok(())
 }
 fn checked_id(id: &str) -> Result<String> {
     let uuid = Uuid::parse_str(id).map_err(|_| invalid("Snapshot ID must be a UUID"))?;
@@ -614,8 +642,32 @@ impl Snapshots {
             None,
             Some(lock),
         )?;
-        let names = self.run(&["ls-files", "-z"], Some(&index), None, Some(lock))?;
-        self.validate_attributes(&names, Some(&index), true, Some(lock))
+        let names = self.spool_names(&["ls-files", "-z"], Some(&index), lock)?;
+        path_batches(names, |names| {
+            self.validate_attributes(names, Some(&index), true, Some(lock))
+        })
+    }
+    fn spool_names(
+        &self,
+        args: &[&str],
+        index: Option<&Path>,
+        lock: &SnapshotLock,
+    ) -> Result<fs::File> {
+        let mut env = vec![("GIT_LITERAL_PATHSPECS", OsStr::new("1"))];
+        if let Some(index) = index {
+            env.push(("GIT_INDEX_FILE", index.as_os_str()));
+        }
+        Git::new(self.timeout).spool(
+            &self.root,
+            args,
+            Invocation {
+                inherit: &lock.descriptors(),
+                env: &env,
+                reject_stderr: true,
+                spool_directory: Some(&self.state),
+                ..Invocation::snapshot()
+            },
+        )
     }
     fn index_bytes(&self) -> Result<Option<Vec<u8>>> {
         match fs::read(self.git_dir.join("index")) {
@@ -1168,18 +1220,21 @@ impl Snapshots {
             None,
             Some(lock),
         )?;
-        let target = self.run(
+        let target = self.spool_names(
             &["ls-tree", "-r", "--name-only", "-z", &s.work_tree],
             None,
-            None,
-            Some(lock),
+            lock,
         )?;
         // Existing working attributes may also affect paths absent from the
         // current index, so check every path about to be restored.
-        self.validate_attributes(&target, None, false, Some(lock))?;
-        let target: BTreeSet<Vec<u8>> = paths(&target).map(Vec::from).collect();
+        let mut target_paths = BTreeSet::new();
+        path_batches(target, |names| {
+            self.validate_attributes(names, None, false, Some(lock))?;
+            target_paths.extend(paths(names).map(Vec::from));
+            Ok(())
+        })?;
         for ignored in paths(&ignored) {
-            if path_collision(&target, ignored) {
+            if path_collision(&target_paths, ignored) {
                 return Err(invalid(
                     "Restore would overwrite an ignored file; move it before retrying",
                 ));
@@ -1259,6 +1314,22 @@ fn stamp(path: &Path) -> Result<Option<Stamp>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn inventory_batches_keep_paths_complete_and_reject_partial_records() {
+        let input = b"space and\nnewline\0two:2\0".repeat(200_000);
+        let mut restored = Vec::new();
+        let mut batches = 0;
+        path_batches(input.as_slice(), |batch| {
+            assert_eq!(batch.last(), Some(&0));
+            restored.extend_from_slice(batch);
+            batches += 1;
+            Ok(())
+        })
+        .unwrap();
+        assert!(batches > 1);
+        assert_eq!(restored, input);
+        assert!(path_batches(b"incomplete".as_slice(), |_| Ok(())).is_err());
+    }
     #[test]
     fn collisions_respect_path_boundaries() {
         let target: BTreeSet<Vec<u8>> = [b"a/b".to_vec(), b"file".to_vec()].into_iter().collect();

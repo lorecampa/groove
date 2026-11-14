@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Stream restore tree inventories through temporary files and bounded attribute
+  batches, avoiding whole-tree Git output limits during in-place and new recovery.
 - Refuse release and destruction when Git status emits warnings, even after exit
   zero, because omitted untracked work cannot be treated as a clean inventory.
 - Stream index audits during snapshot capture, ready preparation and destruction

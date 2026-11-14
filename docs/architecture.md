@@ -263,6 +263,8 @@ output. `git::Invocation` makes each policy explicit: `ConfigScope::Isolated`
 executable modes and symlinks independently of checkout preferences), the stdout bound, inherited
 descriptors, and whether `ls-tree` output is streamed for gitlink detection.
 Ordinary output is bounded to 1 MiB per stream while both streams are drained.
+Restore tree-path inventories spool to temporary files and feed bounded attribute
+batches, so index and tree sizes do not consume the ordinary output allowance.
 Index audits stream `ls-files -v --stage -z` headers, retaining conflicts,
 gitlinks, hidden-edit flags and potential intent-to-add entries without storing
 the complete tracked-path list. Malformed or incomplete records fail closed.
