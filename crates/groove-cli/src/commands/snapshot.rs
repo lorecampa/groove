@@ -87,8 +87,16 @@ pub fn run(context: &Context<'_>, command: &SnapshotCommand) -> Result<Output> {
             other,
             max_file_bytes,
         } => {
-            let patch = service.diff_with_limit(id, other.as_deref(), *max_file_bytes)?;
-            Output::raw(json!({ "patch": patch }), patch)
+            use base64::Engine;
+            let bytes = service.diff_bytes_with_limit(id, other.as_deref(), *max_file_bytes)?;
+            let result = match std::str::from_utf8(&bytes) {
+                Ok(patch) => json!({ "patch": patch }),
+                Err(_) => json!({
+                    "patch": base64::engine::general_purpose::STANDARD.encode(&bytes),
+                    "patch_encoding": "base64"
+                }),
+            };
+            Output::raw_bytes(result, bytes)
         }
         SnapshotCommand::Restore {
             id,

@@ -4,6 +4,9 @@
 [cargo-vet]
 version = "0.10"
 
+[imports.google]
+url = "https://raw.githubusercontent.com/google/supply-chain/main/audits.toml"
+
 [imports.mozilla]
 url = "https://raw.githubusercontent.com/mozilla/supply-chain/main/audits.toml"
 
@@ -12,10 +15,6 @@ audit-as-crates-io = false
 
 [policy.groove-core]
 audit-as-crates-io = false
-
-[[exemptions.adler2]]
-version = "2.0.1"
-criteria = "safe-to-deploy"
 
 [[exemptions.ahash]]
 version = "0.8.12"
@@ -52,10 +51,6 @@ criteria = "safe-to-deploy"
 [[exemptions.autocfg]]
 version = "1.5.1"
 criteria = "safe-to-deploy"
-
-[[exemptions.base64]]
-version = "0.22.1"
-criteria = "safe-to-run"
 
 [[exemptions.bitflags]]
 version = "2.13.2"
@@ -119,10 +114,6 @@ criteria = "safe-to-deploy"
 
 [[exemptions.const-oid]]
 version = "0.10.2"
-criteria = "safe-to-deploy"
-
-[[exemptions.core-foundation-sys]]
-version = "0.8.7"
 criteria = "safe-to-deploy"
 
 [[exemptions.crc32fast]]
@@ -249,10 +240,6 @@ criteria = "safe-to-run"
 version = "2.4.0"
 criteria = "safe-to-run"
 
-[[exemptions.idna]]
-version = "1.1.0"
-criteria = "safe-to-run"
-
 [[exemptions.idna_adapter]]
 version = "1.2.2"
 criteria = "safe-to-run"
@@ -317,10 +304,6 @@ criteria = "safe-to-run"
 version = "0.4.8"
 criteria = "safe-to-run"
 
-[[exemptions.num-cmp]]
-version = "0.1.0"
-criteria = "safe-to-run"
-
 [[exemptions.num-complex]]
 version = "0.4.6"
 criteria = "safe-to-run"
@@ -332,14 +315,6 @@ criteria = "safe-to-run"
 [[exemptions.num-iter]]
 version = "0.1.46"
 criteria = "safe-to-run"
-
-[[exemptions.num-rational]]
-version = "0.4.2"
-criteria = "safe-to-run"
-
-[[exemptions.num-traits]]
-version = "0.2.19"
-criteria = "safe-to-deploy"
 
 [[exemptions.once_cell]]
 version = "1.21.4"
@@ -361,10 +336,6 @@ criteria = "safe-to-run"
 version = "0.9.12"
 criteria = "safe-to-run"
 
-[[exemptions.percent-encoding]]
-version = "2.3.2"
-criteria = "safe-to-run"
-
 [[exemptions.pin-project-lite]]
 version = "0.2.17"
 criteria = "safe-to-deploy"
@@ -380,10 +351,6 @@ criteria = "safe-to-deploy"
 [[exemptions.proptest]]
 version = "1.12.0"
 criteria = "safe-to-run"
-
-[[exemptions.quote]]
-version = "1.0.47"
-criteria = "safe-to-deploy"
 
 [[exemptions.r-efi]]
 version = "5.3.0"
@@ -501,10 +468,6 @@ criteria = "safe-to-run"
 version = "1.2.1"
 criteria = "safe-to-run"
 
-[[exemptions.strsim]]
-version = "0.11.1"
-criteria = "safe-to-deploy"
-
 [[exemptions.syn]]
 version = "2.0.119"
 criteria = "safe-to-deploy"
@@ -579,10 +542,6 @@ criteria = "safe-to-run"
 
 [[exemptions.unicode-ident]]
 version = "1.0.27"
-criteria = "safe-to-deploy"
-
-[[exemptions.utf8parse]]
-version = "0.2.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.uuid]]

@@ -348,6 +348,8 @@ pub enum SnapshotCommand {
         id: String,
     },
     /// Print a patch from a snapshot to current files, or to another snapshot.
+    /// Human output preserves arbitrary bytes. JSON uses patch_encoding=base64
+    /// when patch bytes are not UTF-8; otherwise patch contains ordinary text.
     Diff {
         /// Source snapshot ID.
         id: String,

@@ -832,6 +832,41 @@ impl Snapshots {
         other: Option<&str>,
         max_file_bytes: u64,
     ) -> Result<String> {
+        String::from_utf8(self.diff_bytes_with_limit(id, other, max_file_bytes)?).map_err(|_| {
+            unsupported("Git patch must be UTF-8; use diff_bytes for arbitrary content")
+        })
+    }
+
+    /// Produce a byte-exact Git patch, including non-UTF-8 file contents.
+    /// Filenames use Git's quoted patch syntax and binary blobs use binary patches.
+    ///
+    /// # Errors
+    /// Has the capture, locking and Git errors of [`Self::diff`], without its UTF-8 restriction.
+    ///
+    /// ```no_run
+    /// use groove_core::snapshot::Snapshots;
+    /// use std::time::Duration;
+    /// let snapshots = Snapshots::open("/path/to/repo", Duration::from_secs(30))?;
+    /// let baseline = snapshots.save(Default::default())?;
+    /// // After editing files, export a patch without decoding their bytes.
+    /// std::fs::write("changes.patch", snapshots.diff_bytes(&baseline.id, None)?)?;
+    /// # Ok::<(), groove_core::Error>(())
+    /// ```
+    pub fn diff_bytes(&self, id: &str, other: Option<&str>) -> Result<Vec<u8>> {
+        self.diff_bytes_with_limit(id, other, SaveOptions::default().max_file_bytes)
+    }
+
+    /// Produce a byte-exact patch with a custom current-file capture limit.
+    /// Zero is unlimited; the limit is unused when comparing saved snapshots.
+    ///
+    /// # Errors
+    /// Has the errors of [`Self::diff_bytes`], using the supplied capture limit.
+    pub fn diff_bytes_with_limit(
+        &self,
+        id: &str,
+        other: Option<&str>,
+        max_file_bytes: u64,
+    ) -> Result<Vec<u8>> {
         let lock = self.lock()?;
         let a = self.load(id, &lock)?;
         let b = match other {
@@ -852,8 +887,10 @@ impl Snapshots {
         // Export an applicable patch independently of user display preferences.
         // Keep the trailing newlines: metadata's string helper would trim bytes
         // needed by git apply, including when the patch is delivered as JSON.
-        String::from_utf8(self.run(
+        self.run(
             &[
+                "-c",
+                "core.quotePath=true",
                 "diff-tree",
                 "-r",
                 "-p",
@@ -875,8 +912,7 @@ impl Snapshots {
             None,
             None,
             Some(&lock),
-        )?)
-        .map_err(|_| unsupported("Git patch must be UTF-8"))
+        )
     }
 
     pub(crate) fn matches_saved_files(&self, id: &str) -> Result<bool> {
