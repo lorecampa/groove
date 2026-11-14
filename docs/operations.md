@@ -257,6 +257,11 @@ locate owners but is incomplete because of
 permissions and races. Missing PIDs/descriptors do not authorize cleanup. If
 ownership is uncertain, leave protection intact.
 
+The release/destruction process scan observes accessible same-user processes and
+compares visible paths. Other users, mount namespaces and alternate mount paths
+can hide workspace users. A successful scan does not establish that all writers
+stopped: callers must stop their workers, watchers and descendants before release.
+
 Managed-path symlink and registration checks protect cooperating workflows, not
 malicious same-user directory races. SIGKILL tests establish process-crash
 recovery, not storage/power-loss guarantees. See [testing](testing.md).
