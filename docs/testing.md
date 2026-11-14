@@ -147,8 +147,12 @@ Install the optional mutation tool separately from workspace dependencies:
 cargo install cargo-mutants --version 27.1.0 --locked
 cargo mutants -p groove-core -f crates/groove-core/src/identifiers.rs \
   --output target/mutants-identifiers --timeout 60 --build-timeout 120 \
-  --cargo-arg=--locked --cargo-test-arg=--test=types
+  --cargo-arg=--locked --cargo-test-arg=--test=types \
+  --cargo-test-arg=--test=named_pools
 ```
+
+The named-pool suite checks the default namespace's storage routing through
+public operations; the type suite checks parsing, conversion and wire identity.
 
 Keep the unmutated baseline check enabled and use the default disposable copy,
 never `--in-place` on a developer checkout. Inspect every surviving mutation: it may
