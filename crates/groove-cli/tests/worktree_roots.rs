@@ -25,6 +25,29 @@ fn run(repo: &Repo, home: &Path, args: &[&str]) -> Value {
 }
 
 #[test]
+fn a_symlinked_home_resolves_the_base_before_creating_managed_paths() {
+    let repo = Repo::new();
+    let home = repo.temp.path().join("real-home");
+    std::fs::create_dir(&home).unwrap();
+    let alias = repo.temp.path().join("home-alias");
+    std::os::unix::fs::symlink(&home, &alias).unwrap();
+    let initialized = run(
+        &repo,
+        &alias,
+        &["init", "--capacity", "1", "--ready-target", "0"],
+    );
+    let root = Path::new(initialized["worktree_root"].as_str().unwrap());
+    assert!(root.starts_with(home.join(".worktrees")));
+    assert!(!root.starts_with(&alias));
+    let lease = run(&repo, &alias, &["acquire"]);
+    assert!(Path::new(lease["worktree_path"].as_str().unwrap()).starts_with(root));
+    assert_eq!(
+        run(&repo, &home, &["config", "show"])["pool"]["worktree_root"],
+        initialized["worktree_root"]
+    );
+}
+
+#[test]
 fn root_precedence_and_global_changes_apply_only_to_new_pools() {
     let repo = Repo::new();
     let home = tempfile::tempdir().unwrap();
