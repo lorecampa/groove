@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Added
+
+- A pinned mise development setup shared with security CI and a prerequisite
+  check with actionable missing-tool diagnostics. Hooks remain usable with tools
+  installed directly on `PATH`.
+
+### Fixed
+
+- Contributor hooks scan staged secrets and validate formatting from the index,
+  including fuzz sources. Pushes require a clean checkout at the outgoing commit
+  so validation covers the source being published.
+
 ## [0.3.0] - 2026-11-13
 
 ### Removed

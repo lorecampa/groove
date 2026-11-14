@@ -4,6 +4,7 @@ set -euo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 case "${1:-check}" in
   check)
+    bash scripts/check-tools.sh push
     gitleaks git --redact --no-banner --log-opts=--all
     cargo audit --deny warnings
     cargo deny --locked check

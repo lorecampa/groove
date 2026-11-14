@@ -13,7 +13,12 @@ The optional manual/release CI matrix covers minimum Rust and current stable.
 
 Groove is a Linux/macOS Rust workspace. Rust 1.89 and Git 2.40 are compatibility
 minimums; use the patched contributor toolchain and a security-maintained Git.
-Install the pinned audit/policy tools from [security maintenance](docs/security.md).
+For the recommended development setup, install [mise](https://mise.jdx.dev/getting-started.html),
+then run `mise trust` and `mise install` in this checkout. [mise.toml](mise.toml)
+pins the security tools; `mise run doctor` checks prerequisites. Activate mise
+in your shell, or prefix commands such as Git commits and pushes with
+`mise exec --`. Hooks use tools on `PATH` and also work with manual installs;
+see [security maintenance](docs/security.md).
 Node/npm are
 used only for the optional build-tool compatibility test. See
 [testing](docs/testing.md) for local checks and deterministic crash tests.
@@ -170,14 +175,22 @@ Run `./scripts/install-hooks.sh` once per clone to enable the hooks. The install
 sets the local `core.hooksPath` to the checked-in `.githooks` directory and refuses
 to replace an existing custom path.
 
-- `pre-commit` checks staged whitespace and workspace Rust formatting.
+- `pre-commit` scans staged changes with Gitleaks and checks staged whitespace.
+  Workspace and fuzz Rust formatting run on a temporary copy of the index, so
+  partially staged changes are checked as they will be committed.
 - `pre-push` runs the security gate, formatting, Clippy, the full Rust suite
   (including release, benchmark and hook tests) with default scheduling,
-  doctests and rustdoc.
+  doctests and rustdoc. It requires a clean checkout, including untracked files,
+  at the commit being pushed. For another branch or an older tag, check out that
+  commit first. Ref deletions need no build checks. Do not edit files or move
+  HEAD while checks run; the hook rechecks cleanliness and HEAD afterwards.
 
+Install Gitleaks before committing; see [security maintenance](docs/security.md).
 Run the same checks directly with `./scripts/check.sh commit` or
-`./scripts/check.sh push`. Benchmarks and large pinned-container regressions are
-local-only opt-ins; see [the snapshot lab](benchmarks/snapshots/README.md).
+`./scripts/check.sh push`. Direct push checks validate the current working tree;
+the Git hook adds the clean-checkout and outgoing-commit checks. Ignored caches
+are retained and are not part of the committed source validation. Benchmarks and
+large pinned-container regressions are local-only opt-ins; see [the snapshot lab](benchmarks/snapshots/README.md).
 
 ## Releases
 

@@ -14,16 +14,34 @@ the release builder. Keep Rust/Cargo, Git and the operating system patched.
 Git 2.40 is a feature minimum, not a security baseline. Lockfile scanners do not
 establish the security of those external tools or of code without an advisory.
 
-Install the development tools explicitly, then run the security gate:
+The recommended setup uses [mise](https://mise.jdx.dev/getting-started.html).
+[mise.toml](../mise.toml) is the shared version definition for Gitleaks and the
+Cargo security tools, used locally and by the security workflow. Rust stays
+pinned separately in `rust-toolchain.toml`; install rustup and a native linker
+before installing the Cargo tools. Mise builds those tools with
+`cargo install --locked`. Optional fuzz, release and benchmark tooling is documented separately.
+
+From the checkout, after installing mise:
 
 ```sh
-cargo install --locked cargo-audit@0.22.2 cargo-deny@0.20.2 cargo-vet@0.10.3
-# Install gitleaks 8.30.1 on PATH, or use an existing mise installation:
-mise install gitleaks@8.30.1
-mise exec gitleaks@8.30.1 -- bash scripts/security.sh
-# With all tools already on PATH:
-bash scripts/security.sh
+mise trust
+mise install
+mise run doctor
+mise exec -- bash scripts/security.sh
 ```
+
+Activate mise in your [shell](https://mise.jdx.dev/getting-started.html#activate-mise)
+so tools are available to Git hooks, or run Git through `mise exec -- git ...`.
+The hooks and check scripts do not invoke mise or install tools. Manual setup
+also works: install the versions declared in `mise.toml` on `PATH`, then run
+`bash scripts/check-tools.sh push` and `bash scripts/security.sh`. For Gitleaks,
+see the [upstream installation instructions](https://github.com/gitleaks/gitleaks#installing).
+The prerequisite check reports the tool that cannot run and explains setup;
+it does not enforce versions for manually installed tools.
+
+The pre-commit hook also scans staged additions with Gitleaks, before secrets
+enter local history. It does not scan unstaged or untracked content. Findings
+are redacted and scan failures block the commit.
 
 The gate is also required by `bash scripts/check.sh push`:
 
@@ -36,8 +54,8 @@ The gate is also required by `bash scripts/check.sh push`:
 
 Missing tools and failed checks fail the gate. It does not install tools, update
 dependencies or record new audits. Gitleaks is a development binary; the hosted
-workflow installs its pinned archive with an embedded SHA-256 check. History
-scanning excludes untracked files and unreachable/deleted history. The initial
+workflow installs it through mise with download checksums pinned in `mise.lock`.
+History scanning excludes untracked files and unreachable/deleted history. The initial
 Cargo Vet exemptions are described below.
 
 `deny.toml` covers Linux and both macOS targets, including test/build inputs.

@@ -56,6 +56,8 @@ impl Fixture {
             ".githooks/pre-commit",
             ".githooks/pre-push",
             "scripts/check.sh",
+            "scripts/check-index.sh",
+            "scripts/check-tools.sh",
             "scripts/security.sh",
             "scripts/install-hooks.sh",
         ] {
@@ -208,4 +210,41 @@ fn linked_worktree_push_does_not_leak_git_context() {
         f.ok(&["git", "config", "--get", "core.bare"]).stdout,
         b"false\n"
     );
+}
+
+#[test]
+fn staged_content_and_outgoing_commit_regressions() {
+    // Run the broader contract scenarios with real Git, Gitleaks and rustfmt.
+    // Only the disposable fixtures' expensive push build gates are stubbed.
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let out = Command::new("bash")
+        .arg(root.join("scripts/test-hooks.sh"))
+        .current_dir(&root)
+        .env_clear()
+        .envs(std::env::vars_os().filter(|(k, _)| !k.to_string_lossy().starts_with("GIT_")))
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+fn unavailable_scanner_explains_developer_setup_without_committing() {
+    let mut f = Fixture::new();
+    f.env.insert("TEST_FAIL_SECRETS".into(), "true".into());
+    let out = f.call(&["git", "commit", "-qm", "unavailable scanner"]);
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("Cannot run development tool: gitleaks version"));
+    assert!(stderr.contains("mise install"));
+    assert!(stderr.contains("on PATH"));
+    assert!(!f
+        .call(&["git", "rev-parse", "--verify", "HEAD"])
+        .status
+        .success());
+    assert!(!fs::read_to_string(&f.log).unwrap().contains("fmt --all"));
 }
