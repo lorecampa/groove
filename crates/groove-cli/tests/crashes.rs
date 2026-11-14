@@ -991,6 +991,94 @@ fn durable_request_retry_recovers_protection_published_before_its_journal() {
 }
 
 #[test]
+fn saved_release_retires_every_pin_superseded_by_interrupted_retries() {
+    superseded_pins(false);
+}
+
+#[test]
+fn pin_retirement_recovers_after_release_and_slot_reuse() {
+    superseded_pins(true);
+}
+
+fn superseded_pins(interrupt_retirement: bool) {
+    let repo = Repo::new();
+    let cli = |args: &[&str]| support::groove_in(&repo.path).args(args).output().unwrap();
+    support::assert_success(&cli(&["init", "--capacity", "1"]));
+    let lease = support::assert_success(&cli(&["acquire"]))["result"].clone();
+    let id = lease["lease_id"].as_str().unwrap();
+    let mut superseded = Vec::new();
+    for attempt in 0..3 {
+        if attempt > 0 {
+            std::fs::remove_file(repo.temp.path().join("checkpoint.sock")).unwrap();
+        }
+        std::fs::write(
+            repo.slot(1).join("tracked.txt"),
+            format!("attempt {attempt}\n"),
+        )
+        .unwrap();
+        let (mut command, listener) = checkpoint_command(
+            &repo,
+            "finish-snapshot-saved",
+            &["release", "--save", "--lease-id", id],
+        );
+        kill_at_checkpoint(&mut command, listener, "finish-snapshot-saved");
+        let receipt: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(repo.state().join(format!("slots/finish-{id}.json"))).unwrap(),
+        )
+        .unwrap();
+        superseded.push(receipt["snapshot"]["id"].as_str().unwrap().to_owned());
+    }
+    for old in &superseded {
+        let snapshot = support::assert_success(&cli(&["snapshot", "show", old]));
+        assert_eq!(snapshot["result"]["snapshot"]["pinned"], true);
+    }
+    std::fs::write(repo.slot(1).join("tracked.txt"), b"final bytes\n").unwrap();
+    let successor = if interrupt_retirement {
+        let (mut command, listener) = checkpoint_command_after_removing_socket(
+            &repo,
+            "finish-before-pin-retirement",
+            &["release", "--save", "--lease-id", id],
+        );
+        kill_at_checkpoint(&mut command, listener, "finish-before-pin-retirement");
+        let successor = support::assert_success(&cli(&["acquire"]))["result"].clone();
+        std::fs::write(repo.slot(1).join("successor.txt"), b"preserve successor").unwrap();
+        Some(successor)
+    } else {
+        None
+    };
+    let finished = support::assert_success(&cli(&["release", "--save", "--lease-id", id]));
+    assert_eq!(finished["result"]["snapshot"]["pinned"], true);
+    for old in &superseded {
+        let snapshot = support::assert_success(&cli(&["snapshot", "show", old]));
+        assert_eq!(snapshot["result"]["snapshot"]["pinned"], false, "{old}");
+    }
+    let recovered = repo.temp.path().join("final-recovery");
+    support::assert_success(&cli(&[
+        "snapshot",
+        "restore",
+        finished["result"]["snapshot"]["id"].as_str().unwrap(),
+        "--to",
+        recovered.to_str().unwrap(),
+    ]));
+    assert_eq!(
+        std::fs::read(recovered.join("tracked.txt")).unwrap(),
+        b"final bytes\n"
+    );
+    if let Some(successor) = successor {
+        assert_eq!(
+            std::fs::read(repo.slot(1).join("successor.txt")).unwrap(),
+            b"preserve successor"
+        );
+        assert_eq!(
+            Pool::open(&repo.path).unwrap().protected_leases().unwrap()[0]
+                .lease_id
+                .to_string(),
+            successor["lease_id"].as_str().unwrap()
+        );
+    }
+}
+
+#[test]
 fn finish_crash_retries_preserve_checkpoint_and_never_release_a_successor() {
     for checkpoint in ["finish-snapshot-saved", "finish-released"] {
         let r = Repo::new();

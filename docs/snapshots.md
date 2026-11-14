@@ -96,6 +96,10 @@ groove snapshot delete ID                # snapshots pinned by release --save ne
 ```
 
 `release --save` pins the snapshot it saves, so deleting it needs `--force`.
+Interrupted attempts remain pinned until a retry completes release. The retry
+then unpins its superseded snapshots, retaining their files and refs for ordinary
+recovery or deletion. A durable receipt resumes pin cleanup after interruption;
+the final saved-release snapshot remains pinned.
 Unreadable, corrupt or inconsistent pin metadata refuses snapshot reads and
 deletion, even with `--force`. Repair the reference before retrying. Deletion
 checks the observed snapshot and pin in one ref transaction; changed references

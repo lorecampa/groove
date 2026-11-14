@@ -18,6 +18,8 @@ Ignored files, empty directories and special files (pipes, sockets, devices) are
 excluded. Export required artifacts separately before releasing.
 Parallel saves wait for snapshot access up to --git-timeout-ms (default 120000).
 A timeout keeps the reservation protected; retry with the same lease ID.
+After a saved retry completes release, superseded checkpoints are unpinned but
+remain recoverable until deleted. Interrupted pin cleanup resumes on that retry.
 
 Without --save, release refuses with UNSAVED_CHANGES for staged, modified or
 untracked files, or a HEAD commit not reachable from any ref. Preserve detached

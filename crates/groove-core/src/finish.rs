@@ -16,6 +16,9 @@ pub(crate) struct FinishReceipt {
     slot_id: SlotId,
     snapshot: Snapshot,
     released: bool,
+    /// Cleanup journal retained until every superseded pin has been retired.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    superseded: Vec<String>,
 }
 
 /// A pinned checkpoint and its completed release.
@@ -32,6 +35,20 @@ fn receipt_path(pool: &Pool, id: LeaseId) -> PathBuf {
         .root
         .join("slots")
         .join(format!("finish-{id}.json"))
+}
+
+fn retire_superseded(pool: &Pool, receipt: &mut FinishReceipt) -> Result<()> {
+    for id in &receipt.superseded {
+        if *id == receipt.snapshot.id {
+            return Err(Error::new(
+                ErrorCode::ProtocolError,
+                "Current saved release cannot supersede itself",
+            ));
+        }
+        Snapshots::unpin_saved_release_snapshot(&pool.repo, pool.git_timeout, id)?;
+    }
+    receipt.superseded.clear();
+    state::write(&receipt_path(pool, receipt.lease_id), receipt)
 }
 
 pub(crate) fn released_files_saved(pool: &Pool, lease: &crate::LeaseInfo) -> Result<bool> {
@@ -72,23 +89,27 @@ impl Lease {
         let execution = self.pool.execution_guard(&self.info.slot_id)?;
         self.pool.require_execution_clear(&self.info.slot_id)?;
         let path = receipt_path(&self.pool, self.info.lease_id);
-        match state::read::<FinishReceipt>(&path) {
+        let previous = match state::read::<FinishReceipt>(&path) {
             Ok(receipt)
                 if receipt.schema_version == state::SCHEMA_VERSION
                     && receipt.lease_id == self.info.lease_id
-                    && receipt.slot_id == self.info.slot_id => {}
+                    && receipt.slot_id == self.info.slot_id =>
+            {
+                Some(receipt)
+            }
             Ok(_) => {
                 return Err(Error::new(
                     ErrorCode::ProtocolError,
                     "Invalid finish receipt",
                 ))
             }
-            Err(e) if !path.exists() && e.code == ErrorCode::IoError => {}
+            Err(e) if !path.exists() && e.code == ErrorCode::IoError => None,
             Err(e) => return Err(e),
-        }
+        };
         // A receipt is history, not proof that this still-reserved checkout is
         // unchanged or that its old snapshot still exists. Re-capture under the
-        // slot/execution guards before authorizing reuse. Retain older pins.
+        // slot/execution guards before authorizing reuse. Journal older pins so
+        // a crash during retry or cleanup cannot forget the pending retirement.
         crate::quiescence::missing_checkout(&self.info.worktree_path)?;
         let snapshots = Snapshots::open(&self.info.worktree_path, self.pool.git_timeout)?;
         let mut snapshot = snapshots.save(options)?;
@@ -100,6 +121,12 @@ impl Lease {
             slot_id: self.info.slot_id.clone(),
             snapshot,
             released: false,
+            superseded: previous
+                .map(|mut old| {
+                    old.superseded.push(old.snapshot.id);
+                    old.superseded
+                })
+                .unwrap_or_default(),
         };
         state::write(&path, &receipt)?;
         state::checkpoint("finish-snapshot-saved");
@@ -111,6 +138,13 @@ impl Lease {
         state::checkpoint("finish-released");
         receipt.released = true;
         state::write(&path, &receipt)?;
+        state::checkpoint("finish-before-pin-retirement");
+        retire_superseded(&self.pool, &mut receipt).map_err(|error| {
+            error.with_details(|details| {
+                details.released = Some(true);
+                details.snapshot_id = Some(receipt.snapshot.id.clone());
+            })
+        })?;
         Ok(FinishResult {
             release,
             snapshot: receipt.snapshot,
@@ -201,6 +235,12 @@ impl Pool {
             })?;
         receipt.released = true;
         state::write(&path, &receipt)?;
+        retire_superseded(self, &mut receipt).map_err(|error| {
+            error.with_details(|details| {
+                details.released = Some(true);
+                details.snapshot_id = Some(receipt.snapshot.id.clone());
+            })
+        })?;
         Ok(Some(FinishResult {
             release,
             snapshot: receipt.snapshot,
