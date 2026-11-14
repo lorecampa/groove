@@ -35,6 +35,11 @@ pub struct SlotInspection {
     pub worktree_path: PathBuf,
     /// Current or most recent reservation metadata.
     pub lease: Option<LeaseInfo>,
+    /// Whether the observed lease is protected or has a live descriptor owner
+    /// in its leased phase. False marks historical metadata; this observation
+    /// never grants ownership and can change immediately after inspection.
+    #[serde(default)]
+    pub lease_active: bool,
     /// Whether an independent lock probe observed an owner.
     pub lock_held: bool,
     /// Metadata or checkout failure, if any.
@@ -222,6 +227,11 @@ impl Pool {
         } else {
             SlotStatus::Available
         };
+        let lease_active = protected
+            || (lock_held
+                && record
+                    .as_ref()
+                    .is_some_and(|r| r.phase == SlotPhase::Leased));
         let failure = failure.0.or_else(|| record.and_then(|r| r.failure));
         let (reason, next_action) = advice(&status);
         SlotInspection {
@@ -229,6 +239,7 @@ impl Pool {
             status,
             worktree_path: self.config.worktree_root.join(slot.as_str()),
             lease,
+            lease_active,
             lock_held,
             failure,
             reason: reason.into(),

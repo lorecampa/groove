@@ -488,6 +488,9 @@
                   "lock_held": {
                     "type": "boolean"
                   },
+                  "lease_active": {
+                    "type": "boolean"
+                  },
                   "slot_id": {
                     "$ref": "#/$defs/slot"
                   },
@@ -895,6 +898,9 @@
         "lease"
       ],
       "properties": {
+        "active": {
+          "type": "boolean"
+        },
         "lease": {
           "$ref": "#/$defs/lease"
         },
