@@ -136,7 +136,8 @@ not implemented.
 
 ## Supported boundaries
 
-Unfinished merges (including conflict-free merges), conflicts, submodules
+Unfinished merges (including conflict-free merges), rebases, am, cherry-picks,
+reverts, bisects, conflicts, submodules
 (including clean gitlinks), nested untracked repositories,
 assume-unchanged or manual skip-worktree flags, intent-to-add entries,
 and active content-converting attributes (including filters) are rejected. Merely

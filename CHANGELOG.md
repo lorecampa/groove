@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Reject snapshots during rebase, am, cherry-pick, revert and bisect operations,
+  including sequences with a conflict-free index, so operation state cannot be lost.
 - Reject snapshot recovery destinations inside the source working tree, including
   aliases through parent symlinks, before registering a nested worktree.
 - Resolve a symlinked HOME before choosing the fallback diagnostic log directory.

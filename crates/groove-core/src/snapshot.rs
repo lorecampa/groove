@@ -453,12 +453,23 @@ impl Snapshots {
         self.list_inner(&lock)
     }
     fn validate(&self) -> Result<()> {
-        // A cleanly merged index still has unfinished history. The snapshot
-        // format does not record MERGE_HEAD, so saving it would lose a parent.
-        if self.git_dir.join("MERGE_HEAD").try_exists()? {
-            return Err(unsupported(
-                "Complete or abort the merge before taking a snapshot",
-            ));
+        // Index contents alone cannot describe pending parents, sequencer steps
+        // or bisect state, even after conflicts have been staged as resolved.
+        for (marker, operation) in [
+            ("MERGE_HEAD", "merge"),
+            ("rebase-merge", "rebase"),
+            ("rebase-apply", "rebase or am"),
+            ("CHERRY_PICK_HEAD", "cherry-pick"),
+            ("REVERT_HEAD", "revert"),
+            ("sequencer", "cherry-pick or revert sequence"),
+            ("BISECT_LOG", "bisect"),
+            ("BISECT_START", "bisect"),
+        ] {
+            if self.git_dir.join(marker).try_exists()? {
+                return Err(unsupported(format!(
+                    "Complete or abort the {operation} before taking a snapshot"
+                )));
+            }
         }
         // One index enumeration supplies conflict, mode, flag and attribute-path checks.
         let sparse = match self.string(&["config", "--type=bool", "--get", "core.sparseCheckout"]) {
