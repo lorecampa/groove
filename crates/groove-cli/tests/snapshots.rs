@@ -3,6 +3,44 @@ use serde_json::Value;
 use std::{fs, process::Stdio};
 use support::{assert_success, Repo};
 #[test]
+fn unknown_and_deleted_snapshot_ids_report_not_found_without_partial_recovery() {
+    let repo = Repo::new();
+    let saved = checked(&repo, &["snapshot", "save"]);
+    let deleted = saved["snapshot"]["id"].as_str().unwrap().to_owned();
+    checked(&repo, &["snapshot", "delete", &deleted]);
+    let registrations = support::git(&repo.path, &["worktree", "list", "--porcelain"]);
+    let destination = repo.temp.path().join("missing-snapshot-recovery");
+    for id in [deleted, uuid::Uuid::new_v4().to_string()] {
+        for args in [
+            vec!["snapshot", "show", &id],
+            vec!["snapshot", "delete", &id],
+            vec!["snapshot", "restore", &id],
+            vec![
+                "snapshot",
+                "restore",
+                &id,
+                "--to",
+                destination.to_str().unwrap(),
+            ],
+        ] {
+            let output = cli(&repo, &args);
+            let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(output.status.code(), Some(2), "{response}");
+            assert_eq!(response["error"]["code"], "INVALID_ARGUMENT");
+            assert_eq!(
+                response["error"]["message"],
+                format!("Snapshot not found: {id}")
+            );
+            assert!(!destination.exists());
+            assert_eq!(
+                support::git(&repo.path, &["worktree", "list", "--porcelain"]),
+                registrations
+            );
+        }
+    }
+}
+
+#[test]
 fn failure_before_registration_removes_the_claimed_recovery_directory() {
     use std::os::unix::fs::PermissionsExt;
     let repo = Repo::new();

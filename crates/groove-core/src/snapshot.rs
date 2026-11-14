@@ -403,7 +403,27 @@ impl Snapshots {
 
     fn load_at(&self, id: &str, lock: &SnapshotLock) -> Result<(Snapshot, String)> {
         let reference = Self::reference(id)?;
-        let oid = self.string(&["rev-parse", "--verify", "--end-of-options", &reference])?;
+        let oid = self
+            .string(&[
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                "--end-of-options",
+                &reference,
+            ])
+            .map_err(|error| {
+                if error.git_exit_code() == Some(1)
+                    && error
+                        .details
+                        .git
+                        .as_ref()
+                        .is_some_and(|failure| failure.stderr.is_empty())
+                {
+                    invalid(format!("Snapshot not found: {id}")).with_source(error)
+                } else {
+                    error
+                }
+            })?;
         let _: crate::CommitOid = oid.parse()?;
         let commit_oid = &oid;
         let commit = self.run(&["cat-file", "commit", &oid], None, None, None)?;

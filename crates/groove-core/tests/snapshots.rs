@@ -408,11 +408,11 @@ fn delete_removes_only_the_selected_snapshot() {
     let b = save(&s);
     assert_eq!(s.list().unwrap().len(), 2);
     s.delete(&a.id, false).unwrap();
-    assert_eq!(s.show(&a.id).unwrap_err().code, ErrorCode::GitError);
+    assert_eq!(s.show(&a.id).unwrap_err().code, ErrorCode::InvalidArgument);
     assert!(s.show(&b.id).is_ok());
     assert_eq!(
         s.delete(&a.id, false).unwrap_err().code,
-        ErrorCode::GitError
+        ErrorCode::InvalidArgument
     );
 }
 #[test]

@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Report unknown or deleted snapshot IDs as INVALID_ARGUMENT with a named
+  "Snapshot not found" diagnostic, before creating recovery directories.
 - Skip released slots still used by shells, editors, builds or other observed
   processes before acquisition mutates them. Report retryable contention rather
   than quarantining the slot, and use independent healthy capacity when available.

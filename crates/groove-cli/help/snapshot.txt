@@ -28,6 +28,8 @@ Restore refuses saved text blobs containing carriage returns.
 Unused filter definitions, such as a global Git LFS installation, are harmless.
 Concurrent saves wait for the shared lock up to --git-timeout-ms (default 120000).
 
+Unknown or deleted snapshot IDs return INVALID_ARGUMENT with "Snapshot not found".
+
 Snapshots pinned by `release --save` need `delete --force`. Deleting removes the ref;
 Git reclaims the space during its normal garbage collection.
 Unreadable or inconsistent pins cause an error, including with --force; repair
