@@ -45,6 +45,9 @@ groove --repo /other/repo init --capacity 4 --cleanup warm \
 ```
 
 Initialization creates fixed slot metadata; acquisition materializes worktrees.
+New pools default to zero ready spares. Enable preparation explicitly with
+`--ready-target N` or `pool_defaults.ready_target`; existing pool settings are
+unchanged. Idle eviction still defaults to seven days and runs opportunistically.
 A ready pool rejects every repeated init. Its checkout root stays fixed until
 the pool is deleted and reinitialized.
 Use `groove config set --capacity 8 --cleanup warm` to grow/change future cleanup.

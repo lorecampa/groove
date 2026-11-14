@@ -91,7 +91,7 @@ pub struct ReadySettings {
 impl Default for ReadySettings {
     fn default() -> Self {
         Self {
-            ready_target: 1,
+            ready_target: 0,
             idle_timeout: IdleTimeout::default(),
             ready_base: "HEAD".into(),
         }

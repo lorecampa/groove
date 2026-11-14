@@ -5,8 +5,8 @@ EXAMPLES:
   groove --pool frontend init --capacity 3 --cleanup warm
   groove config global set worktrees.root=/absolute/worktrees
 
-Creates slot metadata and permanent locks, then starts background preparation of
-ready_target spare checkouts (default 1). Remaining slots materialize on demand.
+Creates slot metadata and permanent locks. Checkouts materialize on demand by
+default. --ready-target N enables background preparation of N spare checkouts.
 Running init on a ready pool fails with CONFIG_CONFLICT, even with
 identical settings: use `config show` or `config set` instead. An interrupted
 init must be resumed with --resume and the original settings.
@@ -33,7 +33,7 @@ and retained deleted pools. Relative paths resolve from the current directory.
 Never delete permanent lock files to force setup or recovery.
 
 READY CHECKOUTS:
---ready-target defaults to pool_defaults.ready_target (1) and must be between 0
+--ready-target defaults to pool_defaults.ready_target (0) and must be between 0
 and capacity. An incompatible global default is rejected; override it explicitly.
 --idle-timeout defaults to pool_defaults.idle_timeout (7d); accepts positive whole
 s/m/h/d durations or never. Excess idle checkouts become eligible for deletion,

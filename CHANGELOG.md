@@ -21,6 +21,8 @@
 
 ### Changed
 
+- New pools default to `ready_target=0`, materializing checkouts on demand.
+  Existing pool settings and explicit preparation targets are preserved.
 - `-h` prints concise command help with examples and essential safety guidance;
   `--help` and the `help` subcommand retain the detailed installed reference,
   including recovery rules and JSON output types. Global options have their own

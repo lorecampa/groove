@@ -12,7 +12,7 @@
     "root": "/configured/worktrees"
   },
   "pool_defaults": {
-    "ready_target": 1,
+    "ready_target": 0,
     "idle_timeout": "7d"
   }
 }
