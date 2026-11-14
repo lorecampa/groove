@@ -12,6 +12,8 @@
 
 - Saved-release retries also recapture work after a crash writes release metadata
   but before durable protection is removed; failed capture keeps reuse blocked.
+- Background preparation stops normalizing checkouts once its ready target is
+  met, preserving excess released caches until acquisition or idle eviction.
 
 - Retrying an interrupted saved release captures the still-reserved workspace
   again before reuse. Completed retries reject deleted or unpinned snapshots.

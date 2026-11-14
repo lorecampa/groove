@@ -26,6 +26,44 @@ fn run(pool: &Pool) {
     assert!(report.error.is_none(), "{report:?}");
 }
 #[test]
+fn reaching_the_ready_target_leaves_excess_released_checkouts_untouched() {
+    if !support::in_subprocess(
+        "reaching_the_ready_target_leaves_excess_released_checkouts_untouched",
+    ) {
+        return;
+    }
+    let repo = Repo::new();
+    let pool = pool(&repo, 4, 1);
+    let leases: Vec<_> = (0..4)
+        .map(|_| pool.reserve(Default::default()).unwrap())
+        .collect();
+    for lease in &leases {
+        fs::create_dir(lease.worktree_path.join("ignored")).unwrap();
+        fs::write(
+            lease.worktree_path.join("ignored/cache"),
+            "retained until needed",
+        )
+        .unwrap();
+        pool.release_lease(lease.lease_id).unwrap();
+    }
+    for _ in 0..2 {
+        run(&pool);
+        assert_eq!(pool.ready_report().unwrap().ready, 1);
+        assert_eq!(
+            leases
+                .iter()
+                .filter(|lease| lease.worktree_path.join("ignored/cache").exists())
+                .count(),
+            3
+        );
+    }
+    assert_eq!(pool.settings().unwrap().capacity, 4);
+    for _ in 0..4 {
+        pool.reserve(Default::default()).unwrap();
+    }
+}
+
+#[test]
 fn replenishes_without_expiring_reservations_and_preserves_slot_locks() {
     if !support::in_subprocess("replenishes_without_expiring_reservations_and_preserves_slot_locks")
     {
