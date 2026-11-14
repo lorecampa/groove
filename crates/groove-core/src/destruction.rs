@@ -95,13 +95,19 @@ fn stopped(path: &Path) -> Result<()> {
 // redirect recursive removal onto another filesystem. Interior symlinks are unlinked,
 // never traversed, by remove_dir_all.
 pub(crate) fn validate_tree(path: &Path, device: u64) -> Result<()> {
+    #[cfg(target_os = "linux")]
+    crate::platform::mounts::reject_below(path)?;
+    validate_device_tree(path, device)
+}
+
+fn validate_device_tree(path: &Path, device: u64) -> Result<()> {
     let metadata = fs::symlink_metadata(path)?;
     if metadata.is_dir() {
         if metadata.dev() != device {
             return Err(conflict("Mounted directory in removal tree", path));
         }
         for item in fs::read_dir(path)? {
-            validate_tree(&item?.path(), device)?;
+            validate_device_tree(&item?.path(), device)?;
         }
     }
     Ok(())
