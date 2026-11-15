@@ -66,7 +66,7 @@ fn disk_usage_is_opt_in_scoped_and_includes_ignored_files_without_following_syml
     }
     let output = cli(&repo, &["pool", "show", "--disk-usage", "--details"]);
     assert!(output.status.success());
-    json_progress::assert_only(&output, "show");
+    json_progress::assert_only(&output, "pool show");
     let value = checked(&output);
     assert_eq!(value["result"]["storage"]["workspace_bytes"], before + 4096);
     assert_eq!(value["result"]["inspection"]["capacity"], 1);
