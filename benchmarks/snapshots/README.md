@@ -69,7 +69,9 @@ No developer checkout is used as a benchmark fixture. Arbitrary repositories or
 bundles cannot override a profile from the command line; a new dataset requires
 an explicit, versioned profile definition.
 
-Pool profiles control checkout materialization with automatic spare preparation
+Pool profiles assert `recovery: sanitized` after released-checkout reuse, including dirty
+cleanup and monorepo base switches. A fast timing alone cannot establish reuse.
+They control checkout materialization with automatic spare preparation
 and idle eviction disabled. Capability discovery is untimed; older baseline
 CLIs without these options already used lazy pools. Default background readiness
 has separate process regressions. Successful blocks must finish checked fixture

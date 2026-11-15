@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Added
+
+- Add an isolated full-lifecycle repository scale checker with synthetic and
+  shared-clone fixtures, byte preservation, response bounds and timing contracts.
+- Assert in-place reuse in workspace and monorepo benchmark profiles, including
+  dirty cleanup and base switches, without changing the report schema.
+
 ### Fixed
 
 - Stream buffered binary directory inventories so large repositories reuse slots

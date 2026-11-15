@@ -4,7 +4,7 @@ use crate::{
     harness::{command, fingerprint},
     profiles::{Case, Cleanup, Workload},
     statistics::Observation,
-    util::{require, Error, Result, Runner},
+    util::{require, require_reused, Error, Result, Runner},
 };
 use serde_json::Value;
 use std::{
@@ -231,6 +231,7 @@ pub(crate) fn measure(
             release(runner, binary, repo, "single", false)?;
             let (lease, time) = call(runner, binary, repo, &["acquire", "--task", "single"])?;
             evidence.record("warm_acquire", time)?;
+            require_reused(&lease, "warm_acquire")?;
             pristine(runner, repo, &lease)?;
             evidence.record("release", release(runner, binary, repo, "single", false)?)?;
             let (lease, _) = call(runner, binary, repo, &["acquire", "--task", "dirty"])?;
@@ -255,6 +256,7 @@ pub(crate) fn measure(
             release(runner, binary, repo, "dirty", true)?;
             let (lease, time) = call(runner, binary, repo, &["acquire", "--task", "clean"])?;
             evidence.record("dirty_acquire", time)?;
+            require_reused(&lease, "dirty_acquire")?;
             pristine(runner, repo, &lease)?;
             require(
                 !path(&lease)?.join("untracked").exists(),
