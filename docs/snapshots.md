@@ -27,8 +27,9 @@ groove snapshot restore ID --max-file-bytes 0  # unlimited safety capture
 Save includes staged state, unstaged changes, deletions, executable modes,
 symlinks, and untracked non-ignored files. Ignored files and empty directories
 are excluded, including custom user/system Git ignore rules. Special files such as
-FIFOs, sockets and devices are refused: Git does not enumerate or preserve them as
-ordinary untracked content. Export or remove special files before saving; export
+FIFOs, sockets and devices outside ignored paths are refused: Git does not
+preserve them as ordinary untracked content. Ignored special files are excluded.
+Export or remove non-ignored special files before saving; export
 needed ignored artifacts separately before release --save. Root paths must be UTF-8;
 Linux filenames may contain arbitrary non-NUL bytes. macOS APFS requires valid UTF-8
 filenames. A description and optional `--session ID` associate work with a task.
@@ -151,18 +152,23 @@ reverts, bisects, conflicts, submodules
 (including clean gitlinks), nested untracked repositories,
 assume-unchanged or manual skip-worktree flags, intent-to-add entries,
 and active filters, ident, working-tree-encoding and eol=crlf are rejected. Capture
-checks only saved paths. Text, legacy crlf and eol=lf rules are allowed when
-staging preserves physical file sizes; normalized CRLF files are refused with
-their filename. Saving a .gitattributes file widens validation to the whole tree
+checks conversion attributes on saved paths. Text, legacy crlf and eol=lf rules
+require LF working bytes and byte-preserving staging. Physical EOL checks also
+reject CRLF text hidden by Git's clean status; lone carriage returns in saved text
+are refused before publication. Saving a .gitattributes file widens validation to the whole tree
 and rejects active text/conversion rules there. Restore rejects carriage returns
 in saved text blobs under saved or effective destination rules. Merely
 installing Git LFS or defining an unused filter does not block snapshots. Restore
-checks the saved paths against both saved and effective destination attributes
+checks paths differing from the snapshot base against both saved and effective destination attributes
 before materializing files, including recovery with `--to`. This prevents silent loss of
 conflict stages, external object content or byte-exact working-file state.
 Sparse checkout entries outside the working directory remain in captured trees;
 restoration follows the destination's sparse checkout configuration. The pool's
 more restrictive supported-configuration rules remain unchanged.
+Unchanged base paths can use converting rules, such as `eol=crlf`, and follow
+ordinary checkout behavior. Attribute and ignored-collision preflight failures
+leave no safety checkpoint. Foreign refs without snapshot UUID names are ignored
+by listing; malformed snapshots with valid IDs still fail explicitly.
 
 No hooks or external diff/textconv commands are executed. The operation timeout
 applies to each Git subprocess and each snapshot lock wait. Restore tree inventories

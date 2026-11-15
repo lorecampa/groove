@@ -1090,3 +1090,64 @@ fn lone_carriage_returns_fail_capture_before_publication() {
         b"lone\rcarriage return\n"
     );
 }
+
+#[test]
+fn rejected_restore_preflights_do_not_accumulate_safety_snapshots() {
+    let repo = Repo::new();
+    let snapshots = service(&repo);
+    fs::write(repo.path.join("ignored"), b"saved before it was ignored").unwrap();
+    let saved = save(&snapshots);
+    fs::remove_file(repo.path.join("ignored")).unwrap();
+    fs::write(repo.path.join(".gitignore"), b"ignored\n").unwrap();
+    fs::write(repo.path.join("ignored"), b"preserve ignored file").unwrap();
+    let count = snapshots.list().unwrap().len();
+    for _ in 0..3 {
+        let error = snapshots.restore(&saved.id, None).unwrap_err();
+        assert_eq!(error.code, ErrorCode::InvalidArgument);
+        assert!(error.details.safety_snapshot_id.is_none());
+    }
+    assert_eq!(snapshots.list().unwrap().len(), count);
+    assert_eq!(
+        fs::read(repo.path.join("ignored")).unwrap(),
+        b"preserve ignored file"
+    );
+}
+
+#[test]
+fn foreign_refs_without_snapshot_ids_do_not_break_listing() {
+    let repo = Repo::new();
+    let snapshots = service(&repo);
+    let saved = save(&snapshots);
+    repo.git(&["update-ref", "refs/groove/snapshots/foreign", "HEAD"]);
+    let listed = snapshots.list().unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].id, saved.id);
+    assert_eq!(
+        repo.git(&["rev-parse", "refs/groove/snapshots/foreign"]),
+        repo.git(&["rev-parse", "HEAD"])
+    );
+}
+
+#[test]
+fn clean_crlf_working_bytes_cannot_be_silently_saved_as_lf() {
+    let repo = Repo::new();
+    fs::write(repo.path.join(".gitattributes"), b"* text=auto\n").unwrap();
+    repo.git(&["add", "."]);
+    repo.git(&["commit", "-qm", "automatic text"]);
+    repo.git(&["config", "core.eol", "crlf"]);
+    fs::remove_file(repo.path.join("tracked.txt")).unwrap();
+    repo.git(&["checkout", "--", "tracked.txt"]);
+    assert_eq!(
+        fs::read(repo.path.join("tracked.txt")).unwrap(),
+        b"baseline\r\n"
+    );
+    assert!(repo.git(&["status", "--porcelain"]).is_empty());
+    let snapshots = service(&repo);
+    let error = snapshots.save(Default::default()).unwrap_err();
+    assert_eq!(error.code, ErrorCode::UnsupportedConfiguration);
+    assert!(snapshots.list().unwrap().is_empty());
+    assert_eq!(
+        fs::read(repo.path.join("tracked.txt")).unwrap(),
+        b"baseline\r\n"
+    );
+}

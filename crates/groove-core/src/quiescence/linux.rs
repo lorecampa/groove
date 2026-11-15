@@ -23,10 +23,11 @@ pub(super) fn processes_using(root: &Path, skip_ancestors: bool) -> Result<Vec<W
         else {
             continue;
         };
-        if skip.contains(&pid) || (skip_ancestors && same_process_group(pid)) {
+        if skip.contains(&pid) {
             continue;
         }
-        if let Some(uses) = process_use(&entry.path(), root) {
+        let pipeline = skip_ancestors && same_process_group(pid) && pipeline_reader(&entry.path());
+        if let Some(uses) = process_use(&entry.path(), root, pipeline) {
             let command = fs::read_to_string(entry.path().join("comm"))
                 .map(|c| c.trim_end().to_owned())
                 .unwrap_or_default();
@@ -39,19 +40,49 @@ pub(super) fn processes_using(root: &Path, skip_ancestors: bool) -> Result<Vec<W
 
 /// How the process at `/proc/PID` uses `root`, if at all. Unreadable entries
 /// (other users, exited processes) are treated as not using it.
-fn process_use(proc_dir: &Path, root: &Path) -> Option<ProcessUse> {
+fn process_use(proc_dir: &Path, root: &Path, pipeline: bool) -> Option<ProcessUse> {
     let inside = |link: PathBuf| fs::read_link(link).is_ok_and(|target| target.starts_with(root));
-    if inside(proc_dir.join("cwd")) {
+    if !pipeline && inside(proc_dir.join("cwd")) {
         return Some(ProcessUse::WorkingDirectory);
     }
     if inside(proc_dir.join("exe")) {
         return Some(ProcessUse::Executable);
     }
-    let descriptors = fs::read_dir(proc_dir.join("fd")).ok()?;
-    descriptors
-        .flatten()
-        .any(|fd| inside(fd.path()))
-        .then_some(ProcessUse::OpenFile)
+    if fs::read_dir(proc_dir.join("fd"))
+        .is_ok_and(|descriptors| descriptors.flatten().any(|fd| inside(fd.path())))
+    {
+        return Some(ProcessUse::OpenFile);
+    }
+    // Closing the descriptor does not revoke a shared writable mapping.
+    use std::os::unix::ffi::OsStrExt;
+    let maps = fs::read(proc_dir.join("maps")).ok()?;
+    for line in maps.split(|byte| *byte == b'\n') {
+        let mut fields = line.splitn(6, |byte| byte.is_ascii_whitespace());
+        let _address = fields.next();
+        let permissions = fields.next().unwrap_or_default();
+        let _offset = fields.next();
+        let _device = fields.next();
+        let _inode = fields.next();
+        let pathname = fields.next().unwrap_or_default();
+        let pathname = pathname.trim_ascii_start();
+        if permissions.get(1) == Some(&b'w')
+            && permissions.get(3) == Some(&b's')
+            && Path::new(std::ffi::OsStr::from_bytes(pathname)).starts_with(root)
+        {
+            return Some(ProcessUse::OpenFile);
+        }
+    }
+    None
+}
+
+fn pipeline_reader(proc_dir: &Path) -> bool {
+    let Ok(input) = fs::read_link(proc_dir.join("fd/0")) else {
+        return false;
+    };
+    input.as_os_str().to_string_lossy().starts_with("pipe:[")
+        && ["/proc/self/fd/1", "/proc/self/fd/2"]
+            .iter()
+            .any(|output| fs::read_link(output).is_ok_and(|output| output == input))
 }
 
 /// Parent PID from `/proc/PID/stat`; the command name may contain spaces and parens.

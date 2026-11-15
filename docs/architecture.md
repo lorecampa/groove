@@ -120,6 +120,7 @@ descriptor inheritance remain authoritative for surviving children.
 exclusive admission; on contention it requests cancellation of an observed ready worker under short admin
 exclusion, releases that exclusion, and polls admission up to the Git timeout.
 The worker checks its generation-specific cancellation token between slots.
+Dry-run destruction only probes exclusive admission and never requests cancellation.
 Tokens are advisory: the ready/lifecycle descriptors remain ownership authority.
 No exclusive waiter is queued, preserving nested shared-admission safety.
 Once admitted, destroy takes admin exclusion and probes every existing
@@ -189,6 +190,13 @@ under changed directories; forced checkout recreates those paths. Untouched trac
 files keep their inode and mtime across leases. Directory ctime propagation catches
 rename swaps. The trust assumption is that an ordinary task cannot backdate ctime;
 root actions or clock changes invalidate that assumption.
+The marker records the verified base and effective repository/external attribute
+configuration; task-controlled HEAD cannot replace that baseline. A directory
+metadata inventory records permission bits and extended attributes. Changes to
+those fields rebuild the checkout because Git cannot restore directory metadata.
+Existing checkouts without this inventory rebuild once, including older-version
+checkouts and interrupted initial preparation. Metadata checks also apply after
+verification-marker removal, before an interrupted normalization can resume.
 
 A marker on another filesystem or an override-only filesystem forces a full
 rewrite: cross-filesystem timestamp precision and unqualified ctime semantics
@@ -269,6 +277,11 @@ Permanent execution locks and records from previous versions remain authoritativ
 compatibility barriers: release, saved release and deletion refuse them. Use the
 previous version to stop and recover outstanding executions before upgrading.
 Existing logs, history and artifact data are not discarded on upgrade.
+Detailed read-only status queries take shared admission on the permanent execution
+descriptor and pass it to Git. Release waits for these readers before its process
+scan and final release; exclusive legacy execution owners still refuse release.
+Callers already holding exclusive admission use the status query without nesting
+a shared acquisition. No process is exempted by its executable name.
 
 New checkout roots retain an immutable `.groove-owner` symlink naming the owning
 repository's canonical namespace directory. Atomic symlink creation prevents independent

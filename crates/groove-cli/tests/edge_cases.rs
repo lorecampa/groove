@@ -756,3 +756,63 @@ fn released_lease_history_is_explicitly_inactive() {
         .unwrap()
         .contains("former-task"));
 }
+
+#[test]
+#[cfg(feature = "test-hooks")]
+fn killed_filter_validation_scratch_is_reclaimed_by_the_next_owner() {
+    use std::os::unix::net::UnixListener;
+    let repo = Repo::new();
+    assert_success(&cli(
+        &repo.path,
+        &[
+            "init",
+            "--capacity",
+            "1",
+            "--ready-target",
+            "0",
+            "--idle-timeout",
+            "never",
+        ],
+    ));
+    let config = repo.temp.path().join("unused-filter.gitconfig");
+    fs::write(&config, "[filter \"lfs\"]\nprocess = false\n").unwrap();
+    let socket = repo.temp.path().join("scratch-kill.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let mut command = support::groove_in(&repo.path);
+    command
+        .args(["acquire"])
+        .env("GIT_CONFIG_GLOBAL", &config)
+        .env("GROOVE_TEST_CHECKPOINT", "filter-scratch-created")
+        .env("GROOVE_TEST_SOCKET", &socket);
+    let mut child = support::TestChild::spawn(&mut command);
+    let stream = child
+        .checkpoint(
+            &listener,
+            "filter-scratch-created",
+            support::PROCESS_TIMEOUT,
+        )
+        .unwrap();
+    let scratch: Vec<_> = fs::read_dir(repo.path.join(".git"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("groove-filter-")
+        })
+        .collect();
+    assert_eq!(scratch.len(), 1);
+    child.kill().unwrap();
+    child.wait().unwrap();
+    drop(stream);
+    assert!(scratch[0].exists());
+    assert_success(
+        &support::groove_in(&repo.path)
+            .arg("acquire")
+            .env("GIT_CONFIG_GLOBAL", &config)
+            .output()
+            .unwrap(),
+    );
+    assert!(!scratch[0].exists());
+}

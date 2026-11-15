@@ -22,6 +22,8 @@ destroy from outside every directory being removed, including your shell's cwd.
 An active background worker receives a cancel request, stops between slots, and
 is awaited up to --git-timeout-ms. A busy worker that cannot stop in time still
 refuses deletion; retry after its current operation finishes. No reservation is cancelled.
+--dry-run never cancels a worker; an active operation can return retryable
+CONFIG_CONFLICT instead of a preview. Retry after that operation finishes.
 On macOS, unmount directories inside slots first: same-device mounts are not
 detected by cleanup's device checks. Linux also checks visible bind mounts.
 

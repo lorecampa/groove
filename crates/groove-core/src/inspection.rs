@@ -309,7 +309,7 @@ impl Pool {
     fn add_git_status(&self, slot: &mut SlotInspection, timeout: Duration) {
         if slot.worktree_path.exists() {
             slot.git = Some(
-                self.git_status(&slot.slot_id, &slot.worktree_path, timeout)
+                self.git_status_observed(&slot.slot_id, &slot.worktree_path, timeout)
                     .unwrap_or_else(|error| WorkspaceGitStatus {
                         error: Some(error.summary()),
                         ..WorkspaceGitStatus::default()
@@ -318,14 +318,47 @@ impl Pool {
         }
     }
 
-    /// Bounded, read-only working-tree facts. Tuned for large repositories: no rename
-    /// detection, no ignored-file scan, untracked directories reported without being
-    /// walked, no ahead/behind computation, and no index write (optional locks off).
+    pub(crate) fn git_status_observed(
+        &self,
+        slot: &SlotId,
+        path: &std::path::Path,
+        timeout: Duration,
+    ) -> Result<WorkspaceGitStatus> {
+        self.validate_workspace(slot)?;
+        // Shared admission lets release wait for our read-only Git children
+        // instead of mistaking their cwd/open files for an external writer.
+        let current = self.refreshed()?;
+        let guard = crate::locking::SlotGuard::wait_shared(
+            &self.repo.execution_lock_path(slot),
+            current.config.execution_locks.get(slot).copied(),
+            timeout,
+        )?;
+        state::checkpoint("inspection-before-git");
+        self.git_status_with_inherit(
+            slot,
+            path,
+            timeout,
+            &[std::os::fd::AsRawFd::as_raw_fd(&guard.file)],
+        )
+    }
+
+    /// Callers already excluding execution (the ready worker) must not reacquire
+    /// shared inspection admission through a separate descriptor.
     pub(crate) fn git_status(
         &self,
         slot: &SlotId,
         path: &std::path::Path,
         timeout: Duration,
+    ) -> Result<WorkspaceGitStatus> {
+        self.git_status_with_inherit(slot, path, timeout, &[])
+    }
+
+    fn git_status_with_inherit(
+        &self,
+        slot: &SlotId,
+        path: &std::path::Path,
+        timeout: Duration,
+        inherit: &[std::os::fd::RawFd],
     ) -> Result<WorkspaceGitStatus> {
         self.validate_workspace(slot)?;
         let bytes = crate::git::Git::new(timeout).run_with(
@@ -341,6 +374,7 @@ impl Pool {
                 "--ignore-submodules=all",
             ],
             crate::git::Invocation {
+                inherit,
                 reject_stderr: true,
                 ..Default::default()
             },

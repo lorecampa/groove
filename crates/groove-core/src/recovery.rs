@@ -13,6 +13,42 @@ use std::{
     time::Duration,
 };
 
+fn filter_scratch_guard(git: &Git, repo: &Repository) -> Result<SlotGuard> {
+    // One permanent descriptor protects scratch recovery, including surviving
+    // Git children. Never identify a live scratch owner from a PID or age.
+    let filter_state = repo.common.join("groove-filters");
+    repository::mkdir(&filter_state)?;
+    let lock_path = filter_state.join("scratch.lock");
+    let file = crate::locking::open(&lock_path, true)?;
+    let scratch_guard = SlotGuard::wait(
+        &lock_path,
+        Some(crate::locking::identity(&file)?),
+        git.timeout(),
+    )?;
+    for entry in fs::read_dir(&repo.common)? {
+        let entry = entry?;
+        if !entry
+            .file_name()
+            .to_string_lossy()
+            .starts_with("groove-filter-")
+            || !entry.file_type()?.is_dir()
+        {
+            continue;
+        }
+        let marker = entry.path().join("groove-owned");
+        if repository::no_symlinks(&marker).is_err()
+            || fs::read(&marker).ok().as_deref() != Some(b"groove-filter-v1")
+        {
+            continue;
+        }
+        repository::owned_dir(&entry.path())?;
+        use std::os::unix::fs::MetadataExt;
+        crate::destruction::validate_tree(&entry.path(), fs::metadata(&repo.common)?.dev())?;
+        fs::remove_dir_all(entry.path())?;
+    }
+    Ok(scratch_guard)
+}
+
 pub(crate) fn validate_config(git: &Git, repo: &Repository, oid: &crate::CommitOid) -> Result<()> {
     if git.has_gitlinks(&repo.common, oid.as_str())? {
         return Err(Error::new(
@@ -46,6 +82,8 @@ pub(crate) fn validate_config(git: &Git, repo: &Repository, oid: &crate::CommitO
 fn validate_user_filters(git: &Git, repo: &Repository, oid: &crate::CommitOid) -> Result<()> {
     use crate::git::Invocation;
     use std::{collections::BTreeSet, os::unix::fs::PermissionsExt};
+    let scratch_guard = filter_scratch_guard(git, repo)?;
+    let scratch_fds = [scratch_guard.file.as_raw_fd()];
     let config = git.run_with(
         &repo.origin,
         &["config", "--null", "--list"],
@@ -100,6 +138,7 @@ fn validate_user_filters(git: &Git, repo: &Repository, oid: &crate::CommitOid) -
         .prefix("groove-filter-")
         .permissions(fs::Permissions::from_mode(0o700))
         .tempdir_in(&repo.common)?;
+    fs::write(scratch.path().join("groove-owned"), b"groove-filter-v1")?;
     state::checkpoint("filter-scratch-created");
     let index = scratch.path().join("index");
     let worktree = scratch.path().join("worktree");
@@ -113,6 +152,7 @@ fn validate_user_filters(git: &Git, repo: &Repository, oid: &crate::CommitOid) -
         &worktree,
         &["read-tree", oid.as_str()],
         Invocation {
+            inherit: &scratch_fds,
             env: &env,
             ..Default::default()
         },
@@ -124,6 +164,7 @@ fn validate_user_filters(git: &Git, repo: &Repository, oid: &crate::CommitOid) -
         &worktree,
         &["ls-files", "-z", "--", ":(glob)**/.gitattributes"],
         Invocation {
+            inherit: &scratch_fds,
             env: &env,
             reject_stderr: true,
             ..Default::default()
@@ -139,6 +180,7 @@ fn validate_user_filters(git: &Git, repo: &Repository, oid: &crate::CommitOid) -
             "--stdin",
         ],
         Invocation {
+            inherit: &scratch_fds,
             env: &env,
             stdin: Some(names),
             reject_stderr: true,
@@ -151,6 +193,7 @@ fn validate_user_filters(git: &Git, repo: &Repository, oid: &crate::CommitOid) -
             &worktree,
             &["ls-files", "-z", "--", &selection],
             Invocation {
+                inherit: &scratch_fds,
                 env: &env,
                 reject_stderr: true,
                 ..Invocation::snapshot()
@@ -179,7 +222,11 @@ pub(crate) fn prepare(
     validate_slot_path(repo, config, slot)?;
     let fd = guard.file.as_raw_fd();
     let exists = path.exists();
-    if exists && registration(repo, &path).is_ok() && !interrupted(repo, &path)? {
+    if exists
+        && registration(repo, &path)
+            .is_ok_and(|admin| admin.join("groove-directories.json").is_file())
+        && !interrupted(repo, &path)?
+    {
         // Slot ownership excludes cooperating registration changes for this path.
         // Read-only duplicate detection must not wait behind a sibling's init or
         // destroy: healthy checkout normalization needs only this slot's lock.
@@ -190,7 +237,7 @@ pub(crate) fn prepare(
             .and_then(|()| verify(&git, repo, &path, oid, config.cleanup_policy))
         {
             Ok(()) => {
-                mark_verified(&path)?;
+                mark_verified(&git, &path)?;
                 state::checkpoint("verified");
                 return Ok(RecoveryOutcome::Sanitized);
             }
@@ -221,7 +268,7 @@ pub(crate) fn prepare(
     drop(admin);
     normalize(&git, &path, oid, config.cleanup_policy, &[fd])?;
     verify(&git, repo, &path, oid, config.cleanup_policy)?;
-    mark_verified(&path)?;
+    mark_verified(&git, &path)?;
     state::checkpoint("verified");
     Ok(if exists {
         RecoveryOutcome::Rebuilt
@@ -277,6 +324,18 @@ pub(crate) fn normalize(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
         Err(error) => return Err(error.into()),
     };
+    let verified_context = verified.as_ref().map(|_| fs::read(&marker)).transpose()?;
+    let directories = admin.join("groove-directories.json");
+    repository::no_symlinks(&directories)?;
+    if directories.try_exists()? {
+        let saved: Vec<crate::workspace_files::DirectoryState> = state::read(&directories)?;
+        if !crate::workspace_files::directory_metadata_matches(path, &saved)? {
+            return Err(Error::new(
+                crate::ErrorCode::RecoveryFailed,
+                "Directory permissions or extended attributes changed; rebuilding the checkout",
+            ));
+        }
+    }
     match fs::remove_file(&marker) {
         Ok(()) => crate::state::sync_dir(&admin)?,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
@@ -284,7 +343,15 @@ pub(crate) fn normalize(
     }
     state::checkpoint("reuse-marker-removed");
     crate::workspace_files::remove_special(path)?;
-    if !reuse_untouched(git, path, oid, &index, verified.as_ref(), fds)? {
+    if !reuse_untouched(
+        git,
+        path,
+        oid,
+        &index,
+        verified.as_ref(),
+        verified_context.as_deref(),
+        fds,
+    )? {
         // The full path discards flags and stat-cache assumptions and breaks every
         // tracked hardlink. A missing marker also forces this path after interruption.
         let had_index = index.exists();
@@ -346,14 +413,65 @@ pub(crate) fn normalize(
     Ok(())
 }
 
-fn mark_verified(path: &Path) -> Result<()> {
+fn conversion_context(git: &Git, path: &Path) -> Result<Vec<u8>> {
+    use sha2::{Digest, Sha256};
+    use std::os::unix::ffi::OsStrExt;
+    let mut context = git.run(path, &["config", "--null", "--list"], &[])?;
+    context.push(0);
+    let attributes = git.run(
+        path,
+        &[
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-path",
+            "info/attributes",
+        ],
+        &[],
+    )?;
+    let attributes = Path::new(OsStr::from_bytes(trim(&attributes)));
+    match fs::read(attributes) {
+        Ok(bytes) => context.extend_from_slice(&bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+        Err(error) => return Err(error.into()),
+    }
+    context.push(0);
+    match git.run(
+        path,
+        &["config", "--path", "--get", "core.attributesFile"],
+        &[],
+    ) {
+        Ok(file) => {
+            let file = Path::new(OsStr::from_bytes(trim(&file)));
+            match fs::read(path.join(file)) {
+                Ok(bytes) => context.extend_from_slice(&bytes),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Err(error) if error.git_exit_code() == Some(1) => (),
+        Err(error) => return Err(error),
+    }
+    // Repository settings can contain credentials. Persist only a fingerprint.
+    Ok(Sha256::digest(context).to_vec())
+}
+
+fn mark_verified(git: &Git, path: &Path) -> Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
     let admin = registration_from_file(path)?;
+    state::write(
+        &admin.join("groove-directories.json"),
+        &crate::workspace_files::directory_state(path)?,
+    )?;
     let marker = admin.join("groove-verified");
     repository::no_symlinks(&marker)?;
-    let file = fs::OpenOptions::new()
+    let mut file = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
+        .mode(0o600)
         .open(marker)?;
+    file.write_all(&git.run(path, &["rev-parse", "--verify", "HEAD"], &[])?)?;
+    file.write_all(&conversion_context(git, path)?)?;
     file.sync_all()?;
     state::sync_dir(&admin)
 }
@@ -367,6 +485,7 @@ fn reuse_untouched(
     oid: &crate::CommitOid,
     index: &Path,
     verified: Option<&fs::Metadata>,
+    verified_context: Option<&[u8]>,
     fds: &[i32],
 ) -> Result<bool> {
     use std::{
@@ -395,12 +514,23 @@ fn reuse_untouched(
     if audit.assume_unchanged || audit.skip_worktree || audit.conflicts || audit.gitlinks {
         return Ok(false);
     }
-    let previous = match git.run(path, &["rev-parse", "--verify", "--quiet", "HEAD"], fds) {
-        Ok(previous) => previous,
-        Err(error) if error.git_exit_code().is_some() => return Ok(false),
-        Err(error) => return Err(error),
+    // HEAD is task-controlled; the marker records the commit and external
+    // conversion rules which actually produced the verified physical files.
+    let Some(marker) = verified_context else {
+        return Ok(false);
     };
-    if trim(&previous) != oid.as_str().as_bytes() {
+    let Some(newline) = marker.iter().position(|byte| *byte == b'\n') else {
+        return Ok(false);
+    };
+    let Ok(previous) = std::str::from_utf8(&marker[..newline]) else {
+        return Ok(false);
+    };
+    if previous.parse::<crate::CommitOid>().is_err()
+        || marker[newline + 1..] != conversion_context(git, path)?
+    {
+        return Ok(false);
+    }
+    if previous != oid.as_str() {
         match git.run(
             path,
             &[
@@ -408,7 +538,7 @@ fn reuse_untouched(
                 "--quiet",
                 "--no-ext-diff",
                 "--no-textconv",
-                "HEAD",
+                previous,
                 oid.as_str(),
                 "--",
                 ":(glob)**/.gitattributes",

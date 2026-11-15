@@ -724,3 +724,43 @@ fn concurrent_cleanup_protects_live_logs_and_reclaims_crashed_owner() {
         }
     }
 }
+
+#[test]
+fn concurrent_log_publication_keeps_logging_available() {
+    let home = tempfile::tempdir().unwrap();
+    let h = home.path();
+    let repo = support::Repo::new();
+    ok(command(h)
+        .arg("--repo")
+        .arg(&repo.path)
+        .args([
+            "init",
+            "--capacity",
+            "1",
+            "--ready-target",
+            "0",
+            "--idle-timeout",
+            "never",
+        ])
+        .output()
+        .unwrap());
+    let mut children: Vec<_> = (0..24)
+        .map(|_| support::TestChild::spawn(command(h).arg("--repo").arg(&repo.path).arg("list")))
+        .collect();
+    for child in children.drain(..) {
+        let output = child.wait_with_output().unwrap();
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("File logging unavailable"));
+        ok(output);
+    }
+    assert_eq!(
+        fs::read_dir(h.join("state/groove/logs"))
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry
+                .path()
+                .extension()
+                .is_some_and(|extension| extension == "jsonl"))
+            .count(),
+        25
+    );
+}

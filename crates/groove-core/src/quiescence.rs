@@ -51,14 +51,15 @@ pub struct WorkspaceProcess {
 impl Pool {
     /// List other processes whose working directory, executable or open files are
     /// inside the reservation's workspace. The calling process and its ancestors (the
-    /// shell that ran this command), plus its process group (pipeline peers),
-    /// are excluded. Only processes this user may
+    /// shell that ran this command) are excluded. A connected pipeline reader's
+    /// working directory alone does not block release. Only processes this user may
     /// inspect are seen.
     ///
     /// # Errors
     /// Rejects unknown or stale lease IDs and reports process-enumeration failures.
     pub fn workspace_processes(&self, id: LeaseId) -> Result<Vec<WorkspaceProcess>> {
         let lease = self.lease_info(id)?;
+        let _inspection = self.execution_guard(&lease.slot_id)?;
         let Ok(root) = fs::canonicalize(&lease.worktree_path) else {
             return Ok(Vec::new());
         };
@@ -72,7 +73,7 @@ impl Pool {
     /// Rejects unknown or stale lease IDs and reports Git failures.
     pub fn workspace_changes(&self, id: LeaseId, timeout: Duration) -> Result<WorkspaceGitStatus> {
         let lease = self.lease_info(id)?;
-        self.git_status(&lease.slot_id, &lease.worktree_path, timeout)
+        self.git_status_observed(&lease.slot_id, &lease.worktree_path, timeout)
     }
 
     /// Whether `id` is a currently active (protected) reservation.
@@ -131,7 +132,9 @@ impl Pool {
                 )
                 .with_details(|d| d.changes = Some(changes)));
             }
-            if let Some(path) = crate::workspace_files::first_special(&lease.worktree_path)? {
+            if let Some(path) =
+                crate::workspace_files::first_special(&lease.worktree_path, timeout)?
+            {
                 return Err(Error::new(ErrorCode::UnsavedChanges,
                     "The workspace contains a special file Git cannot save; export or remove it, or release with --force to discard it")
                     .with_details(|details| details.path = Some(path)));
@@ -202,7 +205,7 @@ pub(crate) fn missing_checkout(path: &std::path::Path) -> Result<()> {
     }
 }
 
-/// Pipeline peers belong to the invocation, rather than independent workspace users.
+/// A process group is only a hint for identifying connected pipeline readers.
 fn same_process_group(pid: u32) -> bool {
     let Ok(pid) = i32::try_from(pid) else {
         return false;

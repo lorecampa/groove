@@ -8,6 +8,21 @@
   validating only saved differences. Override `core.eol` for LF snapshot bytes,
   reject lone carriage returns under text rules at save, and validate restore
   attributes before publishing an in-place safety checkpoint.
+- Prefer existing verified checkouts over empty slots, even without prepared spares.
+- Compare reuse conversion rules against the last verified base, repository settings
+  and external attribute files. Rebuild checkouts with changed directory permissions
+  or directory extended attributes.
+- Detect same-process-group workspace writers and Linux shared writable mappings
+  after descriptor closure. Release waits for detailed read-only inspection through
+  descriptor admission; connected pipeline readers remain supported.
+- Exclude ignored special files from release checks and snapshots, consistently
+  with ignored regular files. Non-ignored special files still require explicit disposal.
+- Keep destroy previews from cancelling workers. Preserve receipts without parsing
+  unrelated snapshot manifests, and ignore foreign snapshot refs without UUID names.
+- Journal saved-release pin intent before pinning, reclaim abandoned filter scratch
+  under descriptor exclusion, and remove empty parents from failed recovery attempts.
+- Reject Git-clean CRLF text that capture would silently normalize. Preflight ignored
+  collisions before safety capture, and tolerate brief log-publication contention.
 
 ## [0.3.2] - 2026-11-14
 

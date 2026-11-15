@@ -15,11 +15,13 @@ saved work with `groove snapshot restore ID --to PATH`. Nothing is pushed.
 --description (default: 'workspace saved') and --max-file-bytes require --save;
 --max-file-bytes defaults to 104857600 bytes, and 0 removes the limit.
 Ignored files and empty directories are excluded. Special files (pipes, sockets,
-devices) block normal release and snapshot capture; export or remove them first.
+devices) outside ignored paths block normal release and snapshot capture; export
+or remove them first. Ignored special files are excluded like ignored regular files.
 Forced release without --save allows cleanup to discard them before reuse.
 Export required ignored artifacts separately before releasing.
-WORKSPACE_IN_USE is retryable: allow transient inspection commands to finish,
-then retry after stopping all actual writers. Groove processes are not exempted
+Detailed read-only inspections use shared descriptor admission; release waits for
+them up to --git-timeout-ms. WORKSPACE_IN_USE is retryable: stop all actual
+writers before retrying. Groove processes are not exempted
 from this advisory scan merely by their executable name.
 Parallel saves wait for snapshot access up to --git-timeout-ms (default 120000).
 A timeout keeps the reservation protected; retry with the same lease ID.
@@ -33,7 +35,9 @@ Shared branches, tags, stash and snapshot refs preserve commits; private
 refs/worktree/* and refs/bisect/* in the slot do not count.
 Both forms refuse with WORKSPACE_IN_USE if other processes have
 their working directory, executable or open files in the workspace. The caller,
-its ancestors and its process group (including pipeline peers) are ignored.
+and its ancestors are ignored. A connected pipeline reader's working directory
+alone does not block release; other processes in the same group are checked.
+On Linux, shared writable file mappings also block release after descriptor closure.
 The process check only sees your processes and is best effort.
 Permissions, other mount namespaces and alternate mount paths can hide writers;
 an empty scan never replaces the requirement to stop them yourself.

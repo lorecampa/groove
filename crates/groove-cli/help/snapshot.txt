@@ -8,7 +8,8 @@ EXAMPLES:
 Snapshots save staged and working files, including deletions, modes, symlinks
 and non-ignored untracked files, without moving HEAD or touching the real index.
 Ignored files and empty folders are excluded. Special files (pipes, sockets and
-devices) are refused because Git cannot preserve them. Export or remove special
+devices) outside ignored paths are refused because Git cannot preserve them.
+Ignored special files are excluded. Export or remove non-ignored special
 files before saving; export required ignored
 artifacts separately before release --save. No pool, remote or first commit is
 required. A working tree is required; bare repositories cannot be captured.
@@ -23,9 +24,13 @@ cherry-picks, reverts, bisects, conflicts, submodules,
 nested repositories, active content filters,
 filter/ident/working-tree-encoding/eol=crlf attributes, intent-to-add and manual
 index flags are rejected. Capture checks saved paths; text, legacy crlf and
-eol=lf are allowed if staging preserves byte sizes. Normalized CRLF files are
-rejected by filename. Saving .gitattributes applies strict whole-tree validation.
-Restore refuses saved text blobs containing carriage returns.
+eol=lf require LF working bytes and byte-preserving staging. CRLF working files
+hidden by Git's clean status and lone carriage returns in saved text are rejected.
+Saving .gitattributes applies strict whole-tree validation.
+Restore validates saved differences from the base against saved and destination
+rules. Unchanged converting base paths use ordinary checkout. core.eol cannot
+rewrite saved LF bytes. Foreign refs without snapshot UUID names are omitted
+from listing; malformed snapshots with valid IDs still fail explicitly.
 Unused filter definitions, such as a global Git LFS installation, are harmless.
 Concurrent saves wait for the shared lock up to --git-timeout-ms (default 120000).
 

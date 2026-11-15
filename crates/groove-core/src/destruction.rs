@@ -182,7 +182,7 @@ fn require_saved(repo: &Repository, path: &Path, timeout: Duration) -> Result<()
         return Err(Error::new(ErrorCode::UnsavedChanges, "Workspace contains residual files or edits; save them or acknowledge loss with --discard-changes")
             .with_details(|d| d.path = Some(path.into())));
     }
-    if let Some(special) = crate::workspace_files::first_special(path)? {
+    if let Some(special) = crate::workspace_files::first_special(path, timeout)? {
         return Err(Error::new(ErrorCode::UnsavedChanges,
             "Workspace contains a special file; export it or acknowledge loss with --discard-changes")
             .with_details(|details| details.path = Some(special)));
@@ -253,7 +253,11 @@ impl Pool {
         }
         repository::owned_dir(&repo.root)?;
         repository::owned_dir(&repo.root.join("locks"))?;
-        let gate = lifecycle::destroy_gate(&repo, options.git_timeout)?;
+        let gate = if options.dry_run {
+            lifecycle::gate(&repo, true)?
+        } else {
+            lifecycle::destroy_gate(&repo, options.git_timeout)?
+        };
         let previous = lifecycle::read(&repo)?;
         let intent_path = repo.root.join("initializing.json");
         // A new init can die after publishing intent but before assigning its new

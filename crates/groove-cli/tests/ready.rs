@@ -699,3 +699,33 @@ fn recovery_replenishes_after_target_increases_during_interrupted_eviction() {
         "recovery should reuse the interrupted slot"
     );
 }
+
+#[cfg(feature = "test-hooks")]
+#[test]
+fn destruction_preview_does_not_cancel_an_active_ready_worker() {
+    use std::io::Write;
+    let repo = Repo::new();
+    let pool = initialized(&repo);
+    let (mut child, listener) = worker(&repo, &pool, "ready-before-preparation");
+    let mut stream = child
+        .checkpoint(
+            &listener,
+            "ready-before-preparation",
+            support::PROCESS_TIMEOUT,
+        )
+        .unwrap();
+    let preview = support::groove_in(&repo.path)
+        .args(["destroy", "--dry-run"])
+        .output()
+        .unwrap();
+    assert!(!preview.status.success());
+    let response: Value = serde_json::from_slice(&preview.stdout).unwrap();
+    assert_eq!(response["error"]["code"], "CONFIG_CONFLICT");
+    assert_eq!(response["error"]["retryable"], true);
+    assert!(!repo.state().join("ready-cancel.json").exists());
+    assert!(child.try_wait().unwrap().is_none());
+    stream.write_all(b"continue\n").unwrap();
+    drop(stream);
+    assert!(child.wait().unwrap().success());
+    assert!(repo.slot(1).join("tracked.txt").exists());
+}
