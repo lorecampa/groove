@@ -311,9 +311,10 @@ permissions and races. Missing PIDs/descriptors do not authorize cleanup. If
 ownership is uncertain, leave protection intact.
 
 The release/destruction process scan observes accessible same-user processes and
-release excludes the caller, its ancestors and its process group, including
-pipeline peers. Destruction excludes none of these. Stop all writers explicitly;
-group exclusion does not establish quiescence. The scan
+release excludes the caller and its ancestors. A connected pipeline reader's cwd
+alone does not block release; the rest of the process group is checked. Linux
+also checks shared writable mappings after their file descriptors close.
+Destruction excludes none of these. Stop all writers explicitly. The scan
 compares visible paths. Other users, mount namespaces and alternate mount paths
 can hide workspace users. A successful scan does not establish that all writers
 stopped: callers must stop their workers, watchers and descendants before release.

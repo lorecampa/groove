@@ -1340,3 +1340,8 @@ fn verification_rejects_writes_racing_in_place_cleanup() {
         );
     }
 }
+
+#[test]
+fn finish_retry_recovers_the_receipt_before_pin_publication() {
+    retry_unreleased_finish("finish-before-pin", false, false);
+}

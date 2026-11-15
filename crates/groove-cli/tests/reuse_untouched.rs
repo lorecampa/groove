@@ -154,6 +154,39 @@ fn set_attribute(path: &Path) {
     assert_eq!(result, 0, "{}", std::io::Error::last_os_error());
 }
 
+fn assert_attribute_removed(path: &Path) {
+    use std::{ffi::CString, os::unix::ffi::OsStrExt};
+    let path = CString::new(path.as_os_str().as_bytes()).unwrap();
+    #[cfg(target_os = "linux")]
+    // SAFETY: path/key are terminated strings; a null buffer queries the size.
+    let result = unsafe {
+        libc::getxattr(
+            path.as_ptr(),
+            c"user.groove-test".as_ptr(),
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    #[cfg(target_os = "macos")]
+    // SAFETY: path/key are terminated strings; a null buffer queries the size.
+    let result = unsafe {
+        libc::getxattr(
+            path.as_ptr(),
+            c"user.groove-test".as_ptr(),
+            std::ptr::null_mut(),
+            0,
+            0,
+            0,
+        )
+    };
+    assert_eq!(result, -1);
+    #[cfg(target_os = "linux")]
+    let absent = libc::ENODATA;
+    #[cfg(target_os = "macos")]
+    let absent = libc::ENOATTR;
+    assert_eq!(std::io::Error::last_os_error().raw_os_error(), Some(absent));
+}
+
 fn contaminate(root: &Path, case: &str, outside: &Path) {
     let file = root.join("tracked.txt");
     match case {
@@ -230,7 +263,6 @@ fn metadata_content_index_and_directory_changes_match_a_full_rewrite() {
             &repo.temp.path().join("outside-workspace"),
         );
         contaminate(&oracle, case, &repo.temp.path().join("outside-oracle"));
-        let before = fs::metadata(workspace.join("tracked.txt")).unwrap();
         release(&repo, &lease);
         let index = support::git(&oracle, &["rev-parse", "--git-path", "index"]);
         fs::remove_file(index).unwrap();
@@ -244,11 +276,7 @@ fn metadata_content_index_and_directory_changes_match_a_full_rewrite() {
             "{case}"
         );
         if case == "xattr" {
-            assert_ne!(
-                fs::metadata(workspace.join("tracked.txt")).unwrap().ino(),
-                before.ino(),
-                "xattr must be removed with the old inode"
-            );
+            assert_attribute_removed(&workspace.join("tracked.txt"));
         }
     }
 }
@@ -306,4 +334,33 @@ fn interruption_after_marker_removal_forces_a_full_rewrite() {
     drop(stream);
     acquire(&repo);
     assert_ne!(fs::metadata(path).unwrap().ino(), before.ino());
+}
+
+#[test]
+fn legacy_and_interrupted_checkouts_cannot_seed_dirty_directory_metadata() {
+    for legacy in [true, false] {
+        let repo = Repo::new();
+        init(&repo);
+        let lease = acquire(&repo);
+        let workspace = repo.slot(1);
+        let expected = fs::metadata(&workspace).unwrap().mode() & 0o7777;
+        let admin = PathBuf::from(support::git(
+            &workspace,
+            &["rev-parse", "--absolute-git-dir"],
+        ));
+        release(&repo, &lease);
+        fs::set_permissions(&workspace, fs::Permissions::from_mode(0o777)).unwrap();
+        if legacy {
+            fs::remove_file(admin.join("groove-directories.json")).unwrap();
+            fs::write(admin.join("groove-verified"), b"").unwrap();
+        } else {
+            fs::remove_file(admin.join("groove-verified")).unwrap();
+        }
+        acquire(&repo);
+        assert_eq!(fs::metadata(&workspace).unwrap().mode() & 0o7777, expected);
+        assert_eq!(
+            fs::read(workspace.join("tracked.txt")).unwrap(),
+            b"baseline\n"
+        );
+    }
 }

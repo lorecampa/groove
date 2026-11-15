@@ -444,3 +444,176 @@ fn warm_reuse_rewrites_backdated_tracked_files_without_touching_cached_output() 
     );
     assert_eq!(fs::metadata(cache).unwrap().modified().unwrap(), cache_time);
 }
+
+#[test]
+fn reuse_tracks_the_verified_base_when_the_task_soft_resets_head() {
+    let r = Repo::new();
+    let old = r.git(&["rev-parse", "HEAD"]);
+    fs::write(r.path.join(".gitattributes"), b"*.txt text eol=crlf\n").unwrap();
+    r.git(&["add", ".gitattributes"]);
+    r.git(&["commit", "-qm", "new conversion rules"]);
+    let new = r.git(&["rev-parse", "HEAD"]);
+    Pool::init(
+        &r.path,
+        PoolOptions {
+            capacity: 1,
+            worktree_root: Some(support::worktree_root(&r.path, "default")),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let pool = Pool::open(&r.path).unwrap();
+    let lease = pool
+        .acquire(groove_core::AcquireOptions {
+            base: old.trim().into(),
+            ..Default::default()
+        })
+        .unwrap();
+    let path = lease.info().worktree_path.clone();
+    git(&path, &["reset", "--soft", new.trim()]);
+    drop(lease);
+    let _next = pool.acquire(Default::default()).unwrap();
+    assert_eq!(fs::read(path.join("tracked.txt")).unwrap(), b"baseline\r\n");
+    assert!(git(&path, &["status", "--porcelain"]).is_empty());
+}
+
+#[test]
+fn reuse_detects_changed_external_conversion_rules() {
+    let r = Repo::new();
+    Pool::init(
+        &r.path,
+        PoolOptions {
+            capacity: 1,
+            worktree_root: Some(support::worktree_root(&r.path, "default")),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let pool = Pool::open(&r.path).unwrap();
+    let lease = pool.acquire(Default::default()).unwrap();
+    let path = lease.info().worktree_path.clone();
+    drop(lease);
+    fs::write(
+        r.path.join(".git/info/attributes"),
+        b"*.txt text eol=crlf\n",
+    )
+    .unwrap();
+    let lease = pool.acquire(Default::default()).unwrap();
+    assert_eq!(fs::read(path.join("tracked.txt")).unwrap(), b"baseline\r\n");
+    drop(lease);
+    fs::write(r.path.join(".git/info/attributes"), b"*.txt text eol=lf\n").unwrap();
+    let _next = pool.acquire(Default::default()).unwrap();
+    assert_eq!(fs::read(path.join("tracked.txt")).unwrap(), b"baseline\n");
+}
+
+#[test]
+fn directory_permissions_are_fresh_after_reuse() {
+    let r = Repo::new();
+    fs::create_dir(r.path.join("tracked-dir")).unwrap();
+    fs::write(r.path.join("tracked-dir/file"), b"baseline").unwrap();
+    r.git(&["add", "."]);
+    r.git(&["commit", "-qm", "nested directory"]);
+    Pool::init(
+        &r.path,
+        PoolOptions {
+            capacity: 1,
+            worktree_root: Some(support::worktree_root(&r.path, "default")),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let pool = Pool::open(&r.path).unwrap();
+    let lease = pool.acquire(Default::default()).unwrap();
+    let path = lease.info().worktree_path.join("tracked-dir");
+    let expected = fs::metadata(&path).unwrap().mode() & 0o7777;
+    drop(lease);
+    for mode in [0o777, 0o700] {
+        fs::set_permissions(&path, fs::Permissions::from_mode(mode)).unwrap();
+        let lease = pool.acquire(Default::default()).unwrap();
+        assert_eq!(fs::metadata(&path).unwrap().mode() & 0o7777, expected);
+        assert_eq!(fs::read(path.join("file")).unwrap(), b"baseline");
+        drop(lease);
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn directory_extended_attributes_do_not_carry_into_the_next_lease() {
+    use std::{ffi::CString, os::unix::ffi::OsStrExt};
+    let r = Repo::new();
+    Pool::init(
+        &r.path,
+        PoolOptions {
+            capacity: 1,
+            worktree_root: Some(support::worktree_root(&r.path, "default")),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let pool = Pool::open(&r.path).unwrap();
+    let lease = pool.acquire(Default::default()).unwrap();
+    let path = CString::new(lease.info().worktree_path.as_os_str().as_bytes()).unwrap();
+    // SAFETY: path/key are terminated strings and the value covers its length.
+    let result = unsafe {
+        libc::setxattr(
+            path.as_ptr(),
+            c"user.groove-dir".as_ptr(),
+            b"dirty".as_ptr().cast(),
+            5,
+            0,
+        )
+    };
+    if result != 0 {
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ENOTSUP)
+        );
+        return;
+    }
+    drop(lease);
+    let _next = pool.acquire(Default::default()).unwrap();
+    assert_eq!(
+        // SAFETY: path/key are terminated strings; a null buffer queries the size.
+        unsafe {
+            libc::getxattr(
+                path.as_ptr(),
+                c"user.groove-dir".as_ptr(),
+                std::ptr::null_mut(),
+                0,
+            )
+        },
+        -1
+    );
+    assert_eq!(
+        std::io::Error::last_os_error().raw_os_error(),
+        Some(libc::ENODATA)
+    );
+}
+
+#[test]
+fn reuse_detects_edits_inside_the_configured_attributes_file() {
+    let r = Repo::new();
+    let attributes = r.temp.path().join("external-attributes");
+    fs::write(&attributes, b"*.txt text eol=lf\n").unwrap();
+    r.git(&[
+        "config",
+        "core.attributesFile",
+        attributes.to_str().unwrap(),
+    ]);
+    Pool::init(
+        &r.path,
+        PoolOptions {
+            capacity: 1,
+            worktree_root: Some(support::worktree_root(&r.path, "default")),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let pool = Pool::open(&r.path).unwrap();
+    let lease = pool.acquire(Default::default()).unwrap();
+    let path = lease.info().worktree_path.clone();
+    drop(lease);
+    fs::write(&attributes, b"*.txt text eol=crlf\n").unwrap();
+    let _next = pool.acquire(Default::default()).unwrap();
+    assert_eq!(fs::read(path.join("tracked.txt")).unwrap(), b"baseline\r\n");
+}

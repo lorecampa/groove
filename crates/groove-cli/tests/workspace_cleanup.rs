@@ -171,3 +171,25 @@ fn acquisition_does_not_normalize_a_released_checkout_under_a_lingering_shell() 
         assert_success(&cli(&repo, &["acquire"]));
     }
 }
+
+#[test]
+fn ignored_special_files_do_not_block_plain_or_saved_release() {
+    for kind in ["fifo", "socket"] {
+        for save in [false, true] {
+            let repo = Repo::new();
+            initialize(&repo, "pristine");
+            let lease = assert_success(&cli(&repo, &["acquire"]));
+            let id = lease["result"]["lease_id"].as_str().unwrap();
+            let ignored = repo.slot(1).join("ignored");
+            fs::create_dir(&ignored).unwrap();
+            make_special(&ignored.join("server"), kind);
+            let mut args = vec!["release", "--lease-id", id];
+            if save {
+                args.push("--save");
+            }
+            assert_success(&cli(&repo, &args));
+            assert_success(&cli(&repo, &["acquire"]));
+            assert!(!ignored.exists());
+        }
+    }
+}

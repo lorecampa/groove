@@ -9,12 +9,14 @@ outside the source working tree and all pool roots; existing parent symlinks are
 resolved before checking. Recovery uses detached HEAD for snapshots with a base
 commit; snapshots from before the first commit
 keep their unborn HEAD and original initial branch name.
-On error, the new checkout and registration are removed. If cleanup also fails,
+On error, the new checkout, registration and empty parents created by this attempt
+are removed. Existing or concurrently populated parents are preserved. If cleanup also fails,
 error details identify the partial destination and secondary failure. Process
 death can interrupt cleanup; inspect the destination before retrying.
 
 Without --to, restore works in place: HEAD must equal the saved HEAD, a safety
-snapshot is taken first, and captured files absent from the target are removed.
+snapshot is taken after attribute/collision preflight, and captured files absent
+from the target are removed. Rejected preflight checks leave no safety snapshot.
 If restoration fails after the safety snapshot is saved, the error includes its
 ID for recovery. Earlier failures may leave no safety snapshot. A failed restore
 can leave partial working-file changes.
@@ -22,6 +24,7 @@ Use --max-file-bytes to raise the safety capture limit (default 100 MiB per
 changed file; 0 is unlimited). This limit is unused with --to.
 Recovery preserves saved bytes, executable bits and symlinks even if Git
 preferences changed after capture. Active conversion/filter attributes are
-checked before restoring files, including with --to.
+checked on saved differences from the base before restoring files, including
+with --to. Unchanged converting base paths follow ordinary checkout rules.
 Text, legacy crlf and eol=lf are supported for LF-only blobs. Saved text blobs
 containing carriage returns are refused before materialization.

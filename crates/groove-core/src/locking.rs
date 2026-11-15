@@ -69,6 +69,12 @@ pub(crate) struct SlotGuard {
 }
 impl SlotGuard {
     pub fn try_lock(path: &Path, expected: Option<Identity>) -> Result<Option<Self>> {
+        Self::try_mode(path, expected, libc::LOCK_EX)
+    }
+    pub fn try_shared(path: &Path, expected: Option<Identity>) -> Result<Option<Self>> {
+        Self::try_mode(path, expected, libc::LOCK_SH)
+    }
+    fn try_mode(path: &Path, expected: Option<Identity>, mode: i32) -> Result<Option<Self>> {
         use std::os::fd::AsFd;
         let file = open(path, false)?;
         if expected.is_some_and(|e| identity(&file).ok() != Some(e)) {
@@ -77,7 +83,7 @@ impl SlotGuard {
                 "Permanent lock identity changed",
             ));
         }
-        if !flock(file.as_fd(), libc::LOCK_EX | libc::LOCK_NB)? {
+        if !flock(file.as_fd(), mode | libc::LOCK_NB)? {
             return Ok(None);
         }
         let current = std::fs::symlink_metadata(path)?;
@@ -91,9 +97,25 @@ impl SlotGuard {
         Ok(Some(Self { file }))
     }
     pub fn wait(path: &Path, expected: Option<Identity>, timeout: Duration) -> Result<Self> {
+        Self::wait_mode(path, expected, timeout, false)
+    }
+    pub fn wait_shared(path: &Path, expected: Option<Identity>, timeout: Duration) -> Result<Self> {
+        Self::wait_mode(path, expected, timeout, true)
+    }
+    fn wait_mode(
+        path: &Path,
+        expected: Option<Identity>,
+        timeout: Duration,
+        shared: bool,
+    ) -> Result<Self> {
         let start = Instant::now();
         loop {
-            if let Some(lock) = Self::try_lock(path, expected)? {
+            let lock = if shared {
+                Self::try_shared(path, expected)?
+            } else {
+                Self::try_lock(path, expected)?
+            };
+            if let Some(lock) = lock {
                 return Ok(lock);
             }
             if start.elapsed() >= timeout {

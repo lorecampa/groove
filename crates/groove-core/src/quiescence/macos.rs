@@ -27,6 +27,50 @@ struct VnodeFdInfoWithPath {
 }
 const PROC_PIDFDVNODEPATHINFO: i32 = 2;
 
+#[repr(C)]
+struct PipeInfo {
+    stat: libc::vinfo_stat,
+    handle: u64,
+    peer: u64,
+    status: i32,
+    reserved: i32,
+}
+#[repr(C)]
+struct PipeFdInfo {
+    file: ProcFileInfo,
+    pipe: PipeInfo,
+}
+
+fn pipe_info(pid: i32, fd: i32) -> Option<PipeFdInfo> {
+    let mut info = MaybeUninit::<PipeFdInfo>::uninit();
+    // SAFETY: the buffer matches pipe_fdinfo from Apple's proc_info.h and is
+    // writable for exactly the provided size; flavor 6 is PROC_PIDFDPIPEINFO.
+    let bytes = unsafe {
+        libc::proc_pidfdinfo(
+            pid,
+            fd,
+            6,
+            info.as_mut_ptr().cast(),
+            size_of::<PipeFdInfo>() as i32,
+        )
+    };
+    if bytes as usize != size_of::<PipeFdInfo>() {
+        return None;
+    }
+    // SAFETY: a complete successful response initialized every field.
+    Some(unsafe { info.assume_init() })
+}
+
+fn pipeline_reader(pid: i32) -> bool {
+    let Some(input) = pipe_info(pid, 0) else {
+        return false;
+    };
+    [1, 2].into_iter().any(|fd| {
+        pipe_info(std::process::id() as i32, fd)
+            .is_some_and(|output| input.pipe.peer != 0 && input.pipe.peer == output.pipe.handle)
+    })
+}
+
 pub(super) fn processes_using(root: &Path, skip_ancestors: bool) -> Result<Vec<WorkspaceProcess>> {
     let skip = if skip_ancestors {
         self_and_ancestors()
@@ -35,13 +79,11 @@ pub(super) fn processes_using(root: &Path, skip_ancestors: bool) -> Result<Vec<W
     };
     let mut found = Vec::new();
     for pid in pids()? {
-        if pid <= 1
-            || skip.contains(&(pid as u32))
-            || (skip_ancestors && same_process_group(pid as u32))
-        {
+        if pid <= 1 || skip.contains(&(pid as u32)) {
             continue;
         }
-        if let Some(uses) = process_use(pid, root) {
+        let pipeline = skip_ancestors && same_process_group(pid as u32) && pipeline_reader(pid);
+        if let Some(uses) = process_use(pid, root, pipeline) {
             let command = bsd_info(pid)
                 .map(|info| {
                     let bytes: Vec<u8> = info
@@ -129,7 +171,7 @@ fn vnode_path(info: &libc::vnode_info_path) -> PathBuf {
     PathBuf::from(OsString::from_vec(bytes))
 }
 
-fn process_use(pid: i32, root: &Path) -> Option<ProcessUse> {
+fn process_use(pid: i32, root: &Path, pipeline: bool) -> Option<ProcessUse> {
     let mut cwd = MaybeUninit::<libc::proc_vnodepathinfo>::uninit();
     // SAFETY: cwd has the exact layout/size required by PROC_PIDVNODEPATHINFO.
     let bytes = unsafe {
@@ -144,7 +186,7 @@ fn process_use(pid: i32, root: &Path) -> Option<ProcessUse> {
     if bytes as usize == size_of::<libc::proc_vnodepathinfo>() {
         // SAFETY: a complete successful response initialized both vnode paths.
         let cwd = unsafe { cwd.assume_init() };
-        if vnode_path(&cwd.pvi_cdir).starts_with(root) {
+        if !pipeline && vnode_path(&cwd.pvi_cdir).starts_with(root) {
             return Some(ProcessUse::WorkingDirectory);
         }
     }

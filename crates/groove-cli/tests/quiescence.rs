@@ -348,7 +348,6 @@ fn processes_using_the_workspace_block_release_with_or_without_save_but_not_the_
     // so there is no further exec transition during the process checks.
     let mut watcher = support::TestChild::spawn(
         support::command(Path::new(&path), "bash")
-            .process_group(0)
             .args(["-c", "printf ready > \"$1\"; read -r _", "watcher"])
             .arg(&ready)
             .stdin(Stdio::piped()),
@@ -388,4 +387,201 @@ fn processes_using_the_workspace_block_release_with_or_without_save_but_not_the_
         .output()
         .unwrap();
     ok(&shell);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn mapping_holder_process() {
+    use std::{io::Write, os::fd::AsRawFd};
+    let Some(path) = std::env::var_os("GROOVE_TEST_MAPPING_PATH") else {
+        return;
+    };
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+        .unwrap();
+    // SAFETY: file owns a readable/writable descriptor, the offset is aligned,
+    // and the fixture file covers the requested mapping length.
+    let mapping = unsafe {
+        libc::mmap(
+            std::ptr::null_mut(),
+            8,
+            libc::PROT_READ | libc::PROT_WRITE,
+            libc::MAP_SHARED,
+            file.as_raw_fd(),
+            0,
+        )
+    };
+    assert_ne!(mapping, libc::MAP_FAILED);
+    drop(file);
+    let socket = std::env::var_os("GROOVE_TEST_MAPPING_SOCKET").unwrap();
+    let mut stream = std::os::unix::net::UnixStream::connect(socket).unwrap();
+    stream.write_all(b"mapped\n").unwrap();
+    let mut byte = [0];
+    std::io::Read::read_exact(&mut stream, &mut byte).unwrap();
+    // SAFETY: the mapping is still owned, writable and exactly eight bytes long.
+    unsafe {
+        std::ptr::write_volatile(mapping.cast::<u8>(), b'X');
+        assert_eq!(libc::munmap(mapping, 8), 0);
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_shared_writable_mapping_blocks_release_and_reacquisition_after_fd_close() {
+    use std::{io::Write, os::unix::net::UnixListener};
+    let repo = Repo::new();
+    ok(&cli(
+        &repo,
+        &[
+            "init",
+            "--capacity",
+            "1",
+            "--ready-target",
+            "0",
+            "--idle-timeout",
+            "never",
+        ],
+    ));
+    let path = acquire(&repo, "mapped");
+    let socket = repo.temp.path().join("mapping.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let mut command = support::command(&repo.path, std::env::current_exe().unwrap());
+    command
+        .args(["--exact", "mapping_holder_process", "--nocapture"])
+        .env(
+            "GROOVE_TEST_MAPPING_PATH",
+            Path::new(&path).join("tracked.txt"),
+        )
+        .env("GROOVE_TEST_MAPPING_SOCKET", &socket);
+    let mut child = support::TestChild::spawn(&mut command);
+    let mut stream = support::accept_child(
+        &listener,
+        std::slice::from_mut(&mut child),
+        support::PROCESS_TIMEOUT,
+    )
+    .unwrap();
+    let mut ready = [0; 7];
+    stream
+        .set_read_timeout(Some(support::PROCESS_TIMEOUT))
+        .unwrap();
+    std::io::Read::read_exact(&mut stream, &mut ready).unwrap();
+    assert_eq!(&ready, b"mapped\n");
+    let refused = error(&cli(&repo, &["release", "--task", "mapped"]));
+    assert_eq!(refused["code"], "WORKSPACE_IN_USE");
+    assert!(refused["details"]["processes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|p| p["pid"] == child.id() && p["uses"] == "open_file"));
+    ok(&cli(&repo, &["release", "--force", "--task", "mapped"]));
+    let refused = cli(&repo, &["acquire"]);
+    assert!(!refused.status.success());
+    let response: Value = serde_json::from_slice(&refused.stdout).unwrap();
+    assert_eq!(response["error"]["code"], "POOL_EXHAUSTED");
+    stream.write_all(b"x").unwrap();
+    assert!(child.wait().unwrap().success());
+    acquire(&repo, "next");
+    assert_eq!(
+        fs::read(Path::new(&path).join("tracked.txt")).unwrap(),
+        b"baseline\n"
+    );
+}
+
+#[cfg(feature = "test-hooks")]
+#[test]
+fn release_waits_for_a_concurrent_read_only_inspection() {
+    use std::{io::Write, os::unix::net::UnixListener};
+    let repo = Repo::new();
+    ok(&cli(
+        &repo,
+        &[
+            "init",
+            "--capacity",
+            "1",
+            "--ready-target",
+            "0",
+            "--idle-timeout",
+            "never",
+        ],
+    ));
+    acquire(&repo, "observed");
+    let socket = repo.temp.path().join("inspection.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let mut command = support::groove_in(&repo.path);
+    command
+        .args(["show", "--details", "--task", "observed"])
+        .env("GROOVE_TEST_CHECKPOINT", "inspection-before-git")
+        .env("GROOVE_TEST_SOCKET", &socket);
+    let mut inspector = support::TestChild::spawn(&mut command);
+    let mut stream = inspector
+        .checkpoint(&listener, "inspection-before-git", support::PROCESS_TIMEOUT)
+        .unwrap();
+    let waiting = UnixListener::bind(repo.temp.path().join("waiting.sock")).unwrap();
+    let mut releaser = support::TestChild::spawn(
+        support::groove_in(&repo.path)
+            .args(["release", "--task", "observed"])
+            .env("GROOVE_TEST_CHECKPOINT", "waiting-for-inspection")
+            .env("GROOVE_TEST_SOCKET", repo.temp.path().join("waiting.sock")),
+    );
+    let mut waiting_stream = releaser
+        .checkpoint(&waiting, "waiting-for-inspection", support::PROCESS_TIMEOUT)
+        .unwrap();
+    waiting_stream.write_all(b"continue\n").unwrap();
+    drop(waiting_stream);
+    stream.write_all(b"continue\n").unwrap();
+    drop(stream);
+    assert_success_inspection(&inspector.wait_with_output().unwrap());
+    ok(&releaser.wait_with_output().unwrap());
+    assert!(ok(&cli(&repo, &["list"]))["leases"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+}
+
+#[cfg(feature = "test-hooks")]
+fn assert_success_inspection(output: &Output) {
+    let result = ok(output);
+    assert!(result["slot"]["git"]["error"].is_null(), "{result}");
+}
+
+#[cfg(feature = "test-hooks")]
+#[test]
+fn release_recovers_after_an_inspection_process_is_killed() {
+    use std::os::unix::net::UnixListener;
+    let repo = Repo::new();
+    ok(&cli(
+        &repo,
+        &[
+            "init",
+            "--capacity",
+            "1",
+            "--ready-target",
+            "0",
+            "--idle-timeout",
+            "never",
+        ],
+    ));
+    acquire(&repo, "observed");
+    let socket = repo.temp.path().join("inspection-kill.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let mut command = support::groove_in(&repo.path);
+    command
+        .args(["show", "--details", "--task", "observed"])
+        .env("GROOVE_TEST_CHECKPOINT", "inspection-before-git")
+        .env("GROOVE_TEST_SOCKET", &socket);
+    let mut inspector = support::TestChild::spawn(&mut command);
+    let stream = inspector
+        .checkpoint(&listener, "inspection-before-git", support::PROCESS_TIMEOUT)
+        .unwrap();
+    inspector.kill().unwrap();
+    inspector.wait().unwrap();
+    drop(stream);
+    ok(&cli(&repo, &["release", "--task", "observed"]));
+    acquire(&repo, "next");
+    assert_eq!(
+        fs::read(repo.slot(1).join("tracked.txt")).unwrap(),
+        b"baseline\n"
+    );
 }

@@ -3,7 +3,7 @@
 use crate::{state, Error, ErrorCode, Pool, Result, SlotId};
 
 impl Pool {
-    /// Take the permanent legacy execution lock without waiting.
+    /// Exclude legacy execution owners and wait for shared read-only inspectors.
     pub(crate) fn execution_guard(&self, slot: &SlotId) -> Result<crate::locking::SlotGuard> {
         // Re-read the manifest: growth may have added this slot after `self` was opened.
         let config: state::Config = state::read(&self.repo.config_path())?;
@@ -17,14 +17,25 @@ impl Pool {
                 ))
             }
         };
-        crate::locking::SlotGuard::try_lock(&self.repo.execution_lock_path(slot), Some(identity))?
-            .ok_or_else(|| {
-                Error::new(
-                    ErrorCode::InvalidLease,
-                    "Reservation operation lock is busy; retry after the current owner finishes",
-                )
-                .retryable(true)
-            })
+        let path = self.repo.execution_lock_path(slot);
+        if let Some(guard) = crate::locking::SlotGuard::try_lock(&path, Some(identity))? {
+            return Ok(guard);
+        }
+        // A successful shared probe establishes that current holders are
+        // inspectors, not an exclusive execution owner. Close it before waiting
+        // for exclusive admission; never upgrade a live shared descriptor.
+        if let Some(reader) = crate::locking::SlotGuard::try_shared(&path, Some(identity))? {
+            drop(reader);
+            state::checkpoint("waiting-for-inspection");
+            return crate::locking::SlotGuard::wait(&path, Some(identity), self.git_timeout);
+        }
+        Err({
+            Error::new(
+                ErrorCode::InvalidLease,
+                "Reservation operation lock is busy; retry after the current owner finishes",
+            )
+            .retryable(true)
+        })
     }
 
     /// Fail while a durable execution record (live or orphaned) still protects the slot.

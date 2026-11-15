@@ -403,7 +403,7 @@ fn failed_recovery_is_cleaned_up(unborn: bool) {
     let snapshot = checked(&repo, &["snapshot", "save"]);
     let id = snapshot["snapshot"]["id"].as_str().unwrap();
     let registrations = support::git(&repo.path, &["worktree", "list", "--porcelain"]);
-    let destination = repo.temp.path().join("recovery");
+    let destination = repo.temp.path().join("new-parent/nested/recovery");
     let socket = repo.temp.path().join("failed-restore.sock");
     let listener = UnixListener::bind(&socket).unwrap();
     let mut command = support::groove_in(&repo.path);
@@ -437,6 +437,7 @@ fn failed_recovery_is_cleaned_up(unborn: bool) {
         "{error}"
     );
     assert!(!destination.exists());
+    assert!(!repo.temp.path().join("new-parent").exists());
     assert_eq!(
         support::git(&repo.path, &["worktree", "list", "--porcelain"]),
         registrations

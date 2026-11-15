@@ -166,7 +166,6 @@ impl Lease {
         crate::quiescence::missing_checkout(&self.info.worktree_path)?;
         let snapshots = Snapshots::open(&self.info.worktree_path, self.pool.git_timeout)?;
         let mut snapshot = snapshots.save(options)?;
-        snapshots.pin(&snapshot.id)?;
         snapshot.pinned = true;
         let mut receipt = FinishReceipt {
             schema_version: state::SCHEMA_VERSION,
@@ -182,6 +181,8 @@ impl Lease {
                 .unwrap_or_default(),
         };
         state::write(&path, &receipt)?;
+        state::checkpoint("finish-before-pin");
+        snapshots.pin(&receipt.snapshot.id)?;
         state::checkpoint("finish-snapshot-saved");
         drop(execution);
         state::checkpoint("finish-before-release");

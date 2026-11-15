@@ -121,10 +121,15 @@ fn open_log(dir: &PathBuf, id: &str, settings: &Logging) -> io::Result<Output> {
     owned_directory(dir)?;
     let _ = prune(dir, settings);
     // Serialize publication with cleanup so a new file cannot be pruned before
-    // its lifetime lock has been acquired. Contention only disables file logging.
+    // its lifetime lock has been acquired. Brief concurrent publication must not
+    // disable logging; bound waiting so an unhealthy logger cannot stall commands.
     let publication = regular_file(&dir.join(".cleanup.lock"), true, true)?;
-    if !lock(&publication) {
-        return Err(io::Error::other("Log cleanup in progress"));
+    let started = std::time::Instant::now();
+    while !lock(&publication) {
+        if started.elapsed() >= Duration::from_secs(1) {
+            return Err(io::Error::other("Log cleanup in progress"));
+        }
+        std::thread::sleep(Duration::from_millis(2));
     }
     let file = OpenOptions::new()
         .write(true)

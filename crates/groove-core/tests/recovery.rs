@@ -514,3 +514,37 @@ fn large_tree_acquires_and_rejects_submodules_beyond_diagnostic_limit() {
     );
     assert!(!path.join("zz-submodule").exists());
 }
+
+#[test]
+fn sequential_tasks_prefer_the_existing_verified_checkout() {
+    let r = Repo::new();
+    Pool::init(
+        &r.path,
+        PoolOptions {
+            capacity: 6,
+            ready: Some(groove_core::ReadySettings {
+                ready_target: 0,
+                ..Default::default()
+            }),
+            worktree_root: Some(support::worktree_root(&r.path, "default")),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let p = Pool::open(&r.path).unwrap();
+    let first = p.acquire(Default::default()).unwrap();
+    let path = first.info().worktree_path.clone();
+    drop(first);
+    for _ in 0..12 {
+        let next = p.acquire(Default::default()).unwrap();
+        assert_eq!(next.info().worktree_path, path);
+    }
+    assert_eq!(
+        fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_type().unwrap().is_dir())
+            .count(),
+        1
+    );
+}

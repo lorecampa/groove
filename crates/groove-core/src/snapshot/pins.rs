@@ -14,7 +14,7 @@ use std::{
 pub(super) const PINS: &str = "refs/groove/snapshot-pins/";
 
 impl Snapshots {
-    fn ref_query(
+    pub(super) fn ref_query(
         &self,
         args: &[&str],
         input: Option<&[u8]>,

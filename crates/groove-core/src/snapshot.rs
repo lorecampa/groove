@@ -233,10 +233,20 @@ impl Snapshots {
         repository: &repository::Repository,
         timeout: Duration,
     ) -> Result<BTreeSet<String>> {
-        Ok(Self::for_repository(repository, timeout)
-            .list()?
-            .into_iter()
-            .map(|snapshot| snapshot.id)
+        // Receipt retention needs reference presence, not readable manifests.
+        // A corrupt snapshot must neither authorize receipt removal nor turn a
+        // completed pool deletion into a failure.
+        let service = Self::for_repository(repository, timeout);
+        let lock = service.lock()?;
+        let refs = service.ref_query(
+            &["for-each-ref", "--format=%(refname)", PREFIX],
+            None,
+            &lock,
+            timeout,
+        )?;
+        Ok(refs
+            .lines()
+            .filter_map(|name| name.strip_prefix(PREFIX).map(str::to_owned))
             .collect())
     }
 
@@ -368,6 +378,8 @@ impl Snapshots {
             "-c",
             "core.autocrlf=false",
             "-c",
+            "core.eol=lf",
+            "-c",
             "core.filemode=true",
             "-c",
             "core.symlinks=true",
@@ -484,11 +496,27 @@ impl Snapshots {
             let (reference, rest) = line
                 .split_once(' ')
                 .ok_or_else(|| invalid("Invalid snapshot reference metadata"))?;
+            if reference
+                .strip_prefix(PREFIX)
+                .is_none_or(|id| checked_id(id).is_err())
+            {
+                tracing::warn!(
+                    reference,
+                    "Ignoring foreign reference without a snapshot ID"
+                );
+                continue;
+            }
             let (oid, message) = rest
                 .split_once(' ')
                 .ok_or_else(|| invalid("Invalid snapshot reference metadata"))?;
             let _: crate::CommitOid = oid.parse()?;
-            let mut snapshot: Snapshot = serde_json::from_str(message)?;
+            let mut snapshot: Snapshot = serde_json::from_str(message).map_err(|error| {
+                Error::new(
+                    ErrorCode::GitError,
+                    format!("Invalid snapshot manifest at {reference}"),
+                )
+                .with_source(error)
+            })?;
             if snapshot.version != 1 || reference != Self::reference(&snapshot.id)? {
                 return Err(invalid("Unsupported or inconsistent snapshot manifest"));
             }
@@ -570,6 +598,53 @@ impl Snapshots {
                 "Clear manual skip-worktree flags before saving",
             ));
         }
+        // A refreshed index can call a CRLF working file clean after text
+        // normalization. Inspect physical EOLs of text-attributed paths too;
+        // otherwise capture would silently retain an LF index blob instead.
+        let eols = Git::new(self.timeout).spool(
+            &self.root,
+            &[
+                "ls-files",
+                "--eol",
+                "-z",
+                "--",
+                ":(attr:text)",
+                ":(attr:text=auto)",
+                ":(attr:eol=lf)",
+                ":(attr:crlf)",
+                ":(attr:crlf=input)",
+            ],
+            Invocation {
+                env: &[("GIT_LITERAL_PATHSPECS", OsStr::new("0"))],
+                inherit: &lock.descriptors(),
+                reject_stderr: true,
+                spool_directory: Some(&self.state),
+                ..Invocation::snapshot()
+            },
+        )?;
+        path_batches(eols, |batch| {
+            for record in paths(batch) {
+                let tab = record
+                    .iter()
+                    .position(|byte| *byte == b'\t')
+                    .ok_or_else(|| invalid("Malformed Git EOL inventory"))?;
+                let header = &record[..tab];
+                // Unchanged explicit CRLF base paths restore through ordinary
+                // checkout. Changed ones are rejected by validate_attributes.
+                if header.windows(8).any(|part| part == b"eol=crlf") {
+                    continue;
+                }
+                if header.windows(6).any(|part| part == b"w/crlf")
+                    || header.windows(7).any(|part| part == b"w/mixed")
+                {
+                    return Err(unsupported(format!(
+                        "Text path {} contains carriage returns hidden by Git normalization",
+                        OsStr::from_bytes(&record[tab + 1..]).to_string_lossy()
+                    )));
+                }
+            }
+            Ok(())
+        })?;
         let mut names = self.run(DIFF_FILES_ARGS, None, None, Some(lock))?;
         names.extend_from_slice(&self.run(
             &[
@@ -707,7 +782,27 @@ impl Snapshots {
             None,
             Some(lock),
         )?;
-        let names = self.spool_names(&["ls-files", "-z"], Some(&index), lock)?;
+        // Base files follow ordinary checkout rules. Only saved differences must
+        // satisfy the byte-preserving snapshot conversion restrictions.
+        let names = match snapshot.head.as_deref() {
+            Some(head) => self.spool_names(
+                &[
+                    "diff-tree",
+                    "-r",
+                    "--no-commit-id",
+                    "--name-only",
+                    "--no-renames",
+                    "--diff-filter=ACMRT",
+                    "-z",
+                    head,
+                    &snapshot.work_tree,
+                    "--",
+                ],
+                Some(&index),
+                lock,
+            )?,
+            None => self.spool_names(&["ls-files", "-z"], Some(&index), lock)?,
+        };
         path_batches(names, |names| {
             let mut text =
                 self.validate_attributes(names, Some(&index), true, Some(lock), false)?;
@@ -940,7 +1035,7 @@ impl Snapshots {
         publish: bool,
     ) -> Result<Snapshot> {
         self.validate(lock)?;
-        if let Some(path) = crate::workspace_files::first_special(&self.root)? {
+        if let Some(path) = crate::workspace_files::first_special(&self.root, self.timeout)? {
             return Err(unsupported(
                 "Snapshots cannot preserve special files; export or remove the file before saving",
             )
@@ -978,6 +1073,28 @@ impl Snapshots {
             .chain(paths(&staged))
             .map(<[u8]>::to_vec)
             .collect();
+        let mut names = Vec::new();
+        for path in &selected {
+            names.extend_from_slice(path);
+            names.push(0);
+        }
+        let text_paths = self.validate_attributes(&names, None, false, Some(lock), false)?;
+        for name in text_paths {
+            let path = self.root.join(OsStr::from_bytes(&name));
+            if fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.is_file()) {
+                let mut file = fs::File::open(&path)?;
+                let mut buffer = [0; 8192];
+                loop {
+                    let count = file.read(&mut buffer)?;
+                    if count == 0 {
+                        break;
+                    }
+                    if buffer[..count].contains(&b'\r') {
+                        return Err(unsupported(format!("Text path {} contains carriage returns; its bytes cannot be restored under the active attributes", path.display())));
+                    }
+                }
+            }
+        }
         let stamps = self.stage_changes(&index, &selected, options, lock)?;
         self.verify_staged_sizes(&index, &stamps, lock)?;
         let work_tree = text(self.run(&["write-tree"], Some(&index), None, Some(lock))?)?;
@@ -1239,10 +1356,37 @@ impl Snapshots {
             // Claim the absent destination ourselves, independently of the
             // caller's umask, before Git may populate it or cleanup may remove it.
             use std::os::unix::fs::DirBuilderExt;
+            let mut missing_parents = Vec::new();
             if let Some(parent) = destination.parent() {
-                fs::create_dir_all(parent)?;
+                for path in parent.ancestors() {
+                    if path.try_exists()? {
+                        break;
+                    }
+                    missing_parents.push(path.to_path_buf());
+                }
             }
-            fs::DirBuilder::new().mode(0o700).create(&destination)?;
+            let mut created_parents = Vec::new();
+            let claim = (|| -> Result<()> {
+                for parent in missing_parents.iter().rev() {
+                    match fs::create_dir(parent) {
+                        Ok(()) => created_parents.push(parent.clone()),
+                        Err(error)
+                            if error.kind() == std::io::ErrorKind::AlreadyExists
+                                && parent.is_dir() => {}
+                        Err(error) => return Err(error.into()),
+                    }
+                }
+                fs::DirBuilder::new().mode(0o700).create(&destination)?;
+                Ok(())
+            })();
+            if let Err(error) = claim {
+                return Err(match remove_recovery_parents(&created_parents) {
+                    Ok(()) => error,
+                    Err(cleanup) => error.with_details(|details| {
+                        details.secondary_error = Some(cleanup.to_string())
+                    }),
+                });
+            }
             let restored = (|| {
                 if let Some(head) = &s.head {
                     self.run(
@@ -1294,7 +1438,14 @@ impl Snapshots {
             })();
             return restored.map_err(|error: Error| {
                 match self.remove_failed_recovery(&destination, s.head.is_some(), &lock) {
-                    Ok(()) => error,
+                    Ok(()) => {
+                        if let Err(cleanup) = remove_recovery_parents(&created_parents) {
+                            return error.with_details(|details| {
+                                details.secondary_error = Some(cleanup.to_string())
+                            });
+                        }
+                        error
+                    }
                     Err(cleanup) => error.with_details(|details| {
                         details.secondary_error = Some(cleanup.summary());
                         details.path = Some(destination.clone());
@@ -1308,6 +1459,8 @@ impl Snapshots {
             ));
         }
         self.validate(&lock)?;
+        self.validate_restore_attributes(&s, &lock, true)?;
+        self.validate_restore_paths(&s, &lock)?;
         // Capture first so every deletion during apply has a recovery object.
         let safety = self.capture(
             &SaveOptions {
@@ -1381,8 +1534,7 @@ impl Snapshots {
         Ok(())
     }
 
-    fn apply(&self, s: &Snapshot, current: Option<&Snapshot>, lock: &SnapshotLock) -> Result<()> {
-        self.validate_restore_attributes(s, lock, true)?;
+    fn validate_restore_paths(&self, s: &Snapshot, lock: &SnapshotLock) -> Result<()> {
         // Git can overwrite ignored files during checkout. Reject collisions explicitly first.
         let ignored = self.run(
             &[
@@ -1405,7 +1557,6 @@ impl Snapshots {
         // current index, so check every path about to be restored.
         let mut target_paths = BTreeSet::new();
         path_batches(target, |names| {
-            self.validate_attributes(names, None, false, Some(lock), false)?;
             target_paths.extend(paths(names).map(Vec::from));
             Ok(())
         })?;
@@ -1416,6 +1567,12 @@ impl Snapshots {
                 ));
             }
         }
+        Ok(())
+    }
+
+    fn apply(&self, s: &Snapshot, current: Option<&Snapshot>, lock: &SnapshotLock) -> Result<()> {
+        self.validate_restore_attributes(s, lock, true)?;
+        self.validate_restore_paths(s, lock)?;
         // Temporary index represents captured files; refresh stats before merging trees.
         let temp = tempfile::Builder::new()
             .prefix("scratch-")
@@ -1452,6 +1609,20 @@ impl Snapshots {
         }
         Ok(())
     }
+}
+
+fn remove_recovery_parents(created: &[PathBuf]) -> std::io::Result<()> {
+    for parent in created.iter().rev() {
+        // Remove only empty directories created by this attempt. A concurrent
+        // writer's contents stop cleanup without authorizing recursive removal.
+        match fs::remove_dir(parent) {
+            Ok(()) => (),
+            Err(error) if error.kind() == std::io::ErrorKind::DirectoryNotEmpty => break,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
 }
 
 fn path_collision(target: &BTreeSet<Vec<u8>>, candidate: &[u8]) -> bool {

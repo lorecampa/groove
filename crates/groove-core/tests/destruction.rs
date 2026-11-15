@@ -555,3 +555,27 @@ fn unpublished_archive_files_are_preserved_and_do_not_block_retry() {
     assert_eq!(fs::read_to_string(&scratch).unwrap(), "incomplete archive");
     assert!(pool(&repo, 1).acquire(Default::default()).is_ok());
 }
+
+#[test]
+fn corrupt_snapshot_manifests_do_not_fail_completed_pool_deletion() {
+    if !support::in_subprocess("corrupt_snapshot_manifests_do_not_fail_completed_pool_deletion") {
+        return;
+    }
+    let repo = Repo::new();
+    let p = pool(&repo, 1);
+    let lease = p.reserve(Default::default()).unwrap();
+    let finished = p.finish(lease.lease_id, Default::default()).unwrap();
+    let corrupt = "refs/groove/snapshots/11111111-1111-4111-8111-111111111111";
+    repo.git(&["update-ref", corrupt, "HEAD"]);
+    let result = destroy(&repo, true).unwrap();
+    assert!(result.deleted);
+    assert!(destroy(&repo, true).unwrap().already_deleted);
+    assert!(repo.git(&["rev-parse", corrupt]).len() >= 40);
+    assert!(
+        Snapshots::open(&repo.path, Duration::from_secs(30))
+            .unwrap()
+            .show(&finished.snapshot.id)
+            .unwrap()
+            .pinned
+    );
+}

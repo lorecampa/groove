@@ -89,6 +89,10 @@ impl Git {
     pub fn new(timeout: Duration) -> Self {
         Self { timeout }
     }
+
+    pub(crate) fn timeout(&self) -> Duration {
+        self.timeout
+    }
     /// Run isolated maintenance Git, letting `fds` be inherited by the child.
     pub fn run(&self, cwd: &Path, args: &[&str], fds: &[RawFd]) -> Result<Vec<u8>> {
         self.run_os(cwd, args.iter().map(OsStr::new), fds)
