@@ -538,9 +538,12 @@ impl Pool {
             slots.rotate_left(start_slot);
             // Hints influence preference only; descriptor ownership, protection
             // and normal preparation still validate every selected checkout.
-            if current.config.ready.is_some() {
-                slots.sort_by_key(|(slot, _)| !current.ready_hint(slot));
-            }
+            slots.sort_by_key(|(slot, _)| {
+                let path = current.config.worktree_root.join(slot.as_str());
+                let verified = recovery::registration(&current.repo, &path)
+                    .is_ok_and(|admin| admin.join("groove-verified").is_file());
+                (!current.ready_hint(slot), !verified)
+            });
             let mut busy = 0;
             let mut observed_processes = Vec::new();
             let mut preparing = false;
