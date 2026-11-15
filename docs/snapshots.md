@@ -35,7 +35,7 @@ filenames. A description and optional `--session ID` associate work with a task.
 
 Snapshots preserve actual working-file bytes, executable bits and symlinks even
 when Git preferences enable line-ending conversion or ignore permissions/links.
-Groove overrides `core.autocrlf`, `core.filemode` and `core.symlinks` only for its
+Groove overrides `core.autocrlf`, `core.eol`, `core.filemode` and `core.symlinks` only for its
 snapshot subprocesses; it does not change your Git configuration or real index.
 
 Stop external writers before save/restore. Capture checks HEAD, index bytes,

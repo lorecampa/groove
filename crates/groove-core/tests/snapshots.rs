@@ -1035,3 +1035,58 @@ fn snapshot_survives_pool_release_and_slot_reuse() {
     );
     next.release().unwrap();
 }
+
+#[test]
+fn unchanged_crlf_base_files_do_not_block_snapshot_recovery() {
+    let repo = Repo::new();
+    fs::write(repo.path.join(".gitattributes"), b"*.bat text eol=crlf\n").unwrap();
+    fs::write(repo.path.join("install.bat"), b"base\r\n").unwrap();
+    repo.git(&["add", "."]);
+    repo.git(&["commit", "-qm", "CRLF base"]);
+    fs::write(repo.path.join("saved.txt"), b"task work\n").unwrap();
+    let snapshots = service(&repo);
+    let saved = save(&snapshots);
+    let destination = repo.temp.path().join("recovered");
+    snapshots.restore(&saved.id, Some(&destination)).unwrap();
+    fs::write(repo.path.join("saved.txt"), b"later work\n").unwrap();
+    snapshots.restore(&saved.id, None).unwrap();
+    for root in [&destination, &repo.path] {
+        assert_eq!(fs::read(root.join("saved.txt")).unwrap(), b"task work\n");
+        assert_eq!(fs::read(root.join("install.bat")).unwrap(), b"base\r\n");
+    }
+}
+
+#[test]
+fn core_eol_cannot_change_saved_lf_bytes() {
+    let repo = Repo::new();
+    fs::write(repo.path.join(".gitattributes"), b"* text=auto\n").unwrap();
+    repo.git(&["add", "."]);
+    repo.git(&["commit", "-qm", "automatic text"]);
+    repo.git(&["config", "core.eol", "crlf"]);
+    fs::write(repo.path.join("saved.txt"), b"saved LF\n").unwrap();
+    let snapshots = service(&repo);
+    let saved = save(&snapshots);
+    let destination = repo.temp.path().join("recovered");
+    snapshots.restore(&saved.id, Some(&destination)).unwrap();
+    assert_eq!(
+        fs::read(destination.join("saved.txt")).unwrap(),
+        b"saved LF\n"
+    );
+}
+
+#[test]
+fn lone_carriage_returns_fail_capture_before_publication() {
+    let repo = Repo::new();
+    fs::write(repo.path.join(".gitattributes"), b"*.txt text eol=lf\n").unwrap();
+    repo.git(&["add", "."]);
+    repo.git(&["commit", "-qm", "text rules"]);
+    fs::write(repo.path.join("saved.txt"), b"lone\rcarriage return\n").unwrap();
+    let snapshots = service(&repo);
+    let error = snapshots.save(Default::default()).unwrap_err();
+    assert_eq!(error.code, ErrorCode::UnsupportedConfiguration);
+    assert!(snapshots.list().unwrap().is_empty());
+    assert_eq!(
+        fs::read(repo.path.join("saved.txt")).unwrap(),
+        b"lone\rcarriage return\n"
+    );
+}

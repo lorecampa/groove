@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed
+
+- Restore snapshots in repositories with unchanged CRLF/converting base paths by
+  validating only saved differences. Override `core.eol` for LF snapshot bytes,
+  reject lone carriage returns under text rules at save, and validate restore
+  attributes before publishing an in-place safety checkpoint.
+
 ## [0.3.2] - 2026-11-14
 
 ### Fixed

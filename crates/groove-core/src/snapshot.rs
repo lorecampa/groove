@@ -368,6 +368,8 @@ impl Snapshots {
             "-c",
             "core.autocrlf=false",
             "-c",
+            "core.eol=lf",
+            "-c",
             "core.filemode=true",
             "-c",
             "core.symlinks=true",
@@ -707,7 +709,27 @@ impl Snapshots {
             None,
             Some(lock),
         )?;
-        let names = self.spool_names(&["ls-files", "-z"], Some(&index), lock)?;
+        // Base files follow ordinary checkout rules. Only saved differences must
+        // satisfy the byte-preserving snapshot conversion restrictions.
+        let names = match snapshot.head.as_deref() {
+            Some(head) => self.spool_names(
+                &[
+                    "diff-tree",
+                    "-r",
+                    "--no-commit-id",
+                    "--name-only",
+                    "--no-renames",
+                    "--diff-filter=ACMRT",
+                    "-z",
+                    head,
+                    &snapshot.work_tree,
+                    "--",
+                ],
+                Some(&index),
+                lock,
+            )?,
+            None => self.spool_names(&["ls-files", "-z"], Some(&index), lock)?,
+        };
         path_batches(names, |names| {
             let mut text =
                 self.validate_attributes(names, Some(&index), true, Some(lock), false)?;
@@ -978,6 +1000,28 @@ impl Snapshots {
             .chain(paths(&staged))
             .map(<[u8]>::to_vec)
             .collect();
+        let mut names = Vec::new();
+        for path in &selected {
+            names.extend_from_slice(path);
+            names.push(0);
+        }
+        let text_paths = self.validate_attributes(&names, None, false, Some(lock), false)?;
+        for name in text_paths {
+            let path = self.root.join(OsStr::from_bytes(&name));
+            if fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.is_file()) {
+                let mut file = fs::File::open(&path)?;
+                let mut buffer = [0; 8192];
+                loop {
+                    let count = file.read(&mut buffer)?;
+                    if count == 0 {
+                        break;
+                    }
+                    if buffer[..count].contains(&b'\r') {
+                        return Err(unsupported(format!("Text path {} contains carriage returns; its bytes cannot be restored under the active attributes", path.display())));
+                    }
+                }
+            }
+        }
         let stamps = self.stage_changes(&index, &selected, options, lock)?;
         self.verify_staged_sizes(&index, &stamps, lock)?;
         let work_tree = text(self.run(&["write-tree"], Some(&index), None, Some(lock))?)?;
@@ -1308,6 +1352,7 @@ impl Snapshots {
             ));
         }
         self.validate(&lock)?;
+        self.validate_restore_attributes(&s, &lock, true)?;
         // Capture first so every deletion during apply has a recovery object.
         let safety = self.capture(
             &SaveOptions {
@@ -1405,7 +1450,6 @@ impl Snapshots {
         // current index, so check every path about to be restored.
         let mut target_paths = BTreeSet::new();
         path_batches(target, |names| {
-            self.validate_attributes(names, None, false, Some(lock), false)?;
             target_paths.extend(paths(names).map(Vec::from));
             Ok(())
         })?;
