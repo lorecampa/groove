@@ -18,7 +18,7 @@ use std::{
 /// unlocking the slot. A participating child that inherited the descriptor can
 /// keep the lock alive. Durable reuse protection, if set, also survives the drop.
 #[derive(Debug)]
-#[must_use = "keep the lease alive until all worktree writers have stopped"]
+#[must_use = "keep the reservation alive until all workspace writers have stopped"]
 pub struct Lease {
     pub(crate) pool: Pool,
     pub(crate) guard: Option<SlotGuard>,

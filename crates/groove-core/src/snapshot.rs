@@ -39,6 +39,13 @@ const UNTRACKED_ARGS: &[&str] = &["ls-files", "--others", "--exclude-standard", 
 type Stamp = (u64, i64, i64, u32);
 
 /// Workspace state recorded at the start of a capture.
+struct CapturePaths {
+    changed: Vec<u8>,
+    staged: Vec<u8>,
+    untracked: Vec<u8>,
+    text_paths: BTreeSet<Vec<u8>>,
+}
+
 struct Observation {
     head: Option<String>,
     index: Option<Vec<u8>>,
@@ -554,7 +561,7 @@ impl Snapshots {
         let lock = self.lock()?;
         self.list_inner(&lock)
     }
-    fn validate(&self, lock: &SnapshotLock) -> Result<()> {
+    fn validate(&self, lock: &SnapshotLock) -> Result<CapturePaths> {
         // Index contents alone cannot describe pending parents, sequencer steps
         // or bisect state, even after conflicts have been staged as resolved.
         for (marker, operation) in [
@@ -660,8 +667,8 @@ impl Snapshots {
             }
             Ok(())
         })?;
-        let mut names = self.run(DIFF_FILES_ARGS, None, None, Some(lock))?;
-        names.extend_from_slice(&self.run(
+        let changed = self.run(DIFF_FILES_ARGS, None, None, Some(lock))?;
+        let staged = self.run(
             &[
                 "diff",
                 "--cached",
@@ -673,22 +680,24 @@ impl Snapshots {
             None,
             None,
             Some(lock),
-        )?);
+        )?;
+        let mut names = changed.clone();
+        names.extend_from_slice(&staged);
         let untracked = self.run(UNTRACKED_ARGS, None, None, Some(lock))?;
         names.extend_from_slice(&untracked);
         let strict = paths(&names).any(|name| {
             name.rsplit(|byte| *byte == b'/').next() == Some(b".gitattributes".as_slice())
         });
-        if strict {
+        let text_paths = if strict {
             let all = self.spool_names(&["ls-files", "-z"], None, lock)?;
             path_batches(all, |names| {
                 self.validate_attributes(names, None, false, Some(lock), true)
                     .map(|_| ())
             })?;
-            self.validate_attributes(&untracked, None, false, Some(lock), true)?;
+            self.validate_attributes(&untracked, None, false, Some(lock), true)?
         } else {
-            self.validate_attributes(&names, None, false, Some(lock), false)?;
-        }
+            self.validate_attributes(&names, None, false, Some(lock), false)?
+        };
         if audit.may_have_intent
             && self.run(
                 &[
@@ -720,7 +729,12 @@ impl Snapshots {
                 "Stage intent-to-add entries before saving a snapshot",
             ));
         }
-        Ok(())
+        Ok(CapturePaths {
+            changed,
+            staged,
+            untracked,
+            text_paths,
+        })
     }
 
     /// Permit LF-preserving text rules and reject other active conversion rules.
@@ -1054,15 +1068,20 @@ impl Snapshots {
         lock: &SnapshotLock,
         publish: bool,
     ) -> Result<Snapshot> {
-        self.validate(lock)?;
+        let head = self.head()?;
+        let original = self.index_bytes()?;
+        let CapturePaths {
+            changed,
+            staged,
+            untracked,
+            text_paths,
+        } = self.validate(lock)?;
         if let Some(path) = crate::workspace_files::first_special(&self.root, self.timeout)? {
             return Err(unsupported(
                 "Snapshots cannot preserve special files; export or remove the file before saving",
             )
             .with_details(|details| details.path = Some(path)));
         }
-        let head = self.head()?;
-        let original = self.index_bytes()?;
         let temp = tempfile::Builder::new()
             .prefix("scratch-")
             .tempdir_in(&self.state)?;
@@ -1073,32 +1092,11 @@ impl Snapshots {
             self.run(&["read-tree", "--empty"], Some(&index), None, Some(lock))?;
         }
         let index_tree = text(self.run(&["write-tree"], Some(&index), None, Some(lock))?)?;
-        let untracked = self.run(UNTRACKED_ARGS, Some(&index), None, Some(lock))?;
-        let changed = self.run(DIFF_FILES_ARGS, Some(&index), None, Some(lock))?;
-        let staged = self.run(
-            &[
-                "diff",
-                "--cached",
-                "--name-only",
-                "--no-renames",
-                "-z",
-                "--",
-            ],
-            None,
-            None,
-            Some(lock),
-        )?;
         let selected: BTreeSet<Vec<u8>> = paths(&changed)
             .chain(paths(&untracked))
             .chain(paths(&staged))
             .map(<[u8]>::to_vec)
             .collect();
-        let mut names = Vec::new();
-        for path in &selected {
-            names.extend_from_slice(path);
-            names.push(0);
-        }
-        let text_paths = self.validate_attributes(&names, None, false, Some(lock), false)?;
         for name in text_paths {
             let path = self.root.join(OsStr::from_bytes(&name));
             if fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.is_file()) {
@@ -1478,7 +1476,6 @@ impl Snapshots {
                 "HEAD differs from snapshot base; use restore --to <directory>",
             ));
         }
-        self.validate(&lock)?;
         self.validate_restore_attributes(&s, &lock, true)?;
         self.validate_restore_paths(&s, &lock)?;
         // Capture first so every deletion during apply has a recovery object.
@@ -1591,16 +1588,31 @@ impl Snapshots {
     }
 
     fn apply(&self, s: &Snapshot, current: Option<&Snapshot>, lock: &SnapshotLock) -> Result<()> {
-        self.validate_restore_attributes(s, lock, true)?;
-        self.validate_restore_paths(s, lock)?;
-        // Temporary index represents captured files; refresh stats before merging trees.
+        // In-place callers already checked these before the safety capture, which
+        // does not change files or attributes. New destinations need their own
+        // effective-attribute and ignored-collision checks after registration.
+        if current.is_none() {
+            self.validate_restore_attributes(s, lock, true)?;
+            self.validate_restore_paths(s, lock)?;
+        }
+        // Temporary index represents captured files; preserve cached stats for
+        // unchanged entries instead of hashing the entire checkout on refresh.
         let temp = tempfile::Builder::new()
             .prefix("scratch-")
             .tempdir_in(&self.state)?;
         let index = temp.path().join("index");
         if let Some(current) = current {
+            if let Some(bytes) = self.index_bytes()? {
+                fs::write(&index, bytes)?;
+            } else {
+                self.run(&["read-tree", "--empty"], Some(&index), None, Some(lock))?;
+            }
+            // An index-only single-tree merge accepts captured dirty paths and
+            // retains stat data for identical OIDs/modes.
+            // Only captured differences need refresh; the real index remains
+            // untouched until snapshot-restored-files, including on failure.
             self.run(
-                &["read-tree", &current.work_tree],
+                &["read-tree", "-i", "-m", &current.work_tree],
                 Some(&index),
                 None,
                 Some(lock),

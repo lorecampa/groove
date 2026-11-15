@@ -66,7 +66,7 @@ fn worker(raw: &[std::ffi::OsString]) -> Result<()> {
     pool.run_ready(generation)
 }
 
-pub fn trigger(args: &Args) {
+pub fn trigger(args: &Args, selected_pool: Option<&groove_core::PoolName>) {
     if !matches!(
         args.command,
         Command::Pool(PoolCommand::Init { .. })
@@ -76,12 +76,17 @@ pub fn trigger(args: &Args) {
     ) {
         return;
     }
-    if let Err(error) = spawn(args) {
+    restart(args, selected_pool);
+}
+
+/// Resume preparation after a refused destroy cancelled the previous worker.
+pub fn restart(args: &Args, selected_pool: Option<&groove_core::PoolName>) {
+    if let Err(error) = spawn(args, selected_pool) {
         tracing::warn!(%error, "Background checkout preparation could not start; a later pool operation will retry");
     }
 }
-fn spawn(args: &Args) -> Result<()> {
-    let name = args.pool.clone().unwrap_or_default();
+fn spawn(args: &Args, selected_pool: Option<&groove_core::PoolName>) -> Result<()> {
+    let name = selected_pool.cloned().unwrap_or_default();
     let pool = Pool::open_named_with_timeout(
         &args.repo,
         &name,

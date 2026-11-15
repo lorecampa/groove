@@ -42,8 +42,10 @@ grant ownership. If the assignment is
 ambiguous, inspect and report it rather than guessing.
 
 Carry the same explicit `--pool NAME` on **every pool command**, including
-retries. Omission always means `default`; neither cwd nor `GROOVE_POOL` selects
-it automatically. Labels and idempotency keys are pool-local. Do not switch pools
+retries. Without it, Groove selects the pool owning the current workspace (or
+`--repo`) from its state and Git registration, falling back to `default`.
+Explicit `--pool` always wins; `GROOVE_POOL` does not select it automatically.
+Labels and idempotency keys are pool-local. Do not switch pools
 to bypass contention.
 
 ## Acquire and work (coordinator)

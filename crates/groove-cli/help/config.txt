@@ -1,6 +1,7 @@
 
 USER PREFERENCES:
   groove config show
+  groove config get logging.level
   groove config set logging.level=trace logging.max_files=50
   groove config set worktrees.root=/absolute/worktrees
   groove config unset worktrees.root
@@ -8,6 +9,9 @@ USER PREFERENCES:
   groove config edit
 
 Preferences are user-wide, separate from pool settings, and require no repository.
+Preferences use an extensible key space in a file; pool settings use a fixed typed set of flags.
+`get KEY` prints the effective value and a newline (an empty line when unset);
+JSON returns key and value, using null for an unset optional value.
 The file is $XDG_CONFIG_HOME/groove/config.toml (or ~/.config/groove/config.toml).
 Unset, empty or relative XDG paths use the HOME fallback. `show` reports effective
 values and environment overrides. Unknown keys and invalid values fail before

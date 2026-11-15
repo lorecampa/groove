@@ -11,6 +11,7 @@ use serde_json::json;
 
 pub fn run(_context: &Context<'_>, command: &ConfigCommand) -> Result<Output> {
     let result = match command {
+        ConfigCommand::Get { key } => return setting_output(key, preferences::get(key)?),
         ConfigCommand::Show => preferences::show()?,
         ConfigCommand::Path => json!({ "config_path": preferences::path()? }),
         ConfigCommand::Edit => preferences::change(Change::Edit)?,
@@ -25,4 +26,13 @@ pub fn run(_context: &Context<'_>, command: &ConfigCommand) -> Result<Output> {
         ))?,
     };
     Output::fields(result)
+}
+
+pub(super) fn setting_output(key: &str, value: serde_json::Value) -> Result<Output> {
+    let text = if value.is_null() {
+        String::new()
+    } else {
+        crate::output::scalar_text(&value)
+    };
+    Output::text(json!({"key": key, "value": value}), format!("{text}\n"))
 }

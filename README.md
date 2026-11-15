@@ -67,7 +67,7 @@ groove release --save --task fix-parser
 New pools put checkouts in `~/.worktrees/<project>-<repo-id>/<pool>` on Linux and
 macOS. Set a different parent with
 `groove config set worktrees.root=/absolute/worktrees`, or choose an exact
-pool location with `init --workspace-root`. Existing pools keep their locations.
+pool location with `pool init --workspace-root`. Existing pools keep their locations.
 
 Acquisition returns a checkout path with detached HEAD. Work in that path, stop
 all writers, then run `groove release --save` to pin a local snapshot and free the
@@ -83,7 +83,8 @@ contents. Nothing is merged or pushed automatically.
 
 Pools can separate workflow capacity, cleanup and caches. Use `groove pool list` to
 list them and pass the same `--pool NAME` on each pool command. Omitting it selects
-`default`. Pools share Git branches, objects and configuration; they are not
+the current workspace's owning pool, or `default` outside managed workspaces.
+Pools share Git branches, objects and configuration; they are not
 security sandboxes. See [operations](docs/operations.md) for repository compatibility
 and ownership boundaries.
 
@@ -102,6 +103,11 @@ For scripts, add `--json` to each command. Every response, including
 errors and help, is one versioned JSON object. Check `ok` and the exit status
 before using `result.workspace_path`. Use a idempotency key to retry acquisition and
 retain the reservation ID for subsequent retries; see the [portable skill](skills/groove/SKILL.md).
+
+## Limitations
+
+- CRLF text checkouts cannot be snapshotted; keep such files out of changes or commit them before release. See [operations](docs/operations.md).
+- Tasks must not alter Groove's files inside `.git`; verified markers and directory inventories protect against accidents, not deliberate tampering by the same user.
 
 ## Guides
 

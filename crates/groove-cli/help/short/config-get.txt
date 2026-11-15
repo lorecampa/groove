@@ -1,0 +1,5 @@
+EXAMPLE:
+  groove config get logging.level
+
+Print one effective preference, or an empty line when unset.
+See config --help for keys and defaults.

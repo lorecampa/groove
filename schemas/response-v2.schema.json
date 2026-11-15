@@ -1,5 +1,14 @@
 {
   "$defs": {
+    "setting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "value"],
+      "properties": {
+        "key": {"type": "string"},
+        "value": {"type": ["null", "boolean", "number", "string", "array", "object"]}
+      }
+    },
     "pool_name": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9_-]{0,63}$"
@@ -1260,6 +1269,9 @@
         "result": {
           "anyOf": [
             {
+              "$ref": "#/$defs/setting"
+            },
+            {
               "$ref": "#/$defs/destruction_result"
             },
             {
@@ -1349,6 +1361,8 @@
   "title": "Groove CLI response v2",
   "type": "object",
   "x-groove-command-results": {
+    "config get": ["setting"],
+    "pool get": ["setting"],
     "acquire": [
       "reservation"
     ],

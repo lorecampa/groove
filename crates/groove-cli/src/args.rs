@@ -30,12 +30,12 @@ pub struct Args {
         long_help = "Repository path; discovery also works from subdirectories and linked worktrees."
     )]
     pub repo: PathBuf,
-    /// Pool namespace [default: default].
+    /// Pool namespace (owning workspace's pool, otherwise default).
     #[arg(
         long,
         global = true,
         help_heading = "Global options",
-        long_help = "Pool namespace (default: default). Use an explicit name for destroy when several pools exist."
+        long_help = "Pool namespace: explicit --pool wins, otherwise use the pool owning the current workspace (or --repo), then default. Ownership is validated from Groove state and Git registration. Use an explicit name for destroy from the main checkout when several pools exist."
     )]
     pub pool: Option<PoolName>,
     /// Print one versioned JSON response.
@@ -363,6 +363,12 @@ pub enum SnapshotCommand {
 
 #[derive(Subcommand)]
 pub enum PoolCommand {
+    /// Print one pool setting (capacity, cleanup, ready-target, idle-timeout, ready-base, workspace-root).
+    #[command(after_long_help = help!("pool-get"))]
+    Get {
+        /// Setting to read; unknown keys are rejected.
+        key: String,
+    },
     /// List repository pools, including interrupted pools; hide deleted pools by default.
     #[command(after_long_help = help!("pool-list"))]
     List {
@@ -455,6 +461,11 @@ pub enum PoolCommand {
 
 #[derive(Subcommand)]
 pub enum ConfigCommand {
+    /// Print one effective preference; unset optional values print an empty line.
+    Get {
+        /// Dotted preference key, e.g. logging.level or worktrees.root.
+        key: String,
+    },
     /// Show effective preferences and which environment variables override them.
     Show,
     /// Print the preferences file path, even if its contents are invalid.
@@ -480,6 +491,7 @@ impl Command {
     pub fn name(&self) -> &'static str {
         match self {
             Self::Pool(command) => match command {
+                PoolCommand::Get { .. } => "pool get",
                 PoolCommand::Init { .. } => "pool init",
                 PoolCommand::List { .. } => "pool list",
                 PoolCommand::Show { .. } => "pool show",

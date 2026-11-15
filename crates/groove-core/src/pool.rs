@@ -25,7 +25,44 @@ pub struct Pool {
     pub(crate) retained: bool,
 }
 impl Pool {
-    /// Create a pool, or explicitly resume matching interrupted initialization.
+    /// Find the pool that owns the linked workspace containing `path`.
+    /// Uses the pool manifest and validates the native worktree registration;
+    /// directory names alone never establish membership. Main and bare checkouts
+    /// return `None`. This observation grants no reservation or ownership.
+    ///
+    /// # Errors
+    /// Reports discovery, invalid pool metadata and registration failures.
+    ///
+    /// ```no_run
+    /// let name = groove_core::Pool::owning_pool(".", groove_core::DEFAULT_GIT_TIMEOUT)?;
+    /// # Ok::<(), groove_core::Error>(())
+    /// ```
+    pub fn owning_pool(
+        path: impl AsRef<Path>,
+        timeout: Duration,
+    ) -> Result<Option<crate::PoolName>> {
+        use std::os::unix::ffi::OsStrExt;
+        let repo = Repository::discover(path.as_ref(), timeout)?;
+        let git = Git::new(timeout);
+        let directory = git.run(&repo.origin, &["rev-parse", "--absolute-git-dir"], &[])?;
+        let directory = Path::new(std::ffi::OsStr::from_bytes(
+            directory.strip_suffix(b"\n").unwrap_or(&directory),
+        ));
+        if directory == repo.common {
+            return Ok(None);
+        }
+        let root = git.run(&repo.origin, &["rev-parse", "--show-toplevel"], &[])?;
+        let root = Path::new(std::ffi::OsStr::from_bytes(
+            root.strip_suffix(b"\n").unwrap_or(&root),
+        ));
+        let Some(pool) = crate::namespace::managed_pool(&repo, root, timeout)? else {
+            return Ok(None);
+        };
+        crate::recovery::registration(&pool.repo, root)?;
+        Ok(Some(pool.repo.name))
+    }
+
+    /// Create a pool, or resume matching interrupted initialization.
     ///
     /// # Errors
     /// Rejects invalid options, conflicting configuration, unsafe managed paths,
@@ -60,9 +97,14 @@ impl Pool {
             ));
         }
         let repo = Repository::discover_named(repo.as_ref(), name, options.git_timeout)?;
-        if let Some(ready) = &options.ready {
-            ready.validate_revision(&repo, options.git_timeout)?;
-        }
+        let resolved_ready = options
+            .ready
+            .clone()
+            .map(|mut ready| {
+                ready.resolve_head(&repo, options.git_timeout)?;
+                Ok::<_, Error>(ready)
+            })
+            .transpose()?;
         repository::mkdir(&repo.root)?;
         repository::owned_dir(&repo.root)?;
         repository::mkdir(&repo.root.join("locks"))?;
@@ -140,17 +182,34 @@ impl Pool {
             cleanup_policy: options.cleanup_policy,
             worktree_root: requested.clone(),
         };
-        if intent.exists() {
-            if !options.resume {
+        let resuming = intent.exists();
+        if resuming {
+            let recorded = state::read::<InitIntent>(&intent)?;
+            if recorded != expected {
+                let setting = if recorded.capacity != expected.capacity {
+                    "capacity"
+                } else if recorded.cleanup_policy != expected.cleanup_policy {
+                    "cleanup"
+                } else if recorded.worktree_root != expected.worktree_root {
+                    "workspace-root"
+                } else if recorded.ready.as_ref().map(|ready| ready.ready_target)
+                    != expected.ready.as_ref().map(|ready| ready.ready_target)
+                {
+                    "ready-target"
+                } else if recorded.ready.as_ref().map(|ready| ready.idle_timeout)
+                    != expected.ready.as_ref().map(|ready| ready.idle_timeout)
+                {
+                    "idle-timeout"
+                } else if recorded.ready.as_ref().map(|ready| &ready.ready_base)
+                    != expected.ready.as_ref().map(|ready| &ready.ready_base)
+                {
+                    "ready-base"
+                } else {
+                    "schema version"
+                };
                 return Err(Error::new(
                     crate::ErrorCode::ConfigConflict,
-                    "Interrupted initialization exists; retry the original settings with pool init --resume",
-                ));
-            }
-            if state::read::<InitIntent>(&intent)? != expected {
-                return Err(Error::new(
-                    crate::ErrorCode::ConfigConflict,
-                    "Interrupted initialization has a different configuration",
+                    format!("Interrupted initialization has a different {setting}; retry with the original settings"),
                 ));
             }
         } else {
@@ -166,6 +225,13 @@ impl Pool {
                     "Worktree root must initially be empty",
                 ));
             }
+        }
+        // Keep the established nonempty-root error precedence, but validate
+        // ownership/permissions before publishing any new initialization intent.
+        if requested.try_exists()? {
+            repository::owned_dir(&requested)?;
+        }
+        if !resuming {
             state::write(&intent, &expected)?;
         }
         let mut lifecycle = crate::lifecycle::Lifecycle {
@@ -182,7 +248,7 @@ impl Pool {
         repository::owned_dir(&requested)?;
         state::checkpoint("init-before-root-claim");
         if let Err(error) = crate::namespace::claim_root(&repo, &requested) {
-            if error.code == crate::ErrorCode::ConfigConflict && !options.resume {
+            if error.code == crate::ErrorCode::ConfigConflict && !resuming {
                 // Another repository won the root race. This invocation has
                 // published only its own intent, so allow a different root on
                 // retry without touching the winner's storage or permanent locks.
@@ -252,13 +318,7 @@ impl Pool {
             } else {
                 None
             },
-            ready: options
-                .ready
-                .map(|mut ready| {
-                    ready.resolve_head(&repo, options.git_timeout)?;
-                    Ok::<_, crate::Error>(ready)
-                })
-                .transpose()?,
+            ready: resolved_ready,
             schema_version: state::SCHEMA_VERSION,
             capacity: options.capacity,
             cleanup_policy: options.cleanup_policy,
@@ -732,7 +792,7 @@ impl Pool {
                 } else {
                     crate::ErrorCode::AcquireTimeout
                 };
-                return Err(Error::new(code, "No verified worktree slot is available")
+                return Err(Error::new(code, "No workspace slot is available")
                     .with_details(|d| {
                         d.processes = observed_processes;
                         d.capacity = Some(crate::CapacityFailure {
@@ -830,7 +890,7 @@ impl Pool {
                 }
                 return Err(Error::new(
                     crate::ErrorCode::InvalidLease,
-                    "Protected lease still has a live lock owner",
+                    "The reservation still has a live lock owner",
                 ));
             }
         };
@@ -843,7 +903,7 @@ impl Pool {
                 {
                     return Err(Error::new(
                         crate::ErrorCode::LeaseMismatch,
-                        "Protected lease generation mismatch",
+                        "Reservation generation mismatch",
                     ));
                 }
             }

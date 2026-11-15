@@ -195,15 +195,38 @@ fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {
     );
     let started = std::time::Instant::now();
     tracing::debug!(event = "command.started", "Command started");
+    let inferred_pool = if args.pool.is_none()
+        && !matches!(
+            args.command,
+            Command::Config(_)
+                | Command::Completions { .. }
+                | Command::Snapshot(_)
+                | Command::Pool(args::PoolCommand::List { .. })
+        ) {
+        match groove_core::Pool::owning_pool(&args.repo, Duration::from_millis(args.git_timeout_ms))
+        {
+            Ok(pool) => pool,
+            Err(error) => {
+                tracing::error!(event = "command.failed", file_only = true, code = %error.code,
+                    elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                    "Command failed");
+                return output::emit_error(format, request_id, &error, terminal, Some(args));
+            }
+        }
+    } else {
+        None
+    };
+    let selected_pool = args.pool.as_ref().or(inferred_pool.as_ref());
+    tracing::info!(event = "pool.selected", pool = %selected_pool.cloned().unwrap_or_default(), "Selected pool");
     let context = commands::Context {
         repo: &args.repo,
-        selected_pool: args.pool.as_ref(),
+        selected_pool,
         git_timeout: Duration::from_millis(args.git_timeout_ms),
     };
     let elapsed_ms = || u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
     match commands::run(&context, &args.command) {
         Ok(result) => {
-            ready::trigger(args);
+            ready::trigger(args, selected_pool);
             tracing::info!(
                 event = "command.completed",
                 elapsed_ms = elapsed_ms(),
@@ -212,6 +235,12 @@ fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {
             output::emit_success(format, request_id, result, terminal)
         }
         Err(error) => {
+            if matches!(
+                args.command,
+                Command::Pool(args::PoolCommand::Destroy { dry_run: false, .. })
+            ) {
+                ready::restart(args, selected_pool);
+            }
             tracing::error!(event = "command.failed", file_only = true, code = %error.code, elapsed_ms = elapsed_ms(), "Command failed");
             output::emit_error(format, request_id, &error, terminal, Some(args))
         }

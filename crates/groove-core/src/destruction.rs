@@ -476,8 +476,14 @@ impl Pool {
                 let item = item?;
                 let name = item.file_name();
                 let name = name.to_string_lossy();
-                if name.ends_with(".protected.json") || name.ends_with(".execution.json") {
+                if name.ends_with(".execution.json") {
                     return Err(conflict("Release reservations before deleting the pool; legacy executions must be resolved with the previous Groove version", &item.path()));
+                }
+                if name.ends_with(".protected.json") {
+                    return Err(conflict(
+                        "Release reservations before deleting the pool",
+                        &item.path(),
+                    ));
                 }
             }
         }
@@ -523,6 +529,7 @@ impl Pool {
         if options.dry_run {
             return Ok(result);
         }
+        crate::reservation::prune_requests(&repo)?;
         let mut record = Lifecycle {
             schema_version: state::SCHEMA_VERSION,
             pool_id: result.pool_id.unwrap_or_else(PoolId::generate),

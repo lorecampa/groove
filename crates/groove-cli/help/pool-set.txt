@@ -2,7 +2,9 @@ EXAMPLES:
   groove pool show
   groove pool set --capacity 8 --cleanup warm
 
-`pool show`/`pool set` read or change the selected pool (--pool NAME; default: default).
+Pool settings are a fixed typed set of flags; preferences use an extensible key space in a file.
+
+`pool show`/`pool set` read or change the selected pool (see --pool).
 Growth preserves existing reservations and locks; shrinking is unsupported.
 Cleanup changes apply to future acquisitions; in-flight preparation may finish
 with the old policy.

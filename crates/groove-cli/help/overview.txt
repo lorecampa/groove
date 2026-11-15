@@ -23,7 +23,8 @@ Reservations survive exits and crashes until explicitly released: there is no
 expiry, daemon or implicit task execution. No command pushes or merges.
 Worktrees share Git objects, refs and configuration; they are not security
 sandboxes.
-Pool commands use default unless --pool NAME is given, from every checkout.
+Explicit --pool NAME wins; otherwise pool commands select the current workspace's
+owning pool (also via --repo), falling back to default outside managed workspaces.
 Task labels/keys and capacity are pool-local; snapshots and branches are shared.
 Destroy requires an explicit selection when several pools exist; see pool list --help.
 
