@@ -1,7 +1,9 @@
 use super::{same_process_group, self_and_ancestors, ProcessUse, WorkspaceProcess};
 use crate::Result;
 use std::{
+    collections::HashSet,
     fs,
+    os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
 };
 
@@ -14,7 +16,8 @@ pub(super) fn processes_using(root: &Path, skip_ancestors: bool) -> Result<Vec<W
         Default::default()
     };
     let entries = fs::read_dir("/proc")?;
-    let mut found = Vec::new();
+    let mut candidates = Vec::new();
+    let executable = fs::metadata("/proc/self/exe")?;
     for entry in entries.flatten() {
         let Some(pid) = entry
             .file_name()
@@ -26,9 +29,24 @@ pub(super) fn processes_using(root: &Path, skip_ancestors: bool) -> Result<Vec<W
         if skip.contains(&pid) {
             continue;
         }
-        let pipeline = skip_ancestors && same_process_group(pid) && pipeline_reader(&entry.path());
-        if let Some(uses) = process_use(&entry.path(), root, pipeline) {
-            let command = fs::read_to_string(entry.path().join("comm"))
+        if skip_ancestors
+            && fs::metadata(entry.path().join("exe")).is_ok_and(|metadata| {
+                metadata.dev() == executable.dev() && metadata.ino() == executable.ino()
+            })
+        {
+            continue;
+        }
+        candidates.push((pid, entry.path()));
+    }
+    let readers = if skip_ancestors {
+        pipeline_readers(&candidates)
+    } else {
+        HashSet::new()
+    };
+    let mut found = Vec::new();
+    for (pid, path) in candidates {
+        if let Some(uses) = process_use(&path, root, readers.contains(&pid)) {
+            let command = fs::read_to_string(path.join("comm"))
                 .map(|c| c.trim_end().to_owned())
                 .unwrap_or_default();
             found.push(WorkspaceProcess { pid, command, uses });
@@ -75,14 +93,36 @@ fn process_use(proc_dir: &Path, root: &Path, pipeline: bool) -> Option<ProcessUs
     None
 }
 
-fn pipeline_reader(proc_dir: &Path) -> bool {
-    let Ok(input) = fs::read_link(proc_dir.join("fd/0")) else {
-        return false;
-    };
-    input.as_os_str().to_string_lossy().starts_with("pipe:[")
-        && ["/proc/self/fd/1", "/proc/self/fd/2"]
-            .iter()
-            .any(|output| fs::read_link(output).is_ok_and(|output| output == input))
+fn pipeline_readers(candidates: &[(u32, PathBuf)]) -> HashSet<u32> {
+    fn pipe(path: impl AsRef<Path>) -> Option<PathBuf> {
+        fs::read_link(path)
+            .ok()
+            .filter(|target| target.as_os_str().to_string_lossy().starts_with("pipe:["))
+    }
+    let mut pipes: HashSet<_> = ["/proc/self/fd/1", "/proc/self/fd/2"]
+        .into_iter()
+        .filter_map(pipe)
+        .collect();
+    let mut readers = HashSet::new();
+    loop {
+        let before = readers.len();
+        for (pid, path) in candidates {
+            if !readers.contains(pid)
+                && same_process_group(*pid)
+                && pipe(path.join("fd/0")).is_some_and(|input| pipes.contains(&input))
+            {
+                readers.insert(*pid);
+                pipes.extend(
+                    ["fd/1", "fd/2"]
+                        .into_iter()
+                        .filter_map(|fd| pipe(path.join(fd))),
+                );
+            }
+        }
+        if readers.len() == before {
+            return readers;
+        }
+    }
 }
 
 /// Parent PID from `/proc/PID/stat`; the command name may contain spaces and parens.

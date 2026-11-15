@@ -167,6 +167,27 @@ pub(crate) fn gate(repo: &Repository, exclusive: bool) -> Result<File> {
 
 /// Cancel only an observed ready worker, then poll exclusive admission without
 /// queuing an exclusive waiter behind nested shared operations.
+pub(crate) fn preview_gate(repo: &Repository, timeout: std::time::Duration) -> Result<File> {
+    let started = std::time::Instant::now();
+    let budget = timeout.min(std::time::Duration::from_secs(5));
+    loop {
+        match gate(repo, true) {
+            Err(error)
+                if error.code == ErrorCode::ConfigConflict
+                    && error.retryable
+                    && started.elapsed() < budget =>
+            {
+                std::thread::sleep(
+                    std::time::Duration::from_millis(20)
+                        .min(budget.saturating_sub(started.elapsed())),
+                );
+            }
+            result => return result,
+        }
+    }
+}
+
+/// Cancel background preparation before taking deletion admission.
 pub(crate) fn destroy_gate(repo: &Repository, timeout: std::time::Duration) -> Result<File> {
     let started = std::time::Instant::now();
     let blocked = match gate(repo, true) {

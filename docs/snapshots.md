@@ -152,13 +152,16 @@ reverts, bisects, conflicts, submodules
 (including clean gitlinks), nested untracked repositories,
 assume-unchanged or manual skip-worktree flags, intent-to-add entries,
 and active filters, ident, working-tree-encoding and eol=crlf are rejected. Capture
-checks conversion attributes on saved paths. Text, legacy crlf and eol=lf rules
+checks conversion attributes on saved paths. Explicit text, legacy crlf and eol=lf rules
 require LF working bytes and byte-preserving staging. Physical EOL checks also
-reject CRLF text hidden by Git's clean status; lone carriage returns in saved text
+reject CRLF text hidden by Git's clean status; lone carriage returns in explicit text
 are refused before publication. Saving a .gitattributes file widens validation to the whole tree
 and rejects active text/conversion rules there. Restore rejects carriage returns
-in saved text blobs under saved or effective destination rules. Merely
-installing Git LFS or defining an unused filter does not block snapshots. Restore
+in saved text blobs under saved or effective destination rules.
+Automatic text rules (`text=auto`) preserve binary data, lone carriage returns
+and CRLF already stored in the index. Checkouts that write LF-index text as CRLF
+(`core.autocrlf=true` or `core.eol=crlf`) cannot be snapshotted.
+Installing Git LFS or defining an unused filter does not block snapshots. Restore
 checks paths differing from the snapshot base against both saved and effective destination attributes
 before materializing files, including recovery with `--to`. This prevents silent loss of
 conflict stages, external object content or byte-exact working-file state.

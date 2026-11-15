@@ -3,6 +3,7 @@ use crate::{
     locking::SlotGuard,
     repository::{self, Repository},
     state::{self, Config},
+    workspace_files::{SavedDirectories, DIRECTORY_STATE_NAME},
     CleanupPolicy, Error, RecoveryOutcome, Result,
 };
 use std::{
@@ -82,8 +83,6 @@ pub(crate) fn validate_config(git: &Git, repo: &Repository, oid: &crate::CommitO
 fn validate_user_filters(git: &Git, repo: &Repository, oid: &crate::CommitOid) -> Result<()> {
     use crate::git::Invocation;
     use std::{collections::BTreeSet, os::unix::fs::PermissionsExt};
-    let scratch_guard = filter_scratch_guard(git, repo)?;
-    let scratch_fds = [scratch_guard.file.as_raw_fd()];
     let config = git.run_with(
         &repo.origin,
         &["config", "--null", "--list"],
@@ -129,6 +128,8 @@ fn validate_user_filters(git: &Git, repo: &Repository, oid: &crate::CommitOid) -
     if drivers.is_empty() {
         return Ok(());
     }
+    let scratch_guard = filter_scratch_guard(git, repo)?;
+    let scratch_fds = [scratch_guard.file.as_raw_fd()];
     // Installing an unused global filter must not strand ordinary tasks. Check
     // the requested commit's attributes, not the caller's index or working files.
     // A large private index belongs on repository storage, not a potentially
@@ -223,8 +224,7 @@ pub(crate) fn prepare(
     let fd = guard.file.as_raw_fd();
     let exists = path.exists();
     if exists
-        && registration(repo, &path)
-            .is_ok_and(|admin| admin.join("groove-directories.json").is_file())
+        && registration(repo, &path).is_ok_and(|admin| admin.join(DIRECTORY_STATE_NAME).is_file())
         && !interrupted(repo, &path)?
     {
         // Slot ownership excludes cooperating registration changes for this path.
@@ -235,9 +235,9 @@ pub(crate) fn prepare(
         match normalize(&git, &path, oid, config.cleanup_policy, &[fd])
             .inspect(|()| state::checkpoint("normalized-in-place"))
             .and_then(|()| verify(&git, repo, &path, oid, config.cleanup_policy))
+            .and_then(|()| mark_verified(&git, &path))
         {
             Ok(()) => {
-                mark_verified(&git, &path)?;
                 state::checkpoint("verified");
                 return Ok(RecoveryOutcome::Sanitized);
             }
@@ -325,11 +325,11 @@ pub(crate) fn normalize(
         Err(error) => return Err(error.into()),
     };
     let verified_context = verified.as_ref().map(|_| fs::read(&marker)).transpose()?;
-    let directories = admin.join("groove-directories.json");
+    let directories = admin.join(DIRECTORY_STATE_NAME);
     repository::no_symlinks(&directories)?;
     if directories.try_exists()? {
-        let saved: Vec<crate::workspace_files::DirectoryState> = state::read(&directories)?;
-        if !crate::workspace_files::directory_metadata_matches(path, &saved)? {
+        let mut saved = SavedDirectories::open(&directories)?;
+        if !crate::workspace_files::directory_metadata_matches(path, &mut saved)? {
             return Err(Error::new(
                 crate::ErrorCode::RecoveryFailed,
                 "Directory permissions or extended attributes changed; rebuilding the checkout",
@@ -416,8 +416,37 @@ pub(crate) fn normalize(
 fn conversion_context(git: &Git, path: &Path) -> Result<Vec<u8>> {
     use sha2::{Digest, Sha256};
     use std::os::unix::ffi::OsStrExt;
-    let mut context = git.run(path, &["config", "--null", "--list"], &[])?;
-    context.push(0);
+    let mut context = Sha256::new();
+    for entry in git
+        .run(path, &["config", "--null", "--list"], &[])?
+        .split(|byte| *byte == 0)
+    {
+        let key = entry
+            .split(|byte| *byte == b'\n')
+            .next()
+            .unwrap_or_default();
+        if [b"core.".as_slice(), b"filter.", b"extensions."]
+            .iter()
+            .any(|prefix| key.starts_with(prefix))
+        {
+            context.update(entry);
+            context.update([0]);
+        }
+    }
+    context.update([0]);
+    fn fingerprint(context: &mut Sha256, file: &Path) -> Result<()> {
+        match fs::read(file) {
+            Ok(bytes) => context.update(bytes),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+                ) => {}
+            Err(error) => return Err(error.into()),
+        }
+        context.update([0]);
+        Ok(())
+    }
     let attributes = git.run(
         path,
         &[
@@ -429,12 +458,7 @@ fn conversion_context(git: &Git, path: &Path) -> Result<Vec<u8>> {
         &[],
     )?;
     let attributes = Path::new(OsStr::from_bytes(trim(&attributes)));
-    match fs::read(attributes) {
-        Ok(bytes) => context.extend_from_slice(&bytes),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
-        Err(error) => return Err(error.into()),
-    }
-    context.push(0);
+    fingerprint(&mut context, attributes)?;
     match git.run(
         path,
         &["config", "--path", "--get", "core.attributesFile"],
@@ -442,27 +466,35 @@ fn conversion_context(git: &Git, path: &Path) -> Result<Vec<u8>> {
     ) {
         Ok(file) => {
             let file = Path::new(OsStr::from_bytes(trim(&file)));
-            match fs::read(path.join(file)) {
-                Ok(bytes) => context.extend_from_slice(&bytes),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
-                Err(error) => return Err(error.into()),
+            fingerprint(&mut context, &path.join(file))?;
+        }
+        Err(error) if error.git_exit_code() == Some(1) => {
+            let config_home = std::env::var_os("XDG_CONFIG_HOME")
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+                .or_else(|| {
+                    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config"))
+                });
+            if let Some(home) = config_home {
+                fingerprint(&mut context, &home.join("git/attributes"))?;
+            } else {
+                context.update([0]);
             }
         }
-        Err(error) if error.git_exit_code() == Some(1) => (),
         Err(error) => return Err(error),
     }
     // Repository settings can contain credentials. Persist only a fingerprint.
-    Ok(Sha256::digest(context).to_vec())
+    fingerprint(&mut context, Path::new("/etc/gitattributes"))?;
+    Ok(context.finalize().to_vec())
 }
 
 fn mark_verified(git: &Git, path: &Path) -> Result<()> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
     let admin = registration_from_file(path)?;
-    state::write(
-        &admin.join("groove-directories.json"),
-        &crate::workspace_files::directory_state(path)?,
-    )?;
+    let current = crate::workspace_files::directory_state(path)?;
+    crate::workspace_files::validate_new_directories(git, path, &admin, &current)?;
+    crate::workspace_files::write_directory_state(&admin.join(DIRECTORY_STATE_NAME), &current)?;
     let marker = admin.join("groove-verified");
     repository::no_symlinks(&marker)?;
     let mut file = fs::OpenOptions::new()

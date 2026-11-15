@@ -4,6 +4,19 @@
 
 ### Fixed
 
+- Stream buffered binary directory inventories so large repositories reuse slots
+  in place. Avoid filter scratch contention when no drivers are configured and
+  preserve untouched file identity after unrelated branch or remote config changes.
+- Rebuild when checkout adopts task-created directory permissions or attributes,
+  while retaining ignored warm caches. Include default and system attribute files
+  in checkout conversion fingerprints.
+- Preserve legacy CRLF blobs, binary data and lone carriage returns under
+  `text=auto` in snapshots. Checkouts that convert LF text to CRLF remain unsupported.
+- Recognize transitive Linux pipeline readers without exempting background writers;
+  exclude other Groove executables from release-only process checks.
+- Bound busy detailed inspection to two seconds, wait briefly for background work
+  during deletion previews, and report completed deletion despite ancillary cleanup
+  failures. Keep saved snapshots available for recovery.
 - Restore snapshots in repositories with unchanged CRLF/converting base paths by
   validating only saved differences. Override `core.eol` for LF snapshot bytes,
   reject lone carriage returns under text rules at save, and validate restore

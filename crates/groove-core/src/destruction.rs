@@ -254,7 +254,7 @@ impl Pool {
         repository::owned_dir(&repo.root)?;
         repository::owned_dir(&repo.root.join("locks"))?;
         let gate = if options.dry_run {
-            lifecycle::gate(&repo, true)?
+            lifecycle::preview_gate(&repo, options.git_timeout)?
         } else {
             lifecycle::destroy_gate(&repo, options.git_timeout)?
         };
@@ -367,8 +367,7 @@ impl Pool {
             artifacts: Vec::new(),
         };
         if !initializing && previous.as_ref().is_some_and(|r| r.phase == Phase::Deleted) {
-            crate::namespace::release_root_claim(&repo, &config.worktree_root)?;
-            crate::finish::prune_missing_receipts(&repo, options.git_timeout)?;
+            post_deletion_cleanup(&repo, &config.worktree_root, options.git_timeout);
             result.deleted = true;
             result.already_deleted = true;
             return Ok(result);
@@ -577,9 +576,17 @@ impl Pool {
         record.phase = Phase::Deleted;
         lifecycle::write(&repo, &record)?;
         state::checkpoint("pool-deleted");
-        crate::namespace::release_root_claim(&repo, root)?;
-        crate::finish::prune_missing_receipts(&repo, options.git_timeout)?;
+        post_deletion_cleanup(&repo, root, options.git_timeout);
         result.deleted = true;
         Ok(result)
+    }
+}
+
+fn post_deletion_cleanup(repo: &Repository, root: &Path, timeout: Duration) {
+    if let Err(error) = crate::namespace::release_root_claim(repo, root) {
+        tracing::warn!(%error, "Pool deleted, but checkout root claim could not be released; rerun destroy to retry");
+    }
+    if let Err(error) = crate::finish::prune_missing_receipts(repo, timeout) {
+        tracing::warn!(%error, "Pool deleted, but missing snapshot receipts could not be pruned; rerun destroy to retry");
     }
 }

@@ -331,8 +331,14 @@ impl Pool {
         let guard = crate::locking::SlotGuard::wait_shared(
             &self.repo.execution_lock_path(slot),
             current.config.execution_locks.get(slot).copied(),
-            timeout,
-        )?;
+            timeout.min(Duration::from_secs(2)),
+        ).map_err(|error| {
+            if error.code == crate::ErrorCode::IoError {
+                crate::Error::new(crate::ErrorCode::WorkspaceInUse,
+                    "Slot is busy with a save, release or preparation; its status is unavailable until that finishes")
+                    .retryable(true).with_source(error)
+            } else { error }
+        })?;
         state::checkpoint("inspection-before-git");
         self.git_status_with_inherit(
             slot,
