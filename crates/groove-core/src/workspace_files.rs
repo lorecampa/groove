@@ -2,24 +2,134 @@
 use crate::{Error, ErrorCode, Result};
 use std::{
     fs,
-    os::unix::fs::{MetadataExt, PermissionsExt},
+    io::{BufReader, BufWriter, Read, Write},
+    os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
 };
 
-#[derive(serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub(crate) const DIRECTORY_STATE_NAME: &str = "groove-directories.v2";
+const MAGIC: &[u8] = b"groove-directories-v2\n";
+const FIELD_LIMIT: usize = 1024 * 1024;
+
+#[derive(PartialEq, Eq)]
 pub(crate) struct DirectoryState {
-    path: Vec<u8>,
-    mode: u32,
-    attributes: Vec<(Vec<u8>, Vec<u8>)>,
+    pub(crate) path: Vec<u8>,
+    pub(crate) mode: u32,
+    pub(crate) attributes: Vec<(Vec<u8>, Vec<u8>)>,
+}
+
+fn invalid_inventory() -> Error {
+    Error::new(
+        ErrorCode::RecoveryFailed,
+        "Unrecognized directory metadata inventory",
+    )
+}
+
+pub(crate) fn write_directory_state(path: &Path, entries: &[DirectoryState]) -> Result<()> {
+    crate::repository::no_symlinks(path)?;
+    let parent = path.parent().ok_or_else(invalid_inventory)?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+    {
+        let mut output = BufWriter::new(temporary.as_file_mut());
+        output.write_all(MAGIC)?;
+        fn field(output: &mut impl Write, bytes: &[u8]) -> Result<()> {
+            if bytes.len() > FIELD_LIMIT {
+                return Err(invalid_inventory());
+            }
+            output.write_all(&(bytes.len() as u32).to_le_bytes())?;
+            output.write_all(bytes)?;
+            Ok(())
+        }
+        for entry in entries {
+            output.write_all(&entry.mode.to_le_bytes())?;
+            field(&mut output, &entry.path)?;
+            let count = u32::try_from(entry.attributes.len()).map_err(|_| invalid_inventory())?;
+            output.write_all(&count.to_le_bytes())?;
+            for (name, value) in &entry.attributes {
+                field(&mut output, name)?;
+                field(&mut output, value)?;
+            }
+        }
+        output.flush()?;
+    }
+    temporary.as_file().sync_all()?;
+    temporary.persist(path).map_err(|error| error.error)?;
+    crate::state::sync_dir(parent)
+}
+
+pub(crate) struct SavedDirectories(BufReader<fs::File>);
+
+impl SavedDirectories {
+    pub(crate) fn open(path: &Path) -> Result<Self> {
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(path)?;
+        if !file.metadata()?.is_file() {
+            return Err(invalid_inventory());
+        }
+        let mut saved = Self(BufReader::new(file));
+        let mut magic = [0; MAGIC.len()];
+        saved.read_exact(&mut magic)?;
+        if magic != MAGIC {
+            return Err(invalid_inventory());
+        }
+        Ok(saved)
+    }
+
+    fn read_exact(&mut self, bytes: &mut [u8]) -> Result<()> {
+        self.0.read_exact(bytes).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::UnexpectedEof {
+                invalid_inventory().with_source(error)
+            } else {
+                error.into()
+            }
+        })
+    }
+
+    fn number(&mut self) -> Result<u32> {
+        let mut bytes = [0; 4];
+        self.read_exact(&mut bytes)?;
+        Ok(u32::from_le_bytes(bytes))
+    }
+
+    fn field(&mut self) -> Result<Vec<u8>> {
+        let length = self.number()? as usize;
+        if length > FIELD_LIMIT {
+            return Err(invalid_inventory());
+        }
+        let mut bytes = vec![0; length];
+        self.read_exact(&mut bytes)?;
+        Ok(bytes)
+    }
+
+    pub(crate) fn next_entry(&mut self) -> Result<Option<DirectoryState>> {
+        let mut mode = [0; 4];
+        if self.0.read(&mut mode[..1])? == 0 {
+            return Ok(None);
+        }
+        self.read_exact(&mut mode[1..])?;
+        let path = self.field()?;
+        let count = self.number()?;
+        let mut attributes = Vec::new();
+        for _ in 0..count {
+            attributes.push((self.field()?, self.field()?));
+        }
+        Ok(Some(DirectoryState {
+            path,
+            mode: u32::from_le_bytes(mode),
+            attributes,
+        }))
+    }
 }
 
 /// Observe directory metadata which Git checkout does not reset. File contents
 /// and file metadata have their own normalization path.
 pub(crate) fn directory_state(root: &Path) -> Result<Vec<DirectoryState>> {
     use std::os::unix::ffi::OsStrExt;
-    fn visit(root: &Path, path: &Path, state: &mut Vec<DirectoryState>) -> Result<()> {
+    fn visit(root: &Path, path: &Path, device: u64, state: &mut Vec<DirectoryState>) -> Result<()> {
         let metadata = fs::symlink_metadata(path)?;
-        if !metadata.is_dir() || metadata.dev() != fs::metadata(root)?.dev() {
+        if !metadata.is_dir() || metadata.dev() != device {
             return Err(Error::new(
                 ErrorCode::RecoveryFailed,
                 "Changed directory during metadata inventory",
@@ -41,20 +151,91 @@ pub(crate) fn directory_state(root: &Path) -> Result<Vec<DirectoryState>> {
                 continue;
             }
             if entry.file_type()?.is_dir() {
-                visit(root, &entry.path(), state)?;
+                visit(root, &entry.path(), device, state)?;
             }
         }
         Ok(())
     }
     let mut state = Vec::new();
-    visit(root, root, &mut state)?;
+    visit(root, root, fs::metadata(root)?.dev(), &mut state)?;
     state.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(state)
 }
 
-pub(crate) fn directory_metadata_matches(root: &Path, saved: &[DirectoryState]) -> Result<bool> {
+/// Reject task-created metadata only when Git adopted the directory into its index.
+pub(crate) fn validate_new_directories(
+    git: &crate::git::Git,
+    root: &Path,
+    admin: &Path,
+    current: &[DirectoryState],
+) -> Result<()> {
+    use std::ffi::OsStr;
+    let inventory = admin.join(DIRECTORY_STATE_NAME);
+    crate::repository::no_symlinks(&inventory)?;
+    if !inventory.try_exists()? {
+        return Ok(());
+    }
+    let mut saved = SavedDirectories::open(&inventory)?;
+    let refusal = || {
+        Error::new(ErrorCode::RecoveryFailed,
+        "A tracked directory kept permissions or extended attributes from an earlier task; rebuilding the checkout")
+    };
+    let mut previous = saved.next_entry()?;
+    let mut defaults = None;
+    let mut suspicious = Vec::new();
+    for entry in current {
+        while previous.as_ref().is_some_and(|old| old.path < entry.path) {
+            previous = saved.next_entry()?;
+        }
+        if previous.as_ref().is_some_and(|old| old.path == entry.path) {
+            continue;
+        }
+        if defaults.is_none() {
+            let probe = tempfile::Builder::new()
+                .prefix(".groove-directory-probe-")
+                .tempdir_in(root)?;
+            let child = probe.path().join("default");
+            fs::create_dir(&child)?;
+            defaults = Some((
+                fs::metadata(&child)?.mode() & 0o7777,
+                directory_attributes(&child)?,
+            ));
+            probe.close()?;
+        }
+        if defaults
+            .as_ref()
+            .is_some_and(|(mode, attrs)| entry.mode != *mode || entry.attributes != *attrs)
+        {
+            let name = std::str::from_utf8(&entry.path).map_err(|_| refusal())?;
+            suspicious.push(name);
+        }
+    }
+    for batch in suspicious.chunks(64) {
+        let mut args = vec!["ls-files", "-z", "--"];
+        args.extend_from_slice(batch);
+        let output = git.spool(
+            root,
+            &args,
+            crate::git::Invocation {
+                env: &[("GIT_LITERAL_PATHSPECS", OsStr::new("1"))],
+                spool_directory: Some(admin),
+                reject_stderr: true,
+                ..Default::default()
+            },
+        )?;
+        if output.metadata()?.len() != 0 {
+            return Err(refusal());
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn directory_metadata_matches(
+    root: &Path,
+    saved: &mut SavedDirectories,
+) -> Result<bool> {
     use std::os::unix::ffi::OsStrExt;
-    for entry in saved {
+    while let Some(entry) = saved.next_entry()? {
         let relative = Path::new(std::ffi::OsStr::from_bytes(&entry.path));
         if relative
             .components()
@@ -65,7 +246,14 @@ pub(crate) fn directory_metadata_matches(root: &Path, saved: &[DirectoryState]) 
         let path = root.join(relative);
         let metadata = match fs::symlink_metadata(&path) {
             Ok(metadata) => metadata,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+                ) =>
+            {
+                continue
+            }
             Err(error) => return Err(error.into()),
         };
         if !metadata.is_dir() {
@@ -80,8 +268,25 @@ pub(crate) fn directory_metadata_matches(root: &Path, saved: &[DirectoryState]) 
     Ok(true)
 }
 
-fn directory_attributes(path: &Path) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+pub(crate) fn directory_attributes(path: &Path) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
     use std::{ffi::CString, os::fd::AsRawFd};
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let path = CString::new(path.as_os_str().as_bytes()).map_err(std::io::Error::other)?;
+        // SAFETY: path is NUL-terminated; null storage with size zero queries only.
+        let size = unsafe { libc::llistxattr(path.as_ptr(), std::ptr::null_mut(), 0) };
+        if size == 0 {
+            return Ok(Vec::new());
+        }
+        if size < 0 {
+            let error = std::io::Error::last_os_error();
+            if error.raw_os_error() == Some(libc::ENOTSUP) {
+                return Ok(Vec::new());
+            }
+            return Err(error.into());
+        }
+    }
     let file = fs::File::open(path)?;
     let fd = file.as_raw_fd();
     let list = |buffer: *mut libc::c_char, size| {
@@ -99,6 +304,9 @@ fn directory_attributes(path: &Path) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
         }
     };
     let size = list(std::ptr::null_mut(), 0);
+    if size == 0 {
+        return Ok(Vec::new());
+    }
     if size < 0 {
         let error = std::io::Error::last_os_error();
         if error.raw_os_error() == Some(libc::ENOTSUP) {
@@ -271,4 +479,58 @@ fn walk(
         }
     }
     Ok(None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn directory_inventory_has_a_binary_contract_and_rejects_truncation() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join(DIRECTORY_STATE_NAME);
+        let entry = DirectoryState {
+            path: b"raw-\xff".to_vec(),
+            mode: 0o755,
+            attributes: vec![(b"user.test".to_vec(), b"value".to_vec())],
+        };
+        write_directory_state(&path, &[entry]).unwrap();
+        let bytes = fs::read(&path).unwrap();
+        assert!(
+            bytes.starts_with(b"groove-directories-v2\n\xed\x01\0\0\x05\0\0\0raw-\xff\x01\0\0\0")
+        );
+        let mut saved = SavedDirectories::open(&path).unwrap();
+        let read = saved.next_entry().unwrap().unwrap();
+        assert_eq!(read.path, b"raw-\xff");
+        assert_eq!(read.mode, 0o755);
+        assert_eq!(
+            read.attributes,
+            vec![(b"user.test".to_vec(), b"value".to_vec())]
+        );
+        assert!(saved.next_entry().unwrap().is_none());
+        for length in 0..bytes.len() {
+            if length == MAGIC.len() {
+                continue;
+            } // A record-boundary EOF is clean.
+            fs::write(&path, &bytes[..length]).unwrap();
+            let result = SavedDirectories::open(&path).and_then(|mut saved| saved.next_entry());
+            assert!(
+                matches!(result, Err(error) if error.code == ErrorCode::RecoveryFailed),
+                "length {length}"
+            );
+        }
+        fs::write(&path, b"groove-directories-v1\n").unwrap();
+        assert!(SavedDirectories::open(&path).is_err());
+        let oversized = DirectoryState {
+            path: vec![b'x'; FIELD_LIMIT + 1],
+            mode: 0o755,
+            attributes: Vec::new(),
+        };
+        assert!(write_directory_state(&path, &[oversized]).is_err());
+        let mut bytes = MAGIC.to_vec();
+        bytes.extend_from_slice(&0o755_u32.to_le_bytes());
+        bytes.extend_from_slice(&((FIELD_LIMIT + 1) as u32).to_le_bytes());
+        fs::write(&path, bytes).unwrap();
+        assert!(SavedDirectories::open(&path).unwrap().next_entry().is_err());
+    }
 }

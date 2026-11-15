@@ -648,7 +648,7 @@ fn empty_attribute_values_cannot_hide_content_conversion() {
     if !support::in_subprocess("empty_attribute_values_cannot_hide_content_conversion") {
         return;
     }
-    assert_conversion_rejected(&["*.txt diff= text=auto"]);
+    assert_conversion_rejected(&["*.txt diff= text"]);
 }
 
 #[test]
@@ -1149,5 +1149,64 @@ fn clean_crlf_working_bytes_cannot_be_silently_saved_as_lf() {
     assert_eq!(
         fs::read(repo.path.join("tracked.txt")).unwrap(),
         b"baseline\r\n"
+    );
+}
+
+#[test]
+fn auto_text_preserves_binary_lone_cr_and_legacy_crlf_bytes() {
+    let repo = Repo::new();
+    fs::write(repo.path.join("legacy.txt"), b"legacy\r\n").unwrap();
+    repo.git(&["add", "."]);
+    repo.git(&["commit", "-qm", "legacy CRLF blob"]);
+    fs::write(repo.path.join(".gitattributes"), b"* text=auto\n").unwrap();
+    repo.git(&["add", ".gitattributes"]);
+    repo.git(&["commit", "-qm", "automatic text"]);
+    let files: &[(&str, &[u8])] = &[
+        ("image.png", b"\x89PNG\r\n\x1a\n\0\0data"),
+        ("lone.txt", b"one\rtwo\n"),
+        ("legacy.txt", b"legacy\r\nextra\r\n"),
+        ("tracked.txt", b"edited\n"),
+    ];
+    for (name, bytes) in files {
+        fs::write(repo.path.join(name), bytes).unwrap();
+    }
+    let snapshots = service(&repo);
+    let saved = save(&snapshots);
+    let destination = repo.temp.path().join("recovered");
+    snapshots.restore(&saved.id, Some(&destination)).unwrap();
+    fs::write(repo.path.join("tracked.txt"), b"later\n").unwrap();
+    snapshots.restore(&saved.id, None).unwrap();
+    for root in [&repo.path, &destination] {
+        for (name, bytes) in files {
+            assert_eq!(fs::read(root.join(name)).unwrap(), *bytes, "{name}");
+        }
+    }
+    fs::write(repo.path.join("tracked.txt"), b"baseline\r\n").unwrap();
+    let error = snapshots.save(Default::default()).unwrap_err();
+    assert_eq!(error.code, ErrorCode::UnsupportedConfiguration);
+    assert!(error.message.contains("tracked.txt"), "{error}");
+}
+
+#[test]
+fn unchanged_legacy_crlf_under_auto_text_does_not_block_other_edits() {
+    let repo = Repo::new();
+    fs::write(repo.path.join("legacy.txt"), b"legacy\r\n").unwrap();
+    repo.git(&["add", "."]);
+    repo.git(&["commit", "-qm", "legacy CRLF blob"]);
+    fs::write(repo.path.join(".gitattributes"), b"* text=auto\n").unwrap();
+    repo.git(&["add", ".gitattributes"]);
+    repo.git(&["commit", "-qm", "automatic text"]);
+    fs::write(repo.path.join("tracked.txt"), b"edited\n").unwrap();
+    let snapshots = service(&repo);
+    let saved = save(&snapshots);
+    let destination = repo.temp.path().join("recovered");
+    snapshots.restore(&saved.id, Some(&destination)).unwrap();
+    assert_eq!(
+        fs::read(destination.join("legacy.txt")).unwrap(),
+        b"legacy\r\n"
+    );
+    assert_eq!(
+        fs::read(destination.join("tracked.txt")).unwrap(),
+        b"edited\n"
     );
 }

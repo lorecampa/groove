@@ -729,3 +729,39 @@ fn destruction_preview_does_not_cancel_an_active_ready_worker() {
     assert!(child.wait().unwrap().success());
     assert!(repo.slot(1).join("tracked.txt").exists());
 }
+
+#[cfg(feature = "test-hooks")]
+#[test]
+fn destruction_preview_waits_for_a_background_pass_without_cancelling_it() {
+    use std::{
+        io::Write,
+        time::{Duration, Instant},
+    };
+    let repo = Repo::new();
+    let pool = initialized(&repo);
+    let (mut child, listener) = worker(&repo, &pool, "ready-before-preparation");
+    let mut stream = child
+        .checkpoint(
+            &listener,
+            "ready-before-preparation",
+            support::PROCESS_TIMEOUT,
+        )
+        .unwrap();
+    let mut command = support::groove_in(&repo.path);
+    command.args(["destroy", "--dry-run"]);
+    let mut preview = support::TestChild::spawn(&mut command);
+    // Observe that preview is still waiting while the worker holds admission.
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_millis(100) {
+        assert!(preview.try_wait().unwrap().is_none());
+        std::thread::yield_now();
+    }
+    assert!(!repo.state().join("ready-cancel.json").exists());
+    stream.write_all(b"continue\n").unwrap();
+    drop(stream);
+    assert!(child.wait().unwrap().success());
+    let output = preview.wait_with_output().unwrap();
+    support::assert_success(&output);
+    assert!(repo.slot(1).join("tracked.txt").exists());
+    assert!(!repo.state().join("ready-cancel.json").exists());
+}

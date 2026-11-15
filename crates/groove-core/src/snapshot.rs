@@ -629,16 +629,33 @@ impl Snapshots {
                     .position(|byte| *byte == b'\t')
                     .ok_or_else(|| invalid("Malformed Git EOL inventory"))?;
                 let header = &record[..tab];
+                let mut fields = header
+                    .split(|byte| *byte == b' ')
+                    .filter(|field| !field.is_empty());
+                let index = fields
+                    .next()
+                    .and_then(|field| field.strip_prefix(b"i/"))
+                    .filter(|field| !field.is_empty())
+                    .ok_or_else(|| invalid("Malformed Git EOL inventory"))?;
+                let working = fields
+                    .next()
+                    .and_then(|field| field.strip_prefix(b"w/"))
+                    .filter(|field| !field.is_empty())
+                    .ok_or_else(|| invalid("Malformed Git EOL inventory"))?;
+                if !fields
+                    .next()
+                    .is_some_and(|field| field.starts_with(b"attr/"))
+                {
+                    return Err(invalid("Malformed Git EOL inventory"));
+                }
                 // Unchanged explicit CRLF base paths restore through ordinary
                 // checkout. Changed ones are rejected by validate_attributes.
                 if header.windows(8).any(|part| part == b"eol=crlf") {
                     continue;
                 }
-                if header.windows(6).any(|part| part == b"w/crlf")
-                    || header.windows(7).any(|part| part == b"w/mixed")
-                {
+                if index != working && [b"crlf".as_slice(), b"mixed"].contains(&working) {
                     return Err(unsupported(format!(
-                        "Text path {} contains carriage returns hidden by Git normalization",
+                        "Text path {} has CRLF line endings that Git normalization hides from its LF index entry; snapshots preserve exact bytes and do not support checkouts that write text as CRLF (core.autocrlf or core.eol)",
                         OsStr::from_bytes(&record[tab + 1..]).to_string_lossy()
                     )));
                 }
@@ -737,6 +754,7 @@ impl Snapshots {
             return Err(unsupported("Malformed Git attribute response"));
         }
         let mut text_paths = BTreeSet::new();
+        let mut auto_paths = BTreeSet::new();
         for attr in triples {
             if attr[2] == b"unset" || attr[2] == b"unspecified" {
                 continue;
@@ -762,7 +780,11 @@ impl Snapshots {
             if text {
                 text_paths.insert(attr[0].to_vec());
             }
+            if attr[1] == b"text" && attr[2] == b"auto" {
+                auto_paths.insert(attr[0].to_vec());
+            }
         }
+        text_paths.retain(|path| !auto_paths.contains(path));
         Ok(text_paths)
     }
 

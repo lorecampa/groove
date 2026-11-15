@@ -300,12 +300,10 @@ fn changing_attribute_rules_forces_the_full_rewrite_path() {
         fs::read(repo.slot(1).join("converted.x")).unwrap(),
         b"line\r\n"
     );
-    assert_ne!(
-        fs::metadata(repo.slot(1).join("tracked.txt"))
-            .unwrap()
-            .ino(),
-        before.ino()
-    );
+    assert!(recreated(
+        &before,
+        &fs::metadata(repo.slot(1).join("tracked.txt")).unwrap()
+    ));
 }
 
 #[cfg(feature = "test-hooks")]
@@ -333,7 +331,7 @@ fn interruption_after_marker_removal_forces_a_full_rewrite() {
     child.wait().unwrap();
     drop(stream);
     acquire(&repo);
-    assert_ne!(fs::metadata(path).unwrap().ino(), before.ino());
+    assert!(recreated(&before, &fs::metadata(path).unwrap()));
 }
 
 #[test]
@@ -351,7 +349,7 @@ fn legacy_and_interrupted_checkouts_cannot_seed_dirty_directory_metadata() {
         release(&repo, &lease);
         fs::set_permissions(&workspace, fs::Permissions::from_mode(0o777)).unwrap();
         if legacy {
-            fs::remove_file(admin.join("groove-directories.json")).unwrap();
+            fs::remove_file(admin.join("groove-directories.v2")).unwrap();
             fs::write(admin.join("groove-verified"), b"").unwrap();
         } else {
             fs::remove_file(admin.join("groove-verified")).unwrap();
@@ -363,4 +361,119 @@ fn legacy_and_interrupted_checkouts_cannot_seed_dirty_directory_metadata() {
             b"baseline\n"
         );
     }
+}
+
+fn recreated(before: &fs::Metadata, after: &fs::Metadata) -> bool {
+    (before.ino(), before.mtime(), before.mtime_nsec())
+        != (after.ino(), after.mtime(), after.mtime_nsec())
+}
+
+#[test]
+fn large_directory_inventories_reuse_in_place_repeatedly() {
+    let repo = Repo::new();
+    for n in 0..2500 {
+        let directory = repo.path.join(format!(
+            "component-with-a-long-descriptive-name-{n:05}/src/main/generated"
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(directory.join("Source.txt"), b"source\n").unwrap();
+    }
+    repo.git(&["add", "."]);
+    repo.git(&["commit", "-qm", "large directory inventory"]);
+    init(&repo);
+    let mut lease = acquire(&repo);
+    let file = repo.slot(1).join("tracked.txt");
+    let before = fs::metadata(&file).unwrap();
+    for _ in 0..2 {
+        release(&repo, &lease);
+        lease = acquire(&repo);
+        assert_eq!(lease["recovery"], "sanitized");
+        let after = fs::metadata(&file).unwrap();
+        assert_eq!(
+            (after.ino(), after.mtime(), after.mtime_nsec()),
+            (before.ino(), before.mtime(), before.mtime_nsec())
+        );
+    }
+}
+
+#[test]
+fn unrelated_config_preserves_files_but_checkout_config_rewrites_them() {
+    let repo = Repo::new();
+    init(&repo);
+    let lease = acquire(&repo);
+    let root = repo.slot(1);
+    let before = fs::metadata(root.join("tracked.txt")).unwrap();
+    for (key, value) in [
+        ("branch.topic.remote", "origin"),
+        ("branch.topic.merge", "refs/heads/main"),
+        ("remote.origin.url", "https://example.invalid/repo"),
+    ] {
+        support::git(&root, &["config", key, value]);
+    }
+    release(&repo, &lease);
+    let lease = acquire(&repo);
+    assert_eq!(lease["recovery"], "sanitized");
+    let after = fs::metadata(root.join("tracked.txt")).unwrap();
+    assert!(!recreated(&before, &after));
+    support::git(&root, &["config", "core.autocrlf", "true"]);
+    release(&repo, &lease);
+    acquire(&repo);
+    let after = fs::metadata(root.join("tracked.txt")).unwrap();
+    assert_ne!(
+        (before.mtime(), before.mtime_nsec()),
+        (after.mtime(), after.mtime_nsec())
+    );
+    assert_eq!(fs::read(root.join("tracked.txt")).unwrap(), b"baseline\r\n");
+}
+
+#[test]
+fn newly_tracked_directories_do_not_adopt_task_permissions() {
+    let repo = Repo::new();
+    let old = repo.git(&["rev-parse", "HEAD"]);
+    fs::create_dir(repo.path.join("newdir")).unwrap();
+    fs::write(repo.path.join("newdir/n.txt"), b"new\n").unwrap();
+    repo.git(&["add", "."]);
+    repo.git(&["commit", "-qm", "track new directory"]);
+    init(&repo);
+    let lease = cli(&repo, &["acquire", "--base", &old]);
+    let directory = repo.slot(1).join("newdir");
+    fs::create_dir(&directory).unwrap();
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o2777)).unwrap();
+    release(&repo, &lease);
+    let lease = acquire(&repo);
+    assert_eq!(lease["recovery"], "rebuilt");
+    assert_eq!(
+        fs::metadata(&directory).unwrap().mode() & 0o7777,
+        fs::metadata(repo.path.join("newdir")).unwrap().mode() & 0o7777
+    );
+    assert_eq!(fs::read(directory.join("n.txt")).unwrap(), b"new\n");
+    release(&repo, &lease);
+    assert_eq!(acquire(&repo)["recovery"], "sanitized");
+}
+
+#[test]
+fn warm_reuse_keeps_read_only_ignored_directories() {
+    let repo = Repo::new();
+    cli(
+        &repo,
+        &[
+            "init",
+            "--capacity",
+            "1",
+            "--cleanup",
+            "warm",
+            "--ready-target",
+            "0",
+            "--idle-timeout",
+            "never",
+        ],
+    );
+    let lease = acquire(&repo);
+    let directory = repo.slot(1).join("ignored/read-only");
+    fs::create_dir_all(&directory).unwrap();
+    fs::write(directory.join("cache"), b"cached\n").unwrap();
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o555)).unwrap();
+    release(&repo, &lease);
+    assert_eq!(acquire(&repo)["recovery"], "sanitized");
+    assert_eq!(fs::read(directory.join("cache")).unwrap(), b"cached\n");
 }
