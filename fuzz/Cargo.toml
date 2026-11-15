@@ -15,7 +15,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4.13"
-groove-core = { path = "../crates/groove-core", version = "0.3.2" }
+groove-core = { path = "../crates/groove-core", version = "0.4.0" }
 serde_json = "1"
 
 [[bin]]

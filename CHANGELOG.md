@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.4.0] - 2026-11-15
+
 ### Changed (breaking)
 
 - Group pool administration under `pool init`, `pool list`, `pool show`,
