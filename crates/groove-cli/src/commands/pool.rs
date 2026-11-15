@@ -72,7 +72,7 @@ pub fn pools(
         }
         rows.push(row);
     }
-    let mut columns = vec!["POOL", "STATE", "CAPACITY", "CHECKOUT ROOT"];
+    let mut columns = vec!["POOL", "STATE", "CAPACITY", "WORKSPACE ROOT"];
     if disk_usage {
         columns.extend(["WORKSPACES", "CACHES", "LOGS/HISTORY"]);
     }
@@ -206,7 +206,7 @@ pub fn init(
         )
     };
     let text = format!(
-        "{heading}\n  checkouts: {}\n  state:     {}\n",
+        "{heading}\n  workspaces: {}\n  state:      {}\n",
         result.worktree_root.display(),
         result.state_dir.display()
     );
@@ -327,7 +327,7 @@ pub fn list(
                 ]
             })
             .collect();
-        table(&["SLOT", "TASK", "LEASE", "PATH"], &rows)
+        table(&["SLOT", "TASK", "RESERVATION", "PATH"], &rows)
     };
     Output::text(json!({ "leases": leases }), text)?.paginated(pagination)
 }
@@ -393,7 +393,7 @@ pub fn show(
     let mut value = json!({ "pool": settings, "inspection": inspection });
     let ready = pool.ready_report()?;
     text.push_str(&format!(
-        "\nBackground checkouts: {} ready at last pass; {}.\n",
+        "\nBackground workspaces: {} ready at last pass; {}.\n",
         ready.ready,
         if ready.running {
             "preparing or cleaning"
@@ -414,4 +414,18 @@ pub fn show(
         value["storage"] = serde_json::to_value(usage)?;
     }
     Output::text(value, text)?.paginated(pagination)
+}
+
+pub fn set(context: &Context<'_>, update: groove_core::PoolUpdate) -> Result<Output> {
+    let result = context.pool()?.configure(update)?;
+    let headline = if result.updated {
+        "Pool settings updated."
+    } else {
+        "Pool settings unchanged."
+    };
+    let text = format!(
+        "{headline}\n{}",
+        fields(&serde_json::to_value(&result.pool)?, 1)
+    );
+    Output::text(result, text)
 }

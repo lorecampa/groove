@@ -1,0 +1,4 @@
+EXAMPLES:
+  groove pool set --capacity 8 --cleanup warm
+  groove pool set --ready-target 0 --idle-timeout never
+Updates preserve reservations and locks; shrinking is unsupported.

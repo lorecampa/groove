@@ -25,7 +25,7 @@ fn error(out: &Output) -> Value {
     serde_json::from_slice::<Value>(&out.stdout).unwrap()["error"].clone()
 }
 fn acquire(repo: &Repo, task: &str) -> String {
-    ok(&cli(repo, &["acquire", "--task", task]))["worktree_path"]
+    ok(&cli(repo, &["acquire", "--task", task]))["workspace_path"]
         .as_str()
         .unwrap()
         .to_owned()
@@ -42,6 +42,7 @@ fn unreadable_work_is_preserved_by_release_and_destruction() {
     ok(&cli(
         &repo,
         &[
+            "pool",
             "init",
             "--capacity",
             "1",
@@ -62,7 +63,7 @@ fn unreadable_work_is_preserved_by_release_and_destruction() {
     let response: Value = serde_json::from_slice(&refused.stdout).unwrap();
     assert_eq!(response["error"]["code"], "GIT_ERROR");
     assert_eq!(
-        ok(&cli(&repo, &["list"]))["leases"]
+        ok(&cli(&repo, &["list"]))["reservations"]
             .as_array()
             .unwrap()
             .len(),
@@ -74,7 +75,7 @@ fn unreadable_work_is_preserved_by_release_and_destruction() {
     );
     ok(&cli(&repo, &["release", "--force", "--task", "unreadable"]));
     fs::set_permissions(&directory, fs::Permissions::from_mode(0o000)).unwrap();
-    let refused = cli(&repo, &["destroy"]);
+    let refused = cli(&repo, &["pool", "destroy"]);
     fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
     assert!(!refused.status.success());
     let response: Value = serde_json::from_slice(&refused.stdout).unwrap();
@@ -84,7 +85,7 @@ fn unreadable_work_is_preserved_by_release_and_destruction() {
         fs::read(directory.join("valuable.txt")).unwrap(),
         b"must survive"
     );
-    assert_eq!(ok(&cli(&repo, &["show"]))["pool"]["capacity"], 1);
+    assert_eq!(ok(&cli(&repo, &["pool", "show"]))["pool"]["capacity"], 1);
 }
 
 #[test]
@@ -94,6 +95,7 @@ fn successful_git_status_with_warnings_cannot_authorize_release_destroy_or_acqui
     ok(&cli(
         &repo,
         &[
+            "pool",
             "init",
             "--capacity",
             "1",
@@ -128,9 +130,12 @@ fn successful_git_status_with_warnings_cannot_authorize_release_destroy_or_acqui
             .output()
             .unwrap()
     };
-    for (index, args) in [vec!["release", "--task", "warnings"], vec!["destroy"]]
-        .into_iter()
-        .enumerate()
+    for (index, args) in [
+        vec!["release", "--task", "warnings"],
+        vec!["pool", "destroy"],
+    ]
+    .into_iter()
+    .enumerate()
     {
         let output = warned(&args);
         assert_eq!(output.status.code(), Some(7));
@@ -140,7 +145,7 @@ fn successful_git_status_with_warnings_cannot_authorize_release_destroy_or_acqui
         assert!(repo.slot(1).join("tracked.txt").exists());
         if index == 0 {
             assert_eq!(
-                ok(&cli(&repo, &["list"]))["leases"]
+                ok(&cli(&repo, &["list"]))["reservations"]
                     .as_array()
                     .unwrap()
                     .len(),
@@ -153,7 +158,7 @@ fn successful_git_status_with_warnings_cannot_authorize_release_destroy_or_acqui
     assert_eq!(output.status.code(), Some(6));
     let error: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(error["error"]["code"], "POOL_UNHEALTHY");
-    assert!(ok(&cli(&repo, &["list"]))["leases"]
+    assert!(ok(&cli(&repo, &["list"]))["reservations"]
         .as_array()
         .unwrap()
         .is_empty());
@@ -164,7 +169,7 @@ fn successful_git_status_with_warnings_cannot_authorize_release_destroy_or_acqui
 #[test]
 fn release_from_inside_the_slot_can_pipe_its_output_to_a_sibling() {
     let repo = Repo::new();
-    ok(&cli(&repo, &["init", "--capacity", "1"]));
+    ok(&cli(&repo, &["pool", "init", "--capacity", "1"]));
     let path = acquire(&repo, "piped");
     let fifo = repo.temp.path().join("pipeline-ready");
     assert!(support::command(repo.temp.path(), "mkfifo")
@@ -182,12 +187,12 @@ fn release_from_inside_the_slot_can_pipe_its_output_to_a_sibling() {
     let response = support::assert_success(&output);
     assert_eq!(response["ok"], true, "{response}");
     let schema: Value =
-        serde_json::from_str(include_str!("../schemas/response-v1.schema.json")).unwrap();
+        serde_json::from_str(include_str!("../schemas/response-v2.schema.json")).unwrap();
     jsonschema::validator_for(&schema)
         .unwrap()
         .validate(&response)
         .unwrap();
-    assert!(ok(&cli(&repo, &["list"]))["leases"]
+    assert!(ok(&cli(&repo, &["list"]))["reservations"]
         .as_array()
         .unwrap()
         .is_empty());
@@ -200,6 +205,7 @@ fn private_worktree_and_bisect_refs_do_not_preserve_a_released_commit() {
         ok(&cli(
             &repo,
             &[
+                "pool",
                 "init",
                 "--capacity",
                 "1",
@@ -219,7 +225,7 @@ fn private_worktree_and_bisect_refs_do_not_preserve_a_released_commit() {
             let refused = error(&cli(&repo, &["release", "--task", "private-ref"]));
             assert_eq!(refused["code"], "UNSAVED_CHANGES", "{reference}");
             assert_eq!(
-                ok(&cli(&repo, &["list"]))["leases"]
+                ok(&cli(&repo, &["list"]))["reservations"]
                     .as_array()
                     .unwrap()
                     .len(),
@@ -258,7 +264,7 @@ fn private_worktree_and_bisect_refs_do_not_preserve_a_released_commit() {
 #[test]
 fn release_refuses_unsaved_changes_unless_forced_and_save_preserves_them() {
     let repo = Repo::new();
-    ok(&cli(&repo, &["init", "--capacity", "2"]));
+    ok(&cli(&repo, &["pool", "init", "--capacity", "2"]));
     let path = acquire(&repo, "dirty");
     // Clean workspaces release without --force.
     let clean = acquire(&repo, "clean");
@@ -275,7 +281,7 @@ fn release_refuses_unsaved_changes_unless_forced_and_save_preserves_them() {
     }
     // The reservation is untouched by a refused release.
     assert_eq!(
-        ok(&cli(&repo, &["list"]))["leases"]
+        ok(&cli(&repo, &["list"]))["reservations"]
             .as_array()
             .unwrap()
             .len(),
@@ -283,9 +289,12 @@ fn release_refuses_unsaved_changes_unless_forced_and_save_preserves_them() {
     );
     // --save is how unsaved changes are kept, so it does not refuse them.
     let finished = ok(&cli(&repo, &["release", "--save", "--task", "dirty"]));
-    let id = finished["release"]["lease_id"].as_str().unwrap().to_owned();
+    let id = finished["release"]["reservation_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     // Retrying a completed release is not blocked by files left on disk.
-    ok(&cli(&repo, &["release", "--lease-id", &id]));
+    ok(&cli(&repo, &["release", "--reservation-id", &id]));
     let path = acquire(&repo, "discard");
     fs::write(Path::new(&path).join("scratch.txt"), "throwaway\n").unwrap();
     ok(&cli(&repo, &["release", "--force", "--task", "discard"]));
@@ -295,7 +304,7 @@ fn release_refuses_unsaved_changes_unless_forced_and_save_preserves_them() {
 fn plain_release_preserves_detached_commits_until_saved_or_explicitly_discarded() {
     for preservation in ["branch", "snapshot", "force"] {
         let repo = Repo::new();
-        ok(&cli(&repo, &["init", "--capacity", "1"]));
+        ok(&cli(&repo, &["pool", "init", "--capacity", "1"]));
         let path = acquire(&repo, "committed");
         let path = Path::new(&path);
         fs::write(path.join("tracked.txt"), "committed result\n").unwrap();
@@ -305,7 +314,7 @@ fn plain_release_preserves_detached_commits_until_saved_or_explicitly_discarded(
         let refused = error(&cli(&repo, &["release", "--task", "committed"]));
         assert_eq!(refused["code"], "UNSAVED_CHANGES");
         assert_eq!(
-            ok(&cli(&repo, &["list"]))["leases"]
+            ok(&cli(&repo, &["list"]))["reservations"]
                 .as_array()
                 .unwrap()
                 .len(),
@@ -341,7 +350,7 @@ fn plain_release_preserves_detached_commits_until_saved_or_explicitly_discarded(
 #[test]
 fn processes_using_the_workspace_block_release_with_or_without_save_but_not_the_invoking_shell() {
     let repo = Repo::new();
-    ok(&cli(&repo, &["init", "--capacity", "1"]));
+    ok(&cli(&repo, &["pool", "init", "--capacity", "1"]));
     let path = acquire(&repo, "busy");
     let ready = repo.temp.path().join("watcher-ready");
     // Signal readiness after exec initialization, then block in a shell builtin
@@ -435,6 +444,7 @@ fn a_shared_writable_mapping_blocks_release_and_reacquisition_after_fd_close() {
     ok(&cli(
         &repo,
         &[
+            "pool",
             "init",
             "--capacity",
             "1",
@@ -497,6 +507,7 @@ fn release_waits_for_a_concurrent_read_only_inspection() {
     ok(&cli(
         &repo,
         &[
+            "pool",
             "init",
             "--capacity",
             "1",
@@ -534,7 +545,7 @@ fn release_waits_for_a_concurrent_read_only_inspection() {
     drop(stream);
     assert_success_inspection(&inspector.wait_with_output().unwrap());
     ok(&releaser.wait_with_output().unwrap());
-    assert!(ok(&cli(&repo, &["list"]))["leases"]
+    assert!(ok(&cli(&repo, &["list"]))["reservations"]
         .as_array()
         .unwrap()
         .is_empty());
@@ -554,6 +565,7 @@ fn release_recovers_after_an_inspection_process_is_killed() {
     ok(&cli(
         &repo,
         &[
+            "pool",
             "init",
             "--capacity",
             "1",

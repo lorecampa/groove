@@ -44,5 +44,5 @@ and avoid duplicate entries. Verify in the intended interactive shell, which may
 differ from an agent's execution shell. PowerShell and Elvish scripts can be
 loaded using their shell's normal mechanism.
 
-Completes commands, options and fixed choices, not live task names or lease IDs.
+Completes commands, options and fixed choices, not live task names or reservation IDs.
 No repository or valid user configuration is required. Regenerate after upgrading.

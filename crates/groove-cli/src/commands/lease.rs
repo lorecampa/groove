@@ -16,6 +16,7 @@ pub struct AcquireRequest {
     pub task: Option<String>,
     pub request_key: Option<String>,
     pub wait: Duration,
+    pub path_only: bool,
 }
 
 /// Human summary of one reservation.
@@ -26,7 +27,7 @@ pub fn describe_lease(lease: &LeaseInfo) -> String {
         .map(|label| format!(" for '{label}'"))
         .unwrap_or_default();
     format!(
-        "{slot} reserved{task}\n  lease:  {id}\n  path:   {path}\n  base:   {base}\n",
+        "{slot} reserved{task}\n  reservation: {id}\n  path: {path}\n  base: {base}\n",
         base = short(lease.base_oid.as_str()),
         slot = lease.slot_id,
         id = lease.lease_id,
@@ -50,7 +51,14 @@ pub fn acquire(context: &Context<'_>, request: AcquireRequest) -> Result<Output>
         request_key: request.request_key,
     })?;
     tracing::info!(event = "workspace.reserved", slot = %lease.slot_id, lease_id = %lease.lease_id, "Workspace reserved");
-    Output::text(serde_json::to_value(&lease)?, describe_lease(&lease))
+    if request.path_only {
+        Output::raw(
+            serde_json::to_value(&lease)?,
+            format!("{}\n", lease.worktree_path.display()),
+        )
+    } else {
+        Output::text(serde_json::to_value(&lease)?, describe_lease(&lease))
+    }
 }
 
 fn release_saved(
@@ -99,10 +107,10 @@ pub fn release(
     let result: ReleaseResult = pool.release_lease(id)?;
     tracing::info!(event = "workspace.released", slot = %result.slot_id, lease_id = %id, "Workspace released");
     let text = format!(
-        "Released {} (lease {}). Background preparation or the next acquisition discards its contents.",
+        "Released {} (reservation {}). Background preparation or the next acquisition discards its contents.",
         result.slot_id, result.lease_id
     );
-    Output::text(result, text)
+    Output::text(json!({"release": result, "snapshot": null}), text)
 }
 
 /// Human view of a lease plus any extra JSON context.
@@ -116,7 +124,7 @@ pub fn lease_output(lease: LeaseInfo, extra: Value) -> Result<Output> {
             .map(|label| format!(" (former task '{label}')"))
             .unwrap_or_default();
         format!(
-            "{} has no active reservation for lease {}{task}.\n",
+            "{} has no active reservation for reservation {}{task}.\n",
             lease.slot_id, lease.lease_id,
         )
     };

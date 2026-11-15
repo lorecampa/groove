@@ -13,13 +13,13 @@ fn initializing_an_unborn_repository_explains_the_first_commit_requirement() {
     support::git(&repo.path, &["rm", "-rf", "."]);
     for target in ["0", "1"] {
         let output = support::groove_in(&repo.path)
-            .args(["init", "--capacity", "1", "--ready-target", target])
+            .args(["pool", "init", "--capacity", "1", "--ready-target", target])
             .output()
             .unwrap();
         assert_eq!(output.status.code(), Some(4));
         let error: Value = serde_json::from_slice(&output.stdout).unwrap();
         let schema: Value =
-            serde_json::from_str(include_str!("../schemas/response-v1.schema.json")).unwrap();
+            serde_json::from_str(include_str!("../schemas/response-v2.schema.json")).unwrap();
         jsonschema::validator_for(&schema)
             .unwrap()
             .validate(&error)
@@ -37,15 +37,15 @@ fn initializing_an_unborn_repository_explains_the_first_commit_requirement() {
 #[test]
 fn new_pools_default_to_lazy_checkouts_without_changing_existing_policy() {
     let repo = Repo::new();
-    let initialized = cli(&repo, &["init", "--capacity", "2"]);
+    let initialized = cli(&repo, &["pool", "init", "--capacity", "2"]);
     assert_eq!(initialized["ready_target"], 0);
     assert_eq!(initialized["idle_timeout"], "7d");
     assert!(!repo.slot(1).exists());
     assert!(!repo.slot(2).exists());
-    cli(&repo, &["config", "set", "--ready-target", "1"]);
+    cli(&repo, &["pool", "set", "--ready-target", "1"]);
     let pool = Pool::open(&repo.path).unwrap();
     wait_ready(&pool, 1);
-    assert_eq!(cli(&repo, &["config", "show"])["pool"]["ready_target"], 1);
+    assert_eq!(cli(&repo, &["pool", "show"])["pool"]["ready_target"], 1);
 }
 
 #[test]
@@ -54,6 +54,7 @@ fn inspection_reports_corrupt_ready_metadata_as_unhealthy() {
     cli(
         &repo,
         &[
+            "pool",
             "init",
             "--capacity",
             "2",
@@ -122,7 +123,7 @@ fn cli(repo: &Repo, args: &[&str]) -> Value {
     assert_success(&output);
     let value: Value = serde_json::from_slice(&output.stdout).unwrap();
     let schema: Value =
-        serde_json::from_str(include_str!("../schemas/response-v1.schema.json")).unwrap();
+        serde_json::from_str(include_str!("../schemas/response-v2.schema.json")).unwrap();
     jsonschema::validator_for(&schema)
         .unwrap()
         .validate(&value)
@@ -153,6 +154,7 @@ fn background_workers_do_not_retain_external_lock_descriptors() {
     cli(
         &repo,
         &[
+            "pool",
             "init",
             "--capacity",
             "1",
@@ -207,7 +209,7 @@ exec "$GROOVE_REAL_GIT" "$@"
     assert_eq!(unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) }, 0);
     let mut command = support::groove_in(&repo.path);
     command
-        .args(["config", "set", "--ready-target", "1"])
+        .args(["pool", "set", "--ready-target", "1"])
         .env("PATH", path)
         .env("GROOVE_REAL_GIT", real_git.trim())
         .env("GROOVE_WORKER_ENTERED", &entered)
@@ -251,7 +253,10 @@ fn explicit_ready_target_prepares_and_replenishes_without_a_public_worker_comman
         return;
     }
     let repo = Repo::new();
-    let initialized = cli(&repo, &["init", "--capacity", "3", "--ready-target", "1"]);
+    let initialized = cli(
+        &repo,
+        &["pool", "init", "--capacity", "3", "--ready-target", "1"],
+    );
     assert_eq!(initialized["ready_target"], 1);
     assert_eq!(initialized["idle_timeout"], "7d");
     let pool = Pool::open(&repo.path).unwrap();
@@ -273,7 +278,7 @@ fn explicit_ready_target_prepares_and_replenishes_without_a_public_worker_comman
     assert_ne!(first["slot_id"], second["slot_id"]);
     wait_ready(&pool, 1);
     assert_eq!(pool.protected_leases().unwrap().len(), 2);
-    assert!(cli(&repo, &["show"])["ready"].is_object());
+    assert!(cli(&repo, &["pool", "show"])["ready"].is_object());
     let help = cli(&repo, &["--help"]);
     assert!(!help["text"].as_str().unwrap().contains("reconcile"));
     // Consume the last spare so any remaining worker has no preparation to do.
@@ -292,42 +297,43 @@ fn global_defaults_are_copied_and_invalid_targets_preserve_pool_settings() {
         &repo,
         &[
             "config",
-            "global",
             "set",
             "pool_defaults.ready_target=2",
             "pool_defaults.idle_timeout=never",
         ],
     );
     let output = support::groove_in(&repo.path)
-        .args(["init", "--capacity", "1"])
+        .args(["pool", "init", "--capacity", "1"])
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(2));
     assert!(!repo.state().join("config.json").exists());
-    cli(&repo, &["init", "--capacity", "2", "--ready-target", "0"]);
+    cli(
+        &repo,
+        &["pool", "init", "--capacity", "2", "--ready-target", "0"],
+    );
     cli(
         &repo,
         &[
             "config",
-            "global",
             "set",
             "pool_defaults.ready_target=1",
             "pool_defaults.idle_timeout=1h",
         ],
     );
-    let settings = cli(&repo, &["config", "show"]);
+    let settings = cli(&repo, &["pool", "show"]);
     assert_eq!(settings["pool"]["ready_target"], 0);
     assert_eq!(settings["pool"]["idle_timeout"], "never");
     let before = fs::read(repo.state().join("config.json")).unwrap();
     let output = support::groove_in(&repo.path)
-        .args(["config", "set", "--ready-target", "3"])
+        .args(["pool", "set", "--ready-target", "3"])
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(fs::read(repo.state().join("config.json")).unwrap(), before);
     cli(
         &repo,
-        &["config", "set", "--capacity", "3", "--ready-target", "3"],
+        &["pool", "set", "--capacity", "3", "--ready-target", "3"],
     );
     wait_ready(&Pool::open(&repo.path).unwrap(), 3);
 }
@@ -556,7 +562,7 @@ fn destruction_cancels_the_worker_between_slots_and_waits_for_its_descriptors() 
     let listener = UnixListener::bind(&socket).unwrap();
     let mut destroyer = support::TestChild::spawn(
         support::groove_in(&repo.path)
-            .args(["--git-timeout-ms", "5000", "destroy"])
+            .args(["--git-timeout", "5000ms", "pool", "destroy"])
             .env("GROOVE_TEST_CHECKPOINT", "ready-cancel-requested")
             .env("GROOVE_TEST_SOCKET", &socket),
     );
@@ -715,7 +721,7 @@ fn destruction_preview_does_not_cancel_an_active_ready_worker() {
         )
         .unwrap();
     let preview = support::groove_in(&repo.path)
-        .args(["destroy", "--dry-run"])
+        .args(["pool", "destroy", "--dry-run"])
         .output()
         .unwrap();
     assert!(!preview.status.success());
@@ -748,7 +754,7 @@ fn destruction_preview_waits_for_a_background_pass_without_cancelling_it() {
         )
         .unwrap();
     let mut command = support::groove_in(&repo.path);
-    command.args(["destroy", "--dry-run"]);
+    command.args(["pool", "destroy", "--dry-run"]);
     let mut preview = support::TestChild::spawn(&mut command);
     // Observe that preview is still waiting while the worker holds admission.
     let start = Instant::now();

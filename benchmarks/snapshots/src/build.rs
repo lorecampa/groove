@@ -254,7 +254,7 @@ pub(crate) fn measure(
         binary,
         repo,
         None,
-        &["init", "--capacity", "1", "--cleanup", cleanup],
+        &["pool", "init", "--capacity", "1", "--cleanup", cleanup],
     )?;
     for (index, name) in PHASES.into_iter().enumerate() {
         if name == "cache_removed" {
@@ -276,7 +276,7 @@ pub(crate) fn measure(
         )?;
         evidence.record("acquire", acquire)?;
         let workspace = PathBuf::from(
-            lease["worktree_path"]
+            lease["workspace_path"]
                 .as_str()
                 .ok_or_else(|| crate::util::Error::Invalid("Missing workspace".into()))?,
         );
@@ -343,16 +343,16 @@ pub(crate) fn measure(
             workspace_output: storage(&output_root)?,
             external_cache: storage(&root.join("cache"))?,
         });
-        let id = lease["lease_id"]
+        let id = lease["reservation_id"]
             .as_str()
             .ok_or_else(|| crate::util::Error::Invalid("Missing lease ID".into()))?;
         evidence.record(
             "release",
-            call(runner, binary, repo, &["release", "--lease-id", id])?.1,
+            call(runner, binary, repo, &["release", "--reservation-id", id])?.1,
         )?;
     }
     require(
-        call(runner, binary, repo, &["list"])?.0["leases"]
+        call(runner, binary, repo, &["list"])?.0["reservations"]
             .as_array()
             .is_some_and(Vec::is_empty),
         "Build workflow retained a reservation",

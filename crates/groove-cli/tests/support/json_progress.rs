@@ -7,7 +7,7 @@ pub fn assert_only(output: &Output, command: &str) {
     }
     let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     let schema: serde_json::Value =
-        serde_json::from_str(include_str!("../../schemas/progress-v1.schema.json")).unwrap();
+        serde_json::from_str(include_str!("../../schemas/progress-v2.schema.json")).unwrap();
     let validator = jsonschema::validator_for(&schema).unwrap();
     for line in std::str::from_utf8(&output.stderr).unwrap().lines() {
         let event: serde_json::Value = serde_json::from_str(line)

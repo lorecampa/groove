@@ -1,0 +1,20 @@
+EXAMPLES:
+  groove pool show
+  groove --pool default pool show --details --disk-usage
+  groove pool show --sort task --limit 20 --offset 20
+
+Show the selected pool's settings, a page of slots and its background preparation
+report. --details reads bounded local Git status for every slot; busy status
+becomes unavailable after at most two seconds of execution-lock contention.
+Corrupt ready-slot metadata is unhealthy and includes its failure.
+
+Default ordering is by slot ID with at most 50 entries. --sort task orders labels
+lexicographically (unlabelled first), with slot ID breaking ties. --order desc
+reverses both before pagination. Use --limit N, --offset N or --unlimited to
+change the page. JSON includes pagination.total, offset, limit and next_offset;
+inspection.capacity remains the full capacity. Concurrent changes can shift pages;
+metadata and detailed status still inspect all slots.
+
+--disk-usage adds logical workspace, cache, log and history sizes, including
+ignored files. It can be slow; shared Git objects and snapshots are excluded.
+Inspection starts no background work and contacts no remote.

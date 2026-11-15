@@ -14,6 +14,7 @@ fn init(repo: &Repo) {
     cli(
         repo,
         &[
+            "pool",
             "init",
             "--capacity",
             "1",
@@ -37,11 +38,11 @@ fn release_supports_transitive_pipeline_readers() {
         command
             .process_group(0)
             .env("GROOVE", support::groove_binary())
-            .env("ID", lease["lease_id"].as_str().unwrap())
+            .env("ID", lease["reservation_id"].as_str().unwrap())
             .args([
                 "-c",
                 &format!(
-                    "set -o pipefail; \"$GROOVE\" --json release --lease-id \"$ID\" | {stages}"
+                    "set -o pipefail; \"$GROOVE\" --json release --reservation-id \"$ID\" | {stages}"
                 ),
             ]);
         let output = support::TestChild::spawn(&mut command)
@@ -60,8 +61,8 @@ fn transitive_pipeline_does_not_exempt_background_workspace_writers() {
     let lease = cli(&repo, &["acquire"]);
     let mut command = support::command(&repo.slot(1), "bash");
     command.process_group(0).env("GROOVE", support::groove_binary())
-        .env("ID", lease["lease_id"].as_str().unwrap()).env("REPO", &repo.path)
-        .args(["-c", "set -o pipefail; sleep 30 & writer=$!; trap 'kill $writer; wait $writer 2>/dev/null' EXIT; \"$GROOVE\" --json --repo \"$REPO\" release --lease-id \"$ID\" | cat | cat"]);
+        .env("ID", lease["reservation_id"].as_str().unwrap()).env("REPO", &repo.path)
+        .args(["-c", "set -o pipefail; sleep 30 & writer=$!; trap 'kill $writer; wait $writer 2>/dev/null' EXIT; \"$GROOVE\" --json --repo \"$REPO\" release --reservation-id \"$ID\" | cat | cat"]);
     let output = support::TestChild::spawn(&mut command)
         .wait_with_output()
         .unwrap();
@@ -76,7 +77,11 @@ fn transitive_pipeline_does_not_exempt_background_workspace_writers() {
     assert!(repo.slot(1).join("tracked.txt").exists());
     cli(
         &repo,
-        &["release", "--lease-id", lease["lease_id"].as_str().unwrap()],
+        &[
+            "release",
+            "--reservation-id",
+            lease["reservation_id"].as_str().unwrap(),
+        ],
     );
 }
 
@@ -91,7 +96,7 @@ fn detailed_listing_bounds_busy_execution_wait() {
     assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
     let start = Instant::now();
     let mut command = support::groove_in(&repo.path);
-    command.args(["--git-timeout-ms", "60000", "list", "--slots", "--details"]);
+    command.args(["--git-timeout", "60000ms", "list", "--slots", "--details"]);
     let output = support::TestChild::spawn(&mut command)
         .wait_with_output()
         .unwrap();
@@ -117,8 +122,8 @@ fn deleted_pool_succeeds_despite_unreadable_snapshot_ref_cleanup() {
         &[
             "release",
             "--save",
-            "--lease-id",
-            lease["lease_id"].as_str().unwrap(),
+            "--reservation-id",
+            lease["reservation_id"].as_str().unwrap(),
         ],
     );
     let id = saved["snapshot"]["id"].as_str().unwrap();
@@ -129,7 +134,7 @@ fn deleted_pool_succeeds_despite_unreadable_snapshot_ref_cleanup() {
     .unwrap();
     for _ in 0..2 {
         assert_eq!(
-            cli(&repo, &["destroy", "--discard-changes"])["destruction"]["deleted"],
+            cli(&repo, &["pool", "destroy", "--force"])["destruction"]["deleted"],
             true
         );
         assert!(!repo.slot(1).exists());

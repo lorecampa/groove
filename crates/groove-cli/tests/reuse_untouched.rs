@@ -17,6 +17,7 @@ fn init(repo: &Repo) {
     cli(
         repo,
         &[
+            "pool",
             "init",
             "--capacity",
             "1",
@@ -36,8 +37,8 @@ fn release(repo: &Repo, lease: &Value) {
         &[
             "release",
             "--force",
-            "--lease-id",
-            lease["lease_id"].as_str().unwrap(),
+            "--reservation-id",
+            lease["reservation_id"].as_str().unwrap(),
         ],
     );
 }
@@ -86,6 +87,7 @@ fn verification_markers_on_another_filesystem_force_a_full_rewrite() {
     cli(
         &repo,
         &[
+            "pool",
             "init",
             "--capacity",
             "1",
@@ -93,7 +95,7 @@ fn verification_markers_on_another_filesystem_force_a_full_rewrite() {
             "0",
             "--idle-timeout",
             "never",
-            "--worktree-root",
+            "--workspace-root",
             root.path().to_str().unwrap(),
         ],
     );
@@ -457,6 +459,7 @@ fn warm_reuse_keeps_read_only_ignored_directories() {
     cli(
         &repo,
         &[
+            "pool",
             "init",
             "--capacity",
             "1",

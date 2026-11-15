@@ -1,16 +1,16 @@
 # Architecture
 
 Groove provides repository-local pools of reusable Git worktrees. The development
-protocol is v1; each command's `--help` derives its output contract from the
+protocol is v2; each command's `--help` derives its output contract from the
 bundled response schema, and
 [testing](testing.md) records validation boundaries.
 
 ## Identity and ownership
 
-A **slot ID** names a permanent reusable directory, such as `wt-0001`. A **lease
-ID** names one reservation of that slot. Reacquisition changes the lease ID, so
+A **slot ID** names a permanent reusable directory, such as `wt-0001`. A **reservation
+ID** names one reservation of that slot. Reacquisition changes the reservation ID, so
 an old request cannot release the next task's workspace. CLI users normally refer
-to a reservation by its **task label** (`--task`); lease IDs remain the
+to a reservation by its **task label** (`--task`); reservation IDs remain the
 unambiguous identifier underneath, and slot IDs are for inspection.
 
 An exclusive `flock` owns a slot while a core operation or an in-process `Lease`
@@ -89,7 +89,7 @@ Snapshots use separate `groove-snapshots` administration and
 Durable records carry versioned formats and permanent lock identities; readers
 reject incompatible formats instead of guessing or replacing locks.
 
-`init` is create-only; interrupted setup needs an explicit resume with identical
+`pool init` is create-only; interrupted setup needs an explicit resume with identical
 settings. Growth/settings updates hold administrative exclusion, validate all
 values and preserve existing slot identities. Brand-new/unpublished slots must
 have empty diagnostic records. A slot retained after completed deletion may have
@@ -116,7 +116,7 @@ so no queued exclusive waiter can deadlock a nested shared operation. The guard 
 not retained by an idle `Pool` handle. Normal slot/execution/admin locking and
 descriptor inheritance remain authoritative for surviving children.
 
-`init` takes exclusive admission before admin exclusion. Destroy first tries
+`pool init` takes exclusive admission before admin exclusion. Destroy first tries
 exclusive admission; on contention it requests cancellation of an observed ready worker under short admin
 exclusion, releases that exclusion, and polls admission up to the Git timeout.
 The worker checks its generation-specific cancellation token between slots.

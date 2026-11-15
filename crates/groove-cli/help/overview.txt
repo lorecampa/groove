@@ -1,20 +1,20 @@
 WORKFLOW:
-  groove init --capacity 4
+  groove pool init --capacity 4
   groove acquire --task fix-parser            # prints the path; work there
   # Work and run commands directly in the printed checkout path.
   groove release --save --task fix-parser     # snapshot, then free the slot
 
 INSPECTION AND SETTINGS:
-  groove pools                     pool namespaces and lifecycle states
-  groove pools --disk-usage         compare pool storage sizes
-  groove --pool frontend init --capacity 3 --cleanup warm
+  groove pool list                     pool namespaces and lifecycle states
+  groove pool list --disk-usage         compare pool storage sizes
+  groove --pool frontend pool init --capacity 3 --cleanup warm
                                    create a separate workflow pool
   groove list                      active reservations
   groove list --slots              every slot, with status and next action
   groove show --task NAME          one reservation in detail
   groove snapshot list             local checkpoints
-  groove config set --capacity 8   grow the pool
-  groove destroy --dry-run         preview deletion of an idle pool
+  groove pool set --capacity 8   grow the pool
+  groove pool destroy --dry-run         preview deletion of an idle pool
   groove completions bash          print a shell completion script
 
 Stop ALL writers, then release --save (snapshot, then release) or release. To keep
@@ -25,7 +25,7 @@ Worktrees share Git objects, refs and configuration; they are not security
 sandboxes.
 Pool commands use default unless --pool NAME is given, from every checkout.
 Task labels/keys and capacity are pool-local; snapshots and branches are shared.
-Destroy requires an explicit selection when several pools exist; see pools --help.
+Destroy requires an explicit selection when several pools exist; see pool list --help.
 
 Linux or macOS 13+, Git 2.40+, local storage (APFS on macOS).
 Run groove COMMAND --help for examples,
@@ -41,3 +41,11 @@ FILESYSTEM OVERRIDE:
 GROOVE_ALLOW_UNSUPPORTED_FILESYSTEM=1 bypasses filesystem-type qualification.
 Use only after verifying local flock, atomic rename and fsync semantics; this
 does not bypass ownership, mount or path checks. See docs/operations.md.
+
+DURATIONS AND SIZES:
+  --wait 0s scans once; --wait 30s waits up to thirty seconds for capacity.
+  --git-timeout 2m is the default positive timeout for Git and lock waits.
+  Durations require an integer and ms, s, m or h; bare numbers are invalid.
+  --max-file-size defaults to 100M. Bytes or K/M/G (powers of 1024) are accepted,
+  including KB/KiB suffixes, case-insensitively. Zero means unlimited.
+  Snapshot, config, pool list and completions commands reject --pool.

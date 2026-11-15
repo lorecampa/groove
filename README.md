@@ -58,7 +58,7 @@ every request.
 From a Git repository with at least one commit:
 
 ```sh
-groove init --capacity 4
+groove pool init --capacity 4
 groove acquire --task fix-parser
 # Work and run tests directly in the printed checkout path.
 groove release --save --task fix-parser
@@ -66,8 +66,8 @@ groove release --save --task fix-parser
 
 New pools put checkouts in `~/.worktrees/<project>-<repo-id>/<pool>` on Linux and
 macOS. Set a different parent with
-`groove config global set worktrees.root=/absolute/worktrees`, or choose an exact
-pool location with `init --worktree-root`. Existing pools keep their locations.
+`groove config set worktrees.root=/absolute/worktrees`, or choose an exact
+pool location with `init --workspace-root`. Existing pools keep their locations.
 
 Acquisition returns a checkout path with detached HEAD. Work in that path, stop
 all writers, then run `groove release --save` to pin a local snapshot and free the
@@ -81,7 +81,7 @@ Ignored files are excluded from snapshots. `release` frees a slot without saving
 a snapshot; background preparation or the next acquisition can discard its
 contents. Nothing is merged or pushed automatically.
 
-Pools can separate workflow capacity, cleanup and caches. Use `groove pools` to
+Pools can separate workflow capacity, cleanup and caches. Use `groove pool list` to
 list them and pass the same `--pool NAME` on each pool command. Omitting it selects
 `default`. Pools share Git branches, objects and configuration; they are not
 security sandboxes. See [operations](docs/operations.md) for repository compatibility
@@ -95,13 +95,13 @@ recovery instructions:
 ```sh
 groove --help
 groove acquire --help
-groove destroy --help
+groove pool destroy --help
 ```
 
 For scripts, add `--json` to each command. Every response, including
 errors and help, is one versioned JSON object. Check `ok` and the exit status
-before using `result.worktree_path`. Use a request key to retry acquisition and
-retain the lease ID for subsequent retries; see the [portable skill](skills/groove/SKILL.md).
+before using `result.workspace_path`. Use a idempotency key to retry acquisition and
+retain the reservation ID for subsequent retries; see the [portable skill](skills/groove/SKILL.md).
 
 ## Guides
 

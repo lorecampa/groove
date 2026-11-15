@@ -157,7 +157,7 @@ impl Repository {
             .ok_or_else(|| {
                 Error::new(
                     crate::ErrorCode::InvalidArgument,
-                    "Set an absolute HOME, configure worktrees.root, or pass --worktree-root",
+                    "Set an absolute HOME, configure worktrees.root, or pass --workspace-root",
                 )
             })?;
         // User-selected parents may be aliases (for example a symlinked HOME).

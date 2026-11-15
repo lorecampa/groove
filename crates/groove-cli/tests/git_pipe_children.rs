@@ -184,7 +184,7 @@ exec "$GROOVE_REAL_GIT" "$@"
         paths.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap()));
         let mut child = TestChild::spawn(
             support::groove_in(&repo.path)
-                .args(["--git-timeout-ms", "1500", "acquire"])
+                .args(["--git-timeout", "1500ms", "acquire"])
                 .env("PATH", std::env::join_paths(paths).unwrap())
                 .env("GROOVE_REAL_GIT", real_git.trim())
                 .env("GROOVE_PIPE_EXE", std::env::current_exe().unwrap())
@@ -226,7 +226,7 @@ exec "$GROOVE_REAL_GIT" "$@"
         let output = child.wait_with_output().unwrap();
         let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
         let schema: serde_json::Value =
-            serde_json::from_str(include_str!("../schemas/response-v1.schema.json")).unwrap();
+            serde_json::from_str(include_str!("../schemas/response-v2.schema.json")).unwrap();
         jsonschema::validator_for(&schema)
             .unwrap()
             .validate(&response)
@@ -241,7 +241,7 @@ exec "$GROOVE_REAL_GIT" "$@"
         if leader_exits {
             assert!(output.status.success(), "{output:?}");
             assert_eq!(response["ok"], true);
-            let id = response["result"]["lease_id"]
+            let id = response["result"]["reservation_id"]
                 .as_str()
                 .unwrap()
                 .parse()

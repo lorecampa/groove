@@ -137,8 +137,8 @@ exec "$GROOVE_REAL_GIT" "$@"
     let mut command = support::groove_in(&repo.path);
     command
         .args([
-            "--git-timeout-ms",
-            "1500",
+            "--git-timeout",
+            "1500ms",
             "snapshot",
             "delete",
             &id,
@@ -163,7 +163,7 @@ exec "$GROOVE_REAL_GIT" "$@"
     // from_slice rejects extra responses and trailing human output.
     let error: Value = serde_json::from_slice(&output.stdout).unwrap();
     let schema: Value =
-        serde_json::from_str(include_str!("../schemas/response-v1.schema.json")).unwrap();
+        serde_json::from_str(include_str!("../schemas/response-v2.schema.json")).unwrap();
     jsonschema::validator_for(&schema)
         .unwrap()
         .validate(&error)

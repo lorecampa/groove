@@ -14,7 +14,7 @@ fn sigint_terminates_a_waiting_acquire_without_a_timeout_response_or_new_reserva
     let repo = Repo::new();
     assert_success(
         &support::groove_in(&repo.path)
-            .args(["init", "--capacity", "1", "--ready-target", "0"])
+            .args(["pool", "init", "--capacity", "1", "--ready-target", "0"])
             .output()
             .unwrap(),
     );
@@ -29,7 +29,7 @@ fn sigint_terminates_a_waiting_acquire_without_a_timeout_response_or_new_reserva
     let mut command = support::groove_in(&repo.path);
     command
         .process_group(0)
-        .args(["acquire", "--wait-ms", "30000"])
+        .args(["acquire", "--wait", "30000ms"])
         .env("GROOVE_TEST_CHECKPOINT", "acquire-waiting")
         .env("GROOVE_TEST_SOCKET", socket);
     let started = Instant::now();
@@ -51,7 +51,10 @@ fn sigint_terminates_a_waiting_acquire_without_a_timeout_response_or_new_reserva
         String::from_utf8_lossy(&output.stdout)
     );
     let listed = assert_success(&support::groove_in(&repo.path).arg("list").output().unwrap());
-    let reservations = listed["result"]["leases"].as_array().unwrap();
+    let reservations = listed["result"]["reservations"].as_array().unwrap();
     assert_eq!(reservations.len(), 1);
-    assert_eq!(reservations[0]["lease_id"], lease["result"]["lease_id"]);
+    assert_eq!(
+        reservations[0]["reservation_id"],
+        lease["result"]["reservation_id"]
+    );
 }

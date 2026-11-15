@@ -59,7 +59,7 @@ impl Lease {
         if self.guard.is_none() {
             return Err(Error::new(
                 crate::ErrorCode::InvalidLease,
-                "Lease was released",
+                "Reservation was released",
             ));
         }
         state::write(
@@ -97,7 +97,10 @@ impl Lease {
     /// or metadata I/O failure. Retrying can finish a partially recorded release.
     pub fn release(&mut self) -> Result<ReleaseResult> {
         let guard = self.guard.as_ref().ok_or_else(|| {
-            Error::new(crate::ErrorCode::InvalidLease, "Lease was already released")
+            Error::new(
+                crate::ErrorCode::InvalidLease,
+                "Reservation was already released",
+            )
         })?;
         let result = release(
             &self.pool,
@@ -122,7 +125,7 @@ impl Lease {
         let fd = self
             .guard
             .as_ref()
-            .ok_or_else(|| Error::new(crate::ErrorCode::InvalidLease, "Lease was released"))?
+            .ok_or_else(|| Error::new(crate::ErrorCode::InvalidLease, "Reservation was released"))?
             .file
             .as_raw_fd();
         command
@@ -199,7 +202,7 @@ pub(crate) fn release(
         {
             return Err(Error::new(
                 crate::ErrorCode::LeaseMismatch,
-                "Lease generation is stale or no longer active",
+                "Reservation generation is stale or no longer active",
             ));
         }
         Ok(record)

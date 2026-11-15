@@ -153,14 +153,20 @@ fn artifacts(repo: &Repository) -> Result<Vec<PathBuf>> {
 fn require_saved(repo: &Repository, path: &Path, timeout: Duration) -> Result<()> {
     crate::recovery::registration(repo, path)?;
     if crate::recovery::interrupted(repo, path)? {
-        return Err(Error::new(ErrorCode::UnsavedChanges, "Interrupted Git operation remains; recover it or acknowledge loss with --discard-changes")
-            .with_details(|d| d.path = Some(path.into())));
+        return Err(Error::new(
+            ErrorCode::UnsavedChanges,
+            "Interrupted Git operation remains; recover it or acknowledge loss with --force",
+        )
+        .with_details(|d| d.path = Some(path.into())));
     }
     let git = crate::git::Git::new(timeout);
     let audit = git.audit_index(path, crate::git::Invocation::default())?;
     if audit.assume_unchanged || audit.skip_worktree {
-        return Err(Error::new(ErrorCode::UnsupportedConfiguration, "Index flags can hide edits; clear assume-unchanged/skip-worktree flags or use --discard-changes")
-            .with_details(|d| d.path = Some(path.into())));
+        return Err(Error::new(
+            ErrorCode::UnsupportedConfiguration,
+            "Index flags can hide edits; clear assume-unchanged/skip-worktree flags or use --force",
+        )
+        .with_details(|d| d.path = Some(path.into())));
     }
     let status = git.run_with(
         path,
@@ -179,13 +185,15 @@ fn require_saved(repo: &Repository, path: &Path, timeout: Duration) -> Result<()
         },
     )?;
     if !status.is_empty() {
-        return Err(Error::new(ErrorCode::UnsavedChanges, "Workspace contains residual files or edits; save them or acknowledge loss with --discard-changes")
+        return Err(Error::new(ErrorCode::UnsavedChanges, "Workspace contains residual files or edits; save them or acknowledge loss with --force")
             .with_details(|d| d.path = Some(path.into())));
     }
     if let Some(special) = crate::workspace_files::first_special(path, timeout)? {
-        return Err(Error::new(ErrorCode::UnsavedChanges,
-            "Workspace contains a special file; export it or acknowledge loss with --discard-changes")
-            .with_details(|details| details.path = Some(special)));
+        return Err(Error::new(
+            ErrorCode::UnsavedChanges,
+            "Workspace contains a special file; export it or acknowledge loss with --force",
+        )
+        .with_details(|details| details.path = Some(special)));
     }
     crate::quiescence::require_saved_head(path, timeout)
 }
@@ -380,7 +388,7 @@ impl Pool {
         {
             return Err(Error::new(
                 ErrorCode::ConfigConflict,
-                "Retry destroy with the original --discard-changes policy",
+                "Retry destroy with the original --force policy",
             ));
         }
         let root = &config.worktree_root;

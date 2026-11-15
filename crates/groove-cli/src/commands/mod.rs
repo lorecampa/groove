@@ -7,7 +7,7 @@ mod pool;
 mod snapshot;
 
 use crate::{
-    args::{Command, LeaseSelector},
+    args::{Command, LeaseSelector, PoolCommand},
     output::Output,
 };
 use groove_core::{LeaseInfo, Pool, Result};
@@ -31,12 +31,12 @@ impl Context<'_> {
     }
 }
 
-/// Resolve `--lease-id` or `--task` to one reservation.
+/// Resolve `--reservation-id` or `--task` to one reservation.
 fn select(pool: &Pool, selector: &LeaseSelector) -> Result<LeaseInfo> {
     match (&selector.lease_id, &selector.task) {
         (Some(id), _) => pool.lease_info(*id),
         (None, Some(task)) => pool.lease_by_task(task),
-        (None, None) => unreachable!("clap requires --lease-id or --task"),
+        (None, None) => unreachable!("clap requires --reservation-id or --task"),
     }
 }
 
@@ -52,45 +52,78 @@ fn select_id(pool: &Pool, selector: &LeaseSelector) -> Result<groove_core::Lease
 /// Run one parsed command.
 pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
     match command {
-        Command::Pools {
-            all,
-            disk_usage,
-            page,
-            sort,
-        } => pool::pools(context, *all, *disk_usage, page, *sort),
-        Command::Destroy {
-            dry_run,
-            discard_changes,
-            pool_id,
-        } => pool::destroy(context, *dry_run, *discard_changes, *pool_id),
-        Command::Init {
-            ready_target,
-            idle_timeout,
-            ready_base,
-            capacity,
-            cleanup,
-            worktree_root,
-            resume,
-        } => {
-            let defaults = crate::preferences::load()?.pool_defaults;
-            pool::init(
+        Command::Pool(command) => match command {
+            PoolCommand::List {
+                all,
+                disk_usage,
+                page,
+                sort,
+            } => pool::pools(context, *all, *disk_usage, page, *sort),
+            PoolCommand::Destroy {
+                dry_run,
+                discard_changes,
+                pool_id,
+            } => pool::destroy(context, *dry_run, *discard_changes, *pool_id),
+            PoolCommand::Init {
+                ready_target,
+                idle_timeout,
+                ready_base,
+                capacity,
+                cleanup,
+                worktree_root,
+                resume,
+            } => {
+                let defaults = crate::preferences::load()?.pool_defaults;
+                pool::init(
+                    context,
+                    *capacity,
+                    *cleanup,
+                    worktree_root.clone(),
+                    *resume,
+                    groove_core::ReadySettings {
+                        ready_target: ready_target.unwrap_or(defaults.ready_target),
+                        idle_timeout: idle_timeout.unwrap_or(defaults.idle_timeout),
+                        ready_base: ready_base.clone().unwrap_or_else(|| "HEAD".into()),
+                    },
+                )
+            }
+            PoolCommand::Show {
+                details,
+                disk_usage,
+                page,
+                sort,
+            } => pool::show(
                 context,
-                *capacity,
-                *cleanup,
-                worktree_root.clone(),
-                *resume,
-                groove_core::ReadySettings {
-                    ready_target: ready_target.unwrap_or(defaults.ready_target),
-                    idle_timeout: idle_timeout.unwrap_or(defaults.idle_timeout),
-                    ready_base: ready_base.clone().unwrap_or_else(|| "HEAD".into()),
+                &Default::default(),
+                *details,
+                *disk_usage,
+                page,
+                *sort,
+            ),
+            PoolCommand::Set {
+                capacity,
+                cleanup,
+                ready_target,
+                idle_timeout,
+                ready_base,
+            } => pool::set(
+                context,
+                groove_core::PoolUpdate {
+                    capacity: *capacity,
+                    cleanup_policy: cleanup.map(Into::into),
+                    ready_target: *ready_target,
+                    idle_timeout: *idle_timeout,
+                    ready_base: ready_base.clone(),
+                    timeout: context.git_timeout,
                 },
-            )
-        }
+            ),
+        },
         Command::Acquire {
             base,
             task,
             request_key,
             wait_ms,
+            path_only,
         } => lease::acquire(
             context,
             lease::AcquireRequest {
@@ -98,6 +131,7 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
                 task: task.clone(),
                 request_key: request_key.clone(),
                 wait: Duration::from_millis(*wait_ms),
+                path_only: *path_only,
             },
         ),
         Command::Release {
@@ -122,13 +156,14 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
             page,
             sort,
         } => pool::list(context, *slots, *details, page, *sort),
-        Command::Show {
-            page,
-            sort,
+        Command::Show { selector, details } => pool::show(
+            context,
             selector,
-            details,
-            disk_usage,
-        } => pool::show(context, selector, *details, *disk_usage, page, *sort),
+            *details,
+            false,
+            &Default::default(),
+            crate::args::SlotSort::Slot,
+        ),
         Command::Completions { shell } => completions::run(*shell),
         Command::Snapshot(command) => snapshot::run(context, command),
         Command::Config(command) => config::run(context, command),

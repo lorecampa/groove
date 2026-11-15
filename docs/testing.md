@@ -215,6 +215,20 @@ report. Distinguish product regressions, structural skill checks and real agent
 trials; none establishes the others. Mark unrun scenarios explicitly. The Rust
 suite does not invoke a paid agent service.
 
+## Repository scale
+
+The required suite includes fast directory-inventory, untouched-file and process
+regressions. Run `bash scripts/scale-check.sh` for a full lifecycle on a larger
+synthetic fixture, or pass `--repo PATH` to check a shared clone without changing
+the source repository. It checks reuse, base switches, snapshot bytes, response
+bounds, checkout counts and destruction, and writes a timing report.
+
+`cargo run -p groove-bench --locked -- check monorepo-reuse --host` exercises the
+versioned heterogeneous benchmark profile. Workspace and monorepo reuse profiles
+assert in-place reuse. Assert the reported `recovery` outcome and that untouched
+files keep their identity; a timing alone does not reveal a rebuild on a small
+fixture. Timing checks complement these observable contracts.
+
 ## Optional host tests and limits
 
 [The benchmark lab](../benchmarks/snapshots/README.md) owns performance profiles,

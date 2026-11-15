@@ -23,7 +23,7 @@
               "state_dir",
               "capacity",
               "cleanup_policy",
-              "worktree_root"
+              "workspace_root"
             ],
             "properties": {
               "storage": {
@@ -77,7 +77,7 @@
                   null
                 ]
               },
-              "worktree_root": {
+              "workspace_root": {
                 "type": [
                   "string",
                   "null"
@@ -108,7 +108,7 @@
             "already_deleted",
             "resumed",
             "state_dir",
-            "worktree_root",
+            "workspace_root",
             "slots",
             "artifacts"
           ],
@@ -142,7 +142,7 @@
               "type": "string",
               "pattern": "^/"
             },
-            "worktree_root": {
+            "workspace_root": {
               "type": "string",
               "pattern": "^/"
             },
@@ -178,8 +178,8 @@
             "NOT_INITIALIZED",
             "CONFIG_CONFLICT",
             "INVALID_REVISION",
-            "INVALID_LEASE",
-            "LEASE_MISMATCH",
+            "INVALID_RESERVATION",
+            "RESERVATION_MISMATCH",
             "RECOVERY_FAILED",
             "POOL_UNHEALTHY",
             "IO_ERROR",
@@ -243,10 +243,10 @@
                 }
               }
             },
-            "lease_id": {
+            "reservation_id": {
               "$ref": "#/$defs/uuid"
             },
-            "worktree_path": {
+            "workspace_path": {
               "type": "string"
             },
             "released": {
@@ -331,7 +331,7 @@
       ],
       "type": "object"
     },
-    "saved_release_result": {
+    "release_result": {
       "type": "object",
       "required": [
         "release",
@@ -342,7 +342,14 @@
           "$ref": "#/$defs/release"
         },
         "snapshot": {
-          "$ref": "#/$defs/snapshot"
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/snapshot"
+            }
+          ]
         }
       }
     },
@@ -375,7 +382,7 @@
         "state_dir": {
           "type": "string"
         },
-        "worktree_root": {
+        "workspace_root": {
           "type": "string"
         },
         "ready_target": {
@@ -399,7 +406,7 @@
         "capacity",
         "slots",
         "cleanup_policy",
-        "worktree_root"
+        "workspace_root"
       ],
       "type": "object"
     },
@@ -475,20 +482,20 @@
                       "null"
                     ]
                   },
-                  "lease": {
+                  "reservation": {
                     "anyOf": [
                       {
                         "type": "null"
                       },
                       {
-                        "$ref": "#/$defs/lease"
+                        "$ref": "#/$defs/reservation"
                       }
                     ]
                   },
                   "lock_held": {
                     "type": "boolean"
                   },
-                  "lease_active": {
+                  "reservation_active": {
                     "type": "boolean"
                   },
                   "slot_id": {
@@ -503,15 +510,15 @@
                       "unhealthy"
                     ]
                   },
-                  "worktree_path": {
+                  "workspace_path": {
                     "type": "string"
                   }
                 },
                 "required": [
                   "slot_id",
                   "status",
-                  "worktree_path",
-                  "lease",
+                  "workspace_path",
+                  "reservation",
                   "lock_held",
                   "failure"
                 ],
@@ -539,7 +546,7 @@
       ],
       "type": "object"
     },
-    "lease": {
+    "reservation": {
       "properties": {
         "acquired_at_unix_ms": {
           "minimum": 0,
@@ -555,7 +562,7 @@
         "head_mode": {
           "const": "detached"
         },
-        "lease_id": {
+        "reservation_id": {
           "$ref": "#/$defs/uuid"
         },
         "recovery": {
@@ -565,7 +572,7 @@
             "rebuilt"
           ]
         },
-        "request_key": {
+        "idempotency_key": {
           "maxLength": 128,
           "minLength": 1,
           "type": "string"
@@ -581,7 +588,7 @@
           "minLength": 1,
           "type": "string"
         },
-        "worktree_path": {
+        "workspace_path": {
           "type": "string"
         },
         "ownership": {
@@ -593,8 +600,8 @@
       },
       "required": [
         "slot_id",
-        "lease_id",
-        "worktree_path",
+        "reservation_id",
+        "workspace_path",
         "base_oid",
         "head_mode",
         "recovery",
@@ -603,11 +610,11 @@
       ],
       "type": "object"
     },
-    "leases": {
+    "reservations": {
       "properties": {
-        "leases": {
+        "reservations": {
           "items": {
-            "$ref": "#/$defs/lease"
+            "$ref": "#/$defs/reservation"
           },
           "type": "array"
         },
@@ -616,7 +623,7 @@
         }
       },
       "required": [
-        "leases",
+        "reservations",
         "pagination"
       ],
       "type": "object"
@@ -632,7 +639,7 @@
         "cleanup": {
           "const": "deferred"
         },
-        "lease_id": {
+        "reservation_id": {
           "$ref": "#/$defs/uuid"
         },
         "released": {
@@ -644,7 +651,7 @@
       },
       "required": [
         "slot_id",
-        "lease_id",
+        "reservation_id",
         "released",
         "cleanup"
       ],
@@ -845,7 +852,7 @@
         "cleanup_policy": {
           "$ref": "#/$defs/policy"
         },
-        "worktree_root": {
+        "workspace_root": {
           "type": "string"
         },
         "state_dir": {
@@ -868,7 +875,7 @@
       "required": [
         "capacity",
         "cleanup_policy",
-        "worktree_root",
+        "workspace_root",
         "state_dir"
       ],
       "additionalProperties": false
@@ -892,17 +899,17 @@
         ]
       }
     },
-    "lease_result": {
+    "reservation_result": {
       "type": "object",
       "required": [
-        "lease"
+        "reservation"
       ],
       "properties": {
         "active": {
           "type": "boolean"
         },
-        "lease": {
-          "$ref": "#/$defs/lease"
+        "reservation": {
+          "$ref": "#/$defs/reservation"
         },
         "slot": {
           "type": "object"
@@ -946,7 +953,9 @@
       "properties": {
         "patch_encoding": {
           "type": "string",
-          "enum": ["base64"],
+          "enum": [
+            "base64"
+          ],
           "description": "When present, decode patch from base64. Otherwise patch is UTF-8 text."
         },
         "patch": {
@@ -1104,9 +1113,138 @@
           ]
         }
       }
+    },
+    "pool_show_result": {
+      "type": "object",
+      "required": [
+        "pool",
+        "inspection",
+        "ready",
+        "pagination"
+      ],
+      "properties": {
+        "pool": {
+          "$ref": "#/$defs/pool_settings"
+        },
+        "inspection": {
+          "properties": {
+            "capacity": {
+              "maximum": 4096,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "slots": {
+              "items": {
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  },
+                  "next_action": {
+                    "type": "string"
+                  },
+                  "git": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "staged",
+                          "modified",
+                          "untracked",
+                          "error"
+                        ],
+                        "properties": {
+                          "staged": {
+                            "type": "boolean"
+                          },
+                          "modified": {
+                            "type": "boolean"
+                          },
+                          "untracked": {
+                            "type": "boolean"
+                          },
+                          "error": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "failure": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "reservation": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "$ref": "#/$defs/reservation"
+                      }
+                    ]
+                  },
+                  "lock_held": {
+                    "type": "boolean"
+                  },
+                  "reservation_active": {
+                    "type": "boolean"
+                  },
+                  "slot_id": {
+                    "$ref": "#/$defs/slot"
+                  },
+                  "status": {
+                    "enum": [
+                      "available",
+                      "reserved",
+                      "locked",
+                      "quarantined",
+                      "unhealthy"
+                    ]
+                  },
+                  "workspace_path": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "slot_id",
+                  "status",
+                  "workspace_path",
+                  "reservation",
+                  "lock_held",
+                  "failure"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "capacity",
+            "slots"
+          ],
+          "type": "object"
+        },
+        "ready": {
+          "$ref": "#/$defs/ready_report"
+        },
+        "pagination": {
+          "$ref": "#/$defs/pagination"
+        },
+        "storage": {
+          "$ref": "#/$defs/storage_usage"
+        }
+      }
     }
   },
-  "$id": "https://github.com/lorecampa/groove/schemas/response-v1.schema.json",
+  "$id": "https://github.com/lorecampa/groove/schemas/response-v2.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "oneOf": [
     {
@@ -1131,16 +1269,13 @@
               "$ref": "#/$defs/init"
             },
             {
-              "$ref": "#/$defs/lease"
-            },
-            {
-              "$ref": "#/$defs/release"
+              "$ref": "#/$defs/reservation"
             },
             {
               "$ref": "#/$defs/text"
             },
             {
-              "$ref": "#/$defs/leases"
+              "$ref": "#/$defs/reservations"
             },
             {
               "$ref": "#/$defs/user_config"
@@ -1155,13 +1290,16 @@
               "$ref": "#/$defs/slot_result"
             },
             {
-              "$ref": "#/$defs/saved_release_result"
+              "$ref": "#/$defs/release_result"
             },
             {
               "$ref": "#/$defs/pool_result"
             },
             {
-              "$ref": "#/$defs/lease_result"
+              "$ref": "#/$defs/reservation_result"
+            },
+            {
+              "$ref": "#/$defs/pool_show_result"
             }
           ]
         }
@@ -1191,7 +1329,7 @@
   ],
   "properties": {
     "api_version": {
-      "const": 1
+      "const": 2
     },
     "ok": {
       "type": "boolean"
@@ -1208,60 +1346,33 @@
     "request_id",
     "ok"
   ],
-  "title": "Groove CLI response v1",
+  "title": "Groove CLI response v2",
   "type": "object",
   "x-groove-command-results": {
     "acquire": [
-      "lease"
+      "reservation"
     ],
     "completions": [
       "text"
     ],
-    "config global edit": [
-      "user_config"
-    ],
-    "config global path": [
-      "user_config"
-    ],
-    "config global set": [
-      "user_config"
-    ],
-    "config global show": [
-      "user_config"
-    ],
-    "config global unset": [
-      "user_config"
-    ],
     "config set": [
-      "pool_result"
+      "user_config"
     ],
     "config show": [
-      "pool_result"
-    ],
-    "destroy": [
-      "destruction_result"
+      "user_config"
     ],
     "help": [
       "text"
     ],
-    "init": [
-      "init"
-    ],
     "list": [
-      "leases",
+      "reservations",
       "inspection_result"
     ],
-    "pools": [
-      "pools_result"
-    ],
     "release": [
-      "release",
-      "saved_release_result"
+      "release_result"
     ],
     "show": [
-      "pool_result",
-      "inspection_result",
-      "lease_result",
+      "reservation_result",
       "slot_result"
     ],
     "snapshot delete": [
@@ -1284,6 +1395,30 @@
     ],
     "version": [
       "text"
+    ],
+    "pool init": [
+      "init"
+    ],
+    "pool list": [
+      "pools_result"
+    ],
+    "pool show": [
+      "pool_show_result"
+    ],
+    "pool set": [
+      "pool_result"
+    ],
+    "pool destroy": [
+      "destruction_result"
+    ],
+    "config path": [
+      "user_config"
+    ],
+    "config edit": [
+      "user_config"
+    ],
+    "config unset": [
+      "user_config"
     ]
   }
 }

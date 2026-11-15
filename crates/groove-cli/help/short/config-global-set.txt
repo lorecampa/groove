@@ -1,2 +1,0 @@
-EXAMPLE:
-  groove config global set logging.max_files=50

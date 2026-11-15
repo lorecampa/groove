@@ -108,7 +108,7 @@ runtime gate and regression coverage in the same PR.
    applicable statements that no experiments are registered, including module
    documentation and schema descriptions. Update schema structure and
    conformance tests if the feature adds configuration or changes wire behavior.
-   Follow `config global --help` for user opt-in syntax; user and project
+   Follow `config --help` for user opt-in syntax; user and project
    requests are additive, and setting the feature array replaces that source's
    previous array.
 

@@ -1,8 +1,8 @@
 
 JSON OUTPUT CONTRACT (--json):
   Without JSON mode, stdout is human-readable and errors go to stderr.
-  Success: {"api_version":1,"request_id":null,"ok":true,"result":{...}}
-  Failure: {"api_version":1,"request_id":null,"ok":false,"error":{...}}
+  Success: {"api_version":2,"request_id":null,"ok":true,"result":{...}}
+  Failure: {"api_version":2,"request_id":null,"ok":false,"error":{...}}
   request_id is the supplied correlation string, or null. Success has result
   and no error; failure has error and no result. Help/version use result.text.
   Exactly one newline-terminated object is written to stdout. Stderr can contain
@@ -10,14 +10,14 @@ JSON OUTPUT CONTRACT (--json):
   Commands still running after 1 second show a spinner on interactive stderr
   (except TERM=dumb). Redirected human output has no animation. With --json,
   progress is a newline-delimited stderr object instead, at most every 5 seconds:
-  {"api_version":1,"event":"progress","request_id":null,"command":"show","elapsed_ms":1000}
-  command is the top-level command name; elapsed_ms is time since command start.
+  {"api_version":2,"event":"progress","request_id":null,"command":"show","elapsed_ms":1000}
+  command is the full pool command path (such as "pool init") or command name; elapsed_ms is time since command start.
   These best-effort liveness events have no completion percentage or final event;
   the stdout response is authoritative. Events wait for a diagnostic line boundary.
   Stderr also carries diagnostics: it is not a JSON-only stream.
   --quiet suppresses all progress. Help/version and the interactive preferences
   editor never emit progress.
-  Reject unknown api_version values; accept additive fields. The v1 interface is
+  Reject unknown api_version values; accept additive fields. The v2 interface is
   in development. Success exits 0. Check both ok AND exit status.
   Branch on error.code, not message/hint. retryable:true permits retry after
-  contention clears; details may retain lease/worktree, saved snapshot IDs.
+  contention clears; details may retain reservation/workspace, saved snapshot IDs.

@@ -635,12 +635,10 @@ impl Snapshots {
                 let index = fields
                     .next()
                     .and_then(|field| field.strip_prefix(b"i/"))
-                    .filter(|field| !field.is_empty())
                     .ok_or_else(|| invalid("Malformed Git EOL inventory"))?;
                 let working = fields
                     .next()
                     .and_then(|field| field.strip_prefix(b"w/"))
-                    .filter(|field| !field.is_empty())
                     .ok_or_else(|| invalid("Malformed Git EOL inventory"))?;
                 if !fields
                     .next()
@@ -914,7 +912,7 @@ impl Snapshots {
             let stamp = stamp(&path)?;
             if let Some((size, _, _, _)) = stamp {
                 if options.max_file_bytes != 0 && size > options.max_file_bytes {
-                    return Err(invalid(format!("Changed file {} exceeds {} bytes; raise --max-file-bytes or use 0 explicitly", path.display(), options.max_file_bytes)));
+                    return Err(invalid(format!("Changed file {} exceeds {} bytes; raise --max-file-size or use 0 explicitly", path.display(), options.max_file_bytes)));
                 }
                 if fs::symlink_metadata(&path)?.is_dir()
                     && (path.join(".git").exists() || p.ends_with(b"/"))

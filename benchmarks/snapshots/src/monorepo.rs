@@ -4,7 +4,7 @@ use crate::{
     harness::{command, fingerprint, verify_trees},
     profiles::{Case, Cleanup},
     statistics::Observation,
-    util::{require, Error, Result, Runner},
+    util::{require, require_reused, Error, Result, Runner},
 };
 use serde_json::Value;
 use std::{
@@ -167,7 +167,7 @@ fn call(runner: &Runner, binary: &Path, repo: &Path, args: &[&str]) -> Result<(V
     )
 }
 fn workspace(lease: &Value) -> Result<PathBuf> {
-    lease["worktree_path"]
+    lease["workspace_path"]
         .as_str()
         .map(PathBuf::from)
         .ok_or_else(|| Error::Invalid("Missing workspace".into()))
@@ -207,12 +207,22 @@ pub(crate) fn measure(
         binary,
         repo,
         None,
-        &["init", "--capacity", "1", "--cleanup", cleanup.name()],
+        &[
+            "pool",
+            "init",
+            "--capacity",
+            "1",
+            "--cleanup",
+            cleanup.name(),
+        ],
     )?;
     let mut evidence = Evidence::default();
     for operation in ["first_acquire", "warm_acquire"] {
         let (lease, timing) = call(runner, binary, repo, &["acquire", "--task", "bench"])?;
         evidence.record(operation, timing)?;
+        if operation == "warm_acquire" {
+            require_reused(&lease, operation)?;
+        }
         verify(runner, &lease, &tip, &tree)?;
         let (_, time) = call(runner, binary, repo, &["release", "--task", "bench"])?;
         if operation == "warm_acquire" {
@@ -249,6 +259,7 @@ pub(crate) fn measure(
             &["acquire", "--task", "bench", "--base", revision],
         )?;
         evidence.record(operation, time)?;
+        require_reused(&lease, operation)?;
         verify(runner, &lease, revision, expected_tree)?;
         let root = workspace(&lease)?;
         require(
@@ -275,7 +286,7 @@ pub(crate) fn measure(
     }
     let (list, _) = call(runner, binary, repo, &["list"])?;
     require(
-        list["leases"].as_array().is_some_and(Vec::is_empty),
+        list["reservations"].as_array().is_some_and(Vec::is_empty),
         "Monorepo workload left reservations",
     )?;
     require(

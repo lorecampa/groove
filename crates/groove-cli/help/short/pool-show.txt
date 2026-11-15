@@ -1,0 +1,3 @@
+EXAMPLES:
+  groove pool show --details
+  groove pool show --disk-usage --sort task

@@ -1,4 +1,4 @@
 EXAMPLE:
-  groove config global unset logging.max_files
+  groove config unset logging.max_files
 
 Restores defaults for the specified preferences.

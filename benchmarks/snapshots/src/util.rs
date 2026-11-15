@@ -12,6 +12,16 @@ use std::{
 };
 
 static INTERRUPTED: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn require_reused(lease: &serde_json::Value, operation: &str) -> Result<()> {
+    require(
+        lease["recovery"] == "sanitized",
+        format!(
+            "{operation} did not reuse the released checkout in place (recovery: {})",
+            lease["recovery"]
+        ),
+    )
+}
 extern "C" fn interrupt(_: libc::c_int) {
     INTERRUPTED.store(true, Ordering::Relaxed);
 }

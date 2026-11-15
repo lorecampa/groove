@@ -64,7 +64,7 @@ fn slot_table_exposes_failure_details_and_recovery_actions() {
     let repo = Repo::new();
     assert_success(&cli(
         &repo.path,
-        &["init", "--capacity", "1", "--ready-target", "0"],
+        &["pool", "init", "--capacity", "1", "--ready-target", "0"],
     ));
     fs::write(repo.state().join("slots/wt-0001.json"), "{broken").unwrap();
     let output = support::command(&repo.path, support::groove_binary())
@@ -96,7 +96,7 @@ fn checked(output: &Output) -> Value {
         )
     });
     let schema: Value =
-        serde_json::from_str(include_str!("../schemas/response-v1.schema.json")).unwrap();
+        serde_json::from_str(include_str!("../schemas/response-v2.schema.json")).unwrap();
     let validator = jsonschema::validator_for(&schema).unwrap();
     let errors: Vec<_> = validator
         .iter_errors(&response)
@@ -123,6 +123,7 @@ fn filter_validation_checks_the_whole_commit_from_a_subdirectory() {
     assert_success(&cli(
         &repo.path,
         &[
+            "pool",
             "init",
             "--capacity",
             "1",
@@ -155,6 +156,7 @@ fn unused_global_filters_work_in_acquisition_and_the_common_directory_worker() {
     assert_success(&cli(
         &repo.path,
         &[
+            "pool",
             "init",
             "--capacity",
             "2",
@@ -217,7 +219,7 @@ fn filter_scratch_is_private_even_with_a_permissive_umask() {
     let repo = Repo::new();
     assert_success(&cli(
         &repo.path,
-        &["init", "--capacity", "1", "--ready-target", "0"],
+        &["pool", "init", "--capacity", "1", "--ready-target", "0"],
     ));
     let config = repo.temp.path().join("unused-filter.gitconfig");
     fs::write(&config, "[filter \"lfs\"]\nprocess = false\n").unwrap();
@@ -273,7 +275,7 @@ fn filter_scratch_layout_does_not_collide_with_an_index_directory() {
     repo.git(&["commit", "-qm", "attributes below index directory"]);
     assert_success(&cli(
         &repo.path,
-        &["init", "--capacity", "1", "--ready-target", "0"],
+        &["pool", "init", "--capacity", "1", "--ready-target", "0"],
     ));
     let config = repo.temp.path().join("unused-filter.gitconfig");
     fs::write(
@@ -288,7 +290,7 @@ fn filter_scratch_layout_does_not_collide_with_an_index_directory() {
             .output()
             .unwrap(),
     );
-    let slot = Path::new(acquired["result"]["worktree_path"].as_str().unwrap());
+    let slot = Path::new(acquired["result"]["workspace_path"].as_str().unwrap());
     assert_eq!(
         fs::read_to_string(slot.join("index/.gitattributes")).unwrap(),
         "*.txt text eol=lf\n"
@@ -300,7 +302,7 @@ fn unused_filters_do_not_require_space_in_the_system_temporary_directory() {
     let repo = Repo::new();
     assert_success(&cli(
         &repo.path,
-        &["init", "--capacity", "1", "--ready-target", "0"],
+        &["pool", "init", "--capacity", "1", "--ready-target", "0"],
     ));
     let config = repo.temp.path().join("unused-filter.gitconfig");
     fs::write(
@@ -324,6 +326,7 @@ fn odd_filter_driver_names_are_refused_before_checkout() {
     assert_success(&cli(
         &repo.path,
         &[
+            "pool",
             "init",
             "--capacity",
             "1",
@@ -356,7 +359,7 @@ fn pool_acquisition_rejects_globally_defined_content_filters() {
     repo.git(&["commit", "-qm", "filter attributes"]);
     assert_success(&cli(
         &repo.path,
-        &["init", "--capacity", "1", "--ready-target", "0"],
+        &["pool", "init", "--capacity", "1", "--ready-target", "0"],
     ));
     let config = repo.temp.path().join("global.gitconfig");
     fs::write(
@@ -376,7 +379,7 @@ fn pool_acquisition_rejects_globally_defined_content_filters() {
         b"baseline\n"
     );
     assert!(
-        assert_success(&cli(&repo.path, &["list"]))["result"]["leases"]
+        assert_success(&cli(&repo.path, &["list"]))["result"]["reservations"]
             .as_array()
             .unwrap()
             .is_empty()
@@ -420,7 +423,7 @@ fn argument_error_codes_stay_with_the_summary_before_usage() {
 #[test]
 fn a_deleted_working_directory_is_reported_plainly() {
     let repo = Repo::new();
-    assert_success(&cli(&repo.path, &["init", "--capacity", "1"]));
+    assert_success(&cli(&repo.path, &["pool", "init", "--capacity", "1"]));
     let gone = repo.path.join("gone");
     fs::create_dir(&gone).unwrap();
     // The shell enters the directory, which is then removed underneath it, as when
@@ -443,7 +446,7 @@ fn a_deleted_working_directory_is_reported_plainly() {
 #[test]
 fn reusing_an_active_task_label_names_the_existing_reservation() {
     let repo = Repo::new();
-    assert_success(&cli(&repo.path, &["init", "--capacity", "2"]));
+    assert_success(&cli(&repo.path, &["pool", "init", "--capacity", "2"]));
     let first = assert_success(&cli(&repo.path, &["acquire", "--task", "fix"]));
     let response = failure(
         &cli(&repo.path, &["acquire", "--task", "fix"]),
@@ -451,15 +454,18 @@ fn reusing_an_active_task_label_names_the_existing_reservation() {
         "INVALID_ARGUMENT",
     );
     assert_eq!(
-        response["error"]["details"]["lease_id"],
-        first["result"]["lease_id"]
+        response["error"]["details"]["reservation_id"],
+        first["result"]["reservation_id"]
     );
     assert_eq!(
-        response["error"]["details"]["worktree_path"],
-        first["result"]["worktree_path"]
+        response["error"]["details"]["workspace_path"],
+        first["result"]["workspace_path"]
     );
     let listed = checked(&cli(&repo.path, &["list"]));
-    assert_eq!(listed["result"]["leases"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        listed["result"]["reservations"].as_array().unwrap().len(),
+        1
+    );
     // The existing reservation is still selectable by its label.
     assert_success(&cli(&repo.path, &["release", "--task", "fix"]));
 }
@@ -467,7 +473,7 @@ fn reusing_an_active_task_label_names_the_existing_reservation() {
 #[test]
 fn labels_cannot_carry_terminal_control_sequences() {
     let repo = Repo::new();
-    assert_success(&cli(&repo.path, &["init", "--capacity", "2"]));
+    assert_success(&cli(&repo.path, &["pool", "init", "--capacity", "2"]));
     failure(
         &cli(&repo.path, &["acquire", "--task", "\u{1b}]0;title\u{7}"]),
         2,
@@ -500,15 +506,15 @@ fn labels_cannot_carry_terminal_control_sequences() {
     }
     // JSON keeps the exact stored value, escaped by the JSON encoder.
     let listed = checked(&cli(&repo.path, &["list"]));
-    assert_eq!(listed["result"]["leases"][0]["task"], hostile);
+    assert_eq!(listed["result"]["reservations"][0]["task"], hostile);
 }
 
 #[test]
 fn a_reserved_checkout_deleted_by_hand_needs_an_explicit_forced_release() {
     let repo = Repo::new();
-    assert_success(&cli(&repo.path, &["init", "--capacity", "1"]));
+    assert_success(&cli(&repo.path, &["pool", "init", "--capacity", "1"]));
     let lease = assert_success(&cli(&repo.path, &["acquire", "--task", "lost"]));
-    let path = lease["result"]["worktree_path"].as_str().unwrap();
+    let path = lease["result"]["workspace_path"].as_str().unwrap();
     fs::remove_dir_all(path).unwrap();
 
     for args in [
@@ -516,7 +522,7 @@ fn a_reserved_checkout_deleted_by_hand_needs_an_explicit_forced_release() {
         &["release", "--save", "--task", "lost"],
     ] {
         let response = failure(&cli(&repo.path, args), 6, "RECOVERY_FAILED");
-        assert_eq!(response["error"]["details"]["worktree_path"], path);
+        assert_eq!(response["error"]["details"]["workspace_path"], path);
         assert!(response["error"]["hint"].is_string());
     }
     let slots = checked(&cli(&repo.path, &["list", "--slots"]));
@@ -527,14 +533,14 @@ fn a_reserved_checkout_deleted_by_hand_needs_an_explicit_forced_release() {
     // The reservation was kept; --force acknowledges the lost work.
     assert_success(&cli(&repo.path, &["release", "--force", "--task", "lost"]));
     let next = assert_success(&cli(&repo.path, &["acquire", "--task", "next"]));
-    assert_eq!(next["result"]["worktree_path"], path);
+    assert_eq!(next["result"]["workspace_path"], path);
     assert!(Path::new(path).join("tracked.txt").exists());
 }
 
 #[test]
 fn undeliverable_responses_exit_seven_and_explain_real_write_failures() {
     let repo = Repo::new();
-    assert_success(&cli(&repo.path, &["init", "--capacity", "1"]));
+    assert_success(&cli(&repo.path, &["pool", "init", "--capacity", "1"]));
     // A closed reader: the caller must learn the response was lost, quietly.
     let closed = support::groove_in(&repo.path)
         .arg("list")
@@ -690,9 +696,9 @@ fn a_filesystem_monitor_daemon_neither_blocks_release_nor_goes_stale() {
     }
 
     let repo = Repo::new();
-    assert_success(&cli(&repo.path, &["init", "--capacity", "1"]));
+    assert_success(&cli(&repo.path, &["pool", "init", "--capacity", "1"]));
     let lease = assert_success(&cli(&repo.path, &["acquire", "--task", "watched"]));
-    let path = Path::new(lease["result"]["worktree_path"].as_str().unwrap()).to_owned();
+    let path = Path::new(lease["result"]["workspace_path"].as_str().unwrap()).to_owned();
     support::git(&path, &["fsmonitor--daemon", "start"]);
     let _daemon = Daemon(&path);
     assert!(
@@ -714,7 +720,7 @@ fn a_filesystem_monitor_daemon_neither_blocks_release_nor_goes_stale() {
 
     let next = assert_success(&cli(&repo.path, &["acquire", "--task", "next"]));
     assert_eq!(
-        Path::new(next["result"]["worktree_path"].as_str().unwrap()),
+        Path::new(next["result"]["workspace_path"].as_str().unwrap()),
         path
     );
     assert_eq!(support::git(&path, &monitored), "");
@@ -729,20 +735,20 @@ fn released_lease_history_is_explicitly_inactive() {
     let repo = Repo::new();
     assert_success(&cli(
         &repo.path,
-        &["init", "--capacity", "1", "--ready-target", "0"],
+        &["pool", "init", "--capacity", "1", "--ready-target", "0"],
     ));
     let lease = assert_success(&cli(&repo.path, &["acquire", "--task", "former-task"]));
-    let id = lease["result"]["lease_id"].as_str().unwrap();
+    let id = lease["result"]["reservation_id"].as_str().unwrap();
     assert_eq!(
-        assert_success(&cli(&repo.path, &["show", "--lease-id", id]))["result"]["active"],
+        assert_success(&cli(&repo.path, &["show", "--reservation-id", id]))["result"]["active"],
         true
     );
-    assert_success(&cli(&repo.path, &["release", "--lease-id", id]));
-    let shown = checked(&cli(&repo.path, &["show", "--lease-id", id]));
+    assert_success(&cli(&repo.path, &["release", "--reservation-id", id]));
+    let shown = checked(&cli(&repo.path, &["show", "--reservation-id", id]));
     assert_eq!(shown["result"]["active"], false);
     let slots = checked(&cli(&repo.path, &["list", "--slots"]));
     assert_eq!(
-        slots["result"]["inspection"]["slots"][0]["lease_active"],
+        slots["result"]["inspection"]["slots"][0]["reservation_active"],
         false
     );
     let human = support::command(&repo.path, support::groove_binary())
@@ -765,6 +771,7 @@ fn killed_filter_validation_scratch_is_reclaimed_by_the_next_owner() {
     assert_success(&cli(
         &repo.path,
         &[
+            "pool",
             "init",
             "--capacity",
             "1",

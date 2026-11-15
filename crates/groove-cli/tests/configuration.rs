@@ -35,7 +35,7 @@ fn command(home: &Path) -> Command {
 fn response(output: &Output) -> Value {
     let response: Value = serde_json::from_slice(&output.stdout).unwrap();
     let schema: Value =
-        serde_json::from_str(include_str!("../schemas/response-v1.schema.json")).unwrap();
+        serde_json::from_str(include_str!("../schemas/response-v2.schema.json")).unwrap();
     jsonschema::validator_for(&schema)
         .unwrap()
         .validate(&response)
@@ -85,7 +85,7 @@ fn historical_user_files_keep_their_effective_values_without_rewriting() {
             .validate(&serde_json::to_value(raw).unwrap())
             .unwrap();
         let path = install(home.path(), &input);
-        let result = run(home.path(), &["config", "global", "show"]);
+        let result = run(home.path(), &["config", "show"]);
         validator.validate(&result["config"]).unwrap();
         assert_eq!(
             result["config"],
@@ -102,7 +102,7 @@ fn historical_user_files_keep_their_effective_values_without_rewriting() {
     }
     let home = tempfile::tempdir().unwrap();
     assert_eq!(
-        run(home.path(), &["config", "global", "show"])["config"],
+        run(home.path(), &["config", "show"])["config"],
         expected("user-minimal.json")
     );
     assert!(!home.path().join("groove/config.toml").exists());
@@ -112,26 +112,20 @@ fn historical_user_files_keep_their_effective_values_without_rewriting() {
 fn preference_updates_preserve_the_reviewed_toml_document() {
     let home = tempfile::tempdir().unwrap();
     let path = install(home.path(), &fixture("edit-before.toml"));
-    run(
-        home.path(),
-        &["config", "global", "set", "logging.max_files=23"],
-    );
+    run(home.path(), &["config", "set", "logging.max_files=23"]);
     assert_eq!(fs::read_to_string(&path).unwrap(), fixture("edit-set.toml"));
-    run(
-        home.path(),
-        &["config", "global", "unset", "logging.enabled"],
-    );
+    run(home.path(), &["config", "unset", "logging.enabled"]);
     assert_eq!(
         fs::read_to_string(&path).unwrap(),
         fixture("edit-unset.toml")
     );
     assert_eq!(
-        run(home.path(), &["config", "global", "show"])["config"]["logging"]["enabled"],
+        run(home.path(), &["config", "show"])["config"]["logging"]["enabled"],
         true
     );
     let before = fs::read(&path).unwrap();
     let output = command(home.path())
-        .args(["config", "global", "set", "logging.max_files=0"])
+        .args(["config", "set", "logging.max_files=0"])
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(2));
@@ -148,7 +142,7 @@ fn configuration_rejections_keep_their_error_categories_and_original_bytes() {
         let input = case["input"].as_str().unwrap();
         let path = install(home.path(), input);
         let code = case["code"].as_str().unwrap();
-        reject(home.path(), &["config", "global", "show"], code);
+        reject(home.path(), &["config", "show"], code);
         reject(home.path(), &["list"], code);
         assert_eq!(fs::read_to_string(&path).unwrap(), input);
         assert!(!home.path().join("state").exists());
@@ -173,20 +167,16 @@ fn empty_experiments_preserve_legacy_output_fingerprints_and_editability() {
     let input = fixture("../experimental-empty.toml");
     let path = install(home.path(), &input);
     assert_eq!(
-        run(home.path(), &["config", "global", "show"])["config"],
+        run(home.path(), &["config", "show"])["config"],
         expected("user-minimal.json")
     );
     assert_eq!(fs::read_to_string(&path).unwrap(), input);
-    run(
-        home.path(),
-        &["config", "global", "set", "experimental.features=[]"],
-    );
+    run(home.path(), &["config", "set", "experimental.features=[]"]);
     assert_eq!(fs::read_to_string(&path).unwrap(), input);
     reject(
         home.path(),
         &[
             "config",
-            "global",
             "set",
             "experimental.features=[\"future-feature\"]",
         ],
@@ -195,7 +185,7 @@ fn empty_experiments_preserve_legacy_output_fingerprints_and_editability() {
     assert_eq!(fs::read_to_string(&path).unwrap(), input);
     reject(
         home.path(),
-        &["config", "global", "set", "experimental.features=true"],
+        &["config", "set", "experimental.features=true"],
         "INVALID_ARGUMENT",
     );
     assert_eq!(fs::read_to_string(&path).unwrap(), input);
@@ -203,14 +193,11 @@ fn empty_experiments_preserve_legacy_output_fingerprints_and_editability() {
         home.path(),
         "[experimental]\nfeatures = [\"future-feature\"]\n",
     );
-    run(home.path(), &["config", "global", "path"]);
+    run(home.path(), &["config", "path"]);
     run(home.path(), &["--help"]);
-    run(
-        home.path(),
-        &["config", "global", "unset", "experimental.features"],
-    );
+    run(home.path(), &["config", "unset", "experimental.features"]);
     assert_eq!(
-        run(home.path(), &["config", "global", "show"])["config"],
+        run(home.path(), &["config", "show"])["config"],
         expected("user-minimal.json")
     );
 }
@@ -225,11 +212,7 @@ fn stable_configuration_types_versions_and_constraints_remain_strict() {
         "[logging]\nmax_file_mib = 101\nmax_total_mib = 100",
     ] {
         let path = install(home.path(), input);
-        reject(
-            home.path(),
-            &["config", "global", "show"],
-            "INVALID_ARGUMENT",
-        );
+        reject(home.path(), &["config", "show"], "INVALID_ARGUMENT");
         assert_eq!(fs::read_to_string(path).unwrap(), input);
     }
 }

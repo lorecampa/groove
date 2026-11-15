@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+### Changed (breaking)
+
+- Group pool administration under `pool init`, `pool list`, `pool show`,
+  `pool set` and `pool destroy`. `config show|path|edit|set|unset` now manages
+  user preferences directly. `show` requires one reservation or slot selector.
+  Removed command spellings have no aliases.
+- Use `--reservation-id`, `--idempotency-key`, `--workspace-root` and
+  `pool destroy --force`. Replace millisecond-only flags with `--wait` and
+  `--git-timeout`, requiring integer ms/s/m/h units (defaults 0s and 2m).
+  Replace `--max-file-bytes` with `--max-file-size`, accepting bytes or binary
+  K/M/G suffixes (default 100M; zero is unlimited). Reject overflowing values.
+- Publish response/progress API version 2 and v2 schemas. CLI results, error
+  details and human fields use reservation/workspace/idempotency vocabulary;
+  `INVALID_RESERVATION` and `RESERVATION_MISMATCH` replace the lease error names.
+  Core Rust types, stored records and the `worktrees.root` preference stay unchanged.
+- Always wrap release results as `release` plus `snapshot` (null without saving).
+  Pool inspection returns settings, slots, background preparation and pagination,
+  with optional storage. Logs and progress use full pool command paths.
+- Reject `--pool` on snapshot, config, pool list and completions commands.
+  Add `acquire --path-only` for an exact workspace path in human output.
+  Update installed help, guides, portable/native skills, release smoke checks,
+  benchmark invocations and conformance tests for the new interface.
+
+### Added
+
+- Add an isolated full-lifecycle repository scale checker with synthetic and
+  shared-clone fixtures, byte preservation, response bounds and timing contracts.
+- Assert in-place reuse in workspace and monorepo benchmark profiles, including
+  dirty cleanup and base switches, without changing the report schema.
+
 ### Fixed
 
 - Stream buffered binary directory inventories so large repositories reuse slots

@@ -33,7 +33,7 @@ fn response(output: &Output) -> Value {
     // from_slice also rejects a second response or trailing non-JSON output.
     let value: Value = serde_json::from_slice(&output.stdout).unwrap();
     let schema: Value =
-        serde_json::from_str(include_str!("../schemas/response-v1.schema.json")).unwrap();
+        serde_json::from_str(include_str!("../schemas/response-v2.schema.json")).unwrap();
     jsonschema::validator_for(&schema)
         .unwrap()
         .validate(&value)
@@ -477,7 +477,7 @@ fn surviving_pin_child(managed: bool, deletion: bool) {
     }
     let blocked = cli(
         &repo.path,
-        &["--git-timeout-ms", "250", "snapshot", "show", &id],
+        &["--git-timeout", "250ms", "snapshot", "show", &id],
     );
     assert_eq!(blocked.status.code(), Some(2), "{blocked:?}");
     let error = response(&blocked);
@@ -489,10 +489,7 @@ fn surviving_pin_child(managed: bool, deletion: bool) {
     if deletion {
         assert!(fs::read(shim.path.join("suffix")).unwrap().is_empty());
     }
-    let healthy = cli(
-        &root,
-        &["--git-timeout-ms", "3000", "snapshot", "show", &id],
-    );
+    let healthy = cli(&root, &["--git-timeout", "3000ms", "snapshot", "show", &id]);
     let snapshot = support::assert_success(&healthy);
     assert_eq!(snapshot["result"]["snapshot"]["id"], id);
     assert_eq!(snapshot["result"]["snapshot"]["pinned"], false);
@@ -552,7 +549,7 @@ fn post_prepare_inventory_timeout_preserves_refs_and_bounds_supervisor_teardown(
     let mut supervisor = TestChild::spawn(
         shim.command(
             &repo.path,
-            &["--git-timeout-ms", "1500", "snapshot", "delete", &id],
+            &["--git-timeout", "1500ms", "snapshot", "delete", &id],
         )
         .env("GROOVE_PIN_TRANSACTION", "deletion")
         .env("GROOVE_PIN_AFTER_PREPARE", "timeout")
@@ -630,7 +627,7 @@ fn peer_failure_and_parent_unwind_preserve_refs_and_allow_a_healthy_retry() {
         }
         let healthy = cli(
             &repo.path,
-            &["--git-timeout-ms", "3000", "snapshot", "show", &id],
+            &["--git-timeout", "3000ms", "snapshot", "show", &id],
         );
         assert_eq!(
             support::assert_success(&healthy)["result"]["snapshot"]["pinned"],

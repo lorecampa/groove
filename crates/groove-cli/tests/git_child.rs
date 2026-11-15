@@ -47,7 +47,7 @@ fn oversized_git_failure_keeps_the_json_error_envelope_small() {
     assert!(output.stdout.len() < 100 * 1024, "{}", output.stdout.len());
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     let schema: serde_json::Value =
-        serde_json::from_str(include_str!("../schemas/response-v1.schema.json")).unwrap();
+        serde_json::from_str(include_str!("../schemas/response-v2.schema.json")).unwrap();
     jsonschema::validator_for(&schema)
         .unwrap()
         .validate(&value)
@@ -171,6 +171,7 @@ fn acquisition_stops_after_the_first_slot_times_out() {
     support::assert_success(
         &support::groove_in(&repo.path)
             .args([
+                "pool",
                 "init",
                 "--capacity",
                 "3",
@@ -194,7 +195,7 @@ fn acquisition_stops_after_the_first_slot_times_out() {
     fs::set_permissions(shim, fs::Permissions::from_mode(0o700)).unwrap();
     let mut command = support::groove_in(&repo.path);
     command
-        .args(["--git-timeout-ms", "1000", "acquire"])
+        .args(["--git-timeout", "1000ms", "acquire"])
         .env(
             "PATH",
             format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()),
@@ -213,7 +214,7 @@ fn acquisition_stops_after_the_first_slot_times_out() {
     assert_eq!(output.status.code(), Some(6));
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     let schema: serde_json::Value =
-        serde_json::from_str(include_str!("../schemas/response-v1.schema.json")).unwrap();
+        serde_json::from_str(include_str!("../schemas/response-v2.schema.json")).unwrap();
     jsonschema::validator_for(&schema)
         .unwrap()
         .validate(&value)
@@ -226,7 +227,7 @@ fn acquisition_stops_after_the_first_slot_times_out() {
     assert!(value["error"]["hint"]
         .as_str()
         .unwrap()
-        .contains("--git-timeout-ms"));
+        .contains("--git-timeout"));
     assert_eq!(
         value["error"]["details"]["capacity"]["failed_slots"]
             .as_object()
@@ -265,7 +266,7 @@ fn git_timeout_terminates_the_mutating_process_group_before_recovery() {
     command
         .arg("--repo")
         .arg(&r.path)
-        .args(["--git-timeout-ms", "500", "acquire", "--base", "HEAD"])
+        .args(["--git-timeout", "500ms", "acquire", "--base", "HEAD"])
         .env(
             "PATH",
             format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()),

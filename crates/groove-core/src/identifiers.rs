@@ -242,7 +242,7 @@ impl FromStr for LeaseId {
     type Err = Error;
     fn from_str(value: &str) -> Result<Self> {
         Uuid::parse_str(value).map(Self).map_err(|e| {
-            Error::new(ErrorCode::InvalidArgument, "Lease ID must be a UUID").with_source(e)
+            Error::new(ErrorCode::InvalidArgument, "Reservation ID must be a UUID").with_source(e)
         })
     }
 }

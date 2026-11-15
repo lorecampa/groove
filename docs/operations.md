@@ -56,10 +56,10 @@ Follow the [installation guide](../README.md#install), then initialize from your
 repository:
 
 ```sh
-groove init --capacity 4
+groove pool init --capacity 4
 # Alternative settings, chosen once on a new pool:
-groove --repo /other/repo init --capacity 4 --cleanup warm \
-  --worktree-root /absolute/dedicated/groove-worktrees
+groove --repo /other/repo pool init --capacity 4 --cleanup warm \
+  --workspace-root /absolute/dedicated/groove-worktrees
 ```
 
 Initialization creates fixed slot metadata; acquisition materializes worktrees.
@@ -70,17 +70,17 @@ New pools default to zero ready spares. Enable preparation explicitly with
 unchanged. Idle eviction still defaults to seven days and runs opportunistically.
 A ready pool rejects every repeated init. Its checkout root stays fixed until
 the pool is deleted and reinitialized.
-Use `groove config set --capacity 8 --cleanup warm` to grow/change future cleanup.
+Use `groove pool set --capacity 8 --cleanup warm` to grow/change future cleanup.
 Updates validate all values before publication; shrinking is unsupported. Active
 reservations and permanent locks survive. Retry matching interrupted init with
-`--resume`; use `config show` after a lost response if initialization already completed. A custom root must be dedicated, initially empty, owned by you
+`--resume`; use `pool show` after a lost response if initialization already completed. A custom root must be dedicated, initially empty, owned by you
 and outside Git administration. Relative paths resolve from the caller's directory.
 
 
 State stays in `<GIT_COMMON_DIR>/groove/`; new checkout roots default to
 `~/.worktrees/<project>-<repo-id>/<pool>` on Linux and macOS. Change the parent with
-`groove config global set worktrees.root=/absolute/worktrees`, or choose an exact
-pool root with `init --worktree-root`. See `init --help` for naming and precedence.
+`groove config set worktrees.root=/absolute/worktrees`, or choose an exact
+pool root with `init --workspace-root`. See `init --help` for naming and precedence.
 Existing pools retain their recorded roots, including legacy roots in `.git`.
 To relocate one, stop all writers, preserve results and release every reservation,
 then destroy and reinitialize with the desired root. Never move checkout directories
@@ -100,10 +100,10 @@ already-started preparation may use its observed policy.
 Use a named pool when workflows need separate capacity, cleanup or caches:
 
 ```sh
-groove --pool frontend init --capacity 3 --cleanup warm
-groove --pool backend init --capacity 2 --cleanup pristine
-groove pools
-groove --pool frontend acquire --task fix-navigation --request-key navigation-1
+groove --pool frontend pool init --capacity 3 --cleanup warm
+groove --pool backend pool init --capacity 2 --cleanup pristine
+groove pool list
+groove --pool frontend acquire --task fix-navigation --idempotency-key navigation-1
 groove --pool frontend release --save --task fix-navigation
 ```
 
@@ -124,13 +124,13 @@ does not bound CPU, processes or storage.
 Release every task and stop all writers, then run from outside the pool:
 
 ```sh
-groove destroy --dry-run
-groove destroy
+groove pool destroy --dry-run
+groove pool destroy
 # If released workspaces still contain edits, ignored caches or broken checkouts:
-groove destroy --discard-changes --dry-run
-groove destroy --discard-changes
-groove --pool frontend destroy --dry-run
-groove --pool frontend destroy --discard-changes
+groove pool destroy --force --dry-run
+groove pool destroy --force
+groove --pool frontend pool destroy --dry-run
+groove --pool frontend pool destroy --force
 ```
 
 With several non-deleted pools, destruction requires explicit `--pool NAME`, even
@@ -172,7 +172,7 @@ files or another live repository's marker. A new pool still requires an empty ro
 An interruption leaves the pool disabled. Repeat the same destroy command, including
 its discard flag, to resume. Completed retries succeed. For automation, pass
 `--pool-id UUID` from the preview/result so a retry cannot target a replacement pool.
-After completion, `init` can choose new capacity, cleanup and checkout-root settings;
+After completion, `pool init` can choose new capacity, cleanup and checkout-root settings;
 old library/snapshot handles are rejected and completed request keys remain tombstoned.
 Destroy also cancels interrupted initialization without creating worktrees.
 If metadata or an original default-root location is damaged, repair/restore it
@@ -186,7 +186,7 @@ A signal can end a command before JSON is emitted. Use the original request key
 to resolve an interrupted acquisition whose outcome is uncertain.
 
 [The portable skill](../skills/groove/SKILL.md) covers acquire, retry, work and
-release --save. Normal commands select a reservation with `--task` (its label) or `--lease-id`; slot IDs
+release --save. Normal commands select a reservation with `--task` (its label) or `--reservation-id`; slot IDs
 identify reusable directories for diagnostics.
 Reservations survive process exit and restart, with no TTL or automatic reclamation.
 
@@ -252,14 +252,14 @@ For example, this shell script uses a C project configured for `make` and `ccach
 ```sh
 set -eu
 # In the repository; this pool uses the default pristine cleanup.
-groove --pool builds init --capacity 2
+groove --pool builds pool init --capacity 2
 lease=$(groove --json --pool builds acquire --task fix-parser)
-workspace=$(printf '%s\n' "$lease" | jq -er 'select(.ok == true) | .result.worktree_path')
-lease_id=$(printf '%s\n' "$lease" | jq -er '.result.lease_id')
+workspace=$(printf '%s\n' "$lease" | jq -er 'select(.ok == true) | .result.workspace_path')
+reservation_id=$(printf '%s\n' "$lease" | jq -er '.result.reservation_id')
 # The compiler cache survives workspace cleanup; object files stay in this slot.
 (cd "$workspace" && CCACHE_DIR="$HOME/.cache/ccache" CCACHE_NOHARDLINK=1 make CC='ccache cc')
 # Export required ignored outputs and stop every writer before releasing.
-groove --pool builds release --save --lease-id "$lease_id"
+groove --pool builds release --save --reservation-id "$reservation_id"
 ```
 
 Check the acquisition's exit status and `ok` before using its paths in automation.
@@ -285,7 +285,7 @@ them up. Request journals and saved-release receipts have no automatic expiry.
 Inspect the affected reservation with `list --slots` or `show` and follow the
 reported next action. Command `--help` owns error-specific recovery instructions.
 Retry a lost acquisition with its original key and
-inputs; retry a saved release with its original lease ID and pool. Never infer
+inputs; retry a saved release with its original reservation ID and pool. Never infer
 ownership from labels, PIDs or age.
 
 If a repository was moved, restore its recorded location: pool manifests and Git
@@ -300,7 +300,7 @@ Groove never sweeps shared Git locks or unrelated metadata.
 Recognizable foreign repositories or moved linked worktrees occupying a slot,
 and multiple registrations claiming one slot, refuse acquisition and destruction.
 Safely restore the occupant's original location or move it outside the pool before
-retrying. `--discard-changes` does not bypass this identity check. Normal contents
+retrying. `--force` does not bypass this identity check. Normal contents
 of a released Groove checkout, including task-created nested repositories, remain
 disposable under its cleanup policy.
 

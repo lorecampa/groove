@@ -1,31 +1,13 @@
 EXAMPLES:
-  groove show
-  groove --pool default show --disk-usage
   groove show --task fix-parser
-  groove show --lease-id UUID --details
+  groove show --reservation-id UUID --details
   groove show --slot wt-0001
 
-Without a selector, shows pool settings and a page of slots. With --task or
---lease-id, shows that reservation (or its release receipt) and its slot.
-Selected lease output includes active=false for historical metadata; a successful
-show is not proof of an active assignment. Slot views retain lease history but
-mark it with lease_active=false and omit its old task from the current task column.
---details reads bounded local Git status (staged, modified, untracked); with a
-selector, only that workspace is checked. Nothing contacts a remote.
-Corrupt ready-slot metadata is reported as unhealthy with its failure.
-
-Without a selector, returns at most 50 slots in slot-ID order. Use --limit N,
---offset N or --unlimited for a different window. --sort task orders task labels
-lexicographically (unlabelled first), then slot ID; --sort slot restores the
-default order. Sorting precedes pagination. JSON includes pagination.total,
-offset, limit (null with --unlimited) and next_offset (null at the end).
-inspection.capacity remains the full capacity. Concurrent changes can shift
-offset pages; metadata and --details Git status still scan all slots. Sorting
-and pagination options are rejected with a selector, which shows one entity.
---order asc (default) or --order desc applies to the sort key and slot-ID
-tie-breaker before pagination. Descending task order puts unlabelled entries last.
-
---disk-usage adds workspace, cache, log and history sizes to the pool view;
-it cannot be used with a reservation or slot selector. The scan includes ignored
-files and can take time on large pools. Sizes are logical file bytes; shared Git
-objects and snapshots are excluded. Combine with --details for Git status.
+Exactly one selector is required: --task, --reservation-id or --slot.
+Show one reservation (or its release receipt) and its slot, or one permanent slot.
+Historical reservation output includes active=false; successful inspection does
+not prove an active assignment. Slots retain reservation history, marked with
+reservation_active=false. Only active task labels appear in the current task column.
+--details reads bounded local Git status only in the selected workspace. Busy
+status is unavailable after at most two seconds of execution-lock contention.
+Nothing contacts a remote. To inspect pool settings and all slots, use pool show.
