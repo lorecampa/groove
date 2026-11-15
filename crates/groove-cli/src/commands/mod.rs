@@ -53,6 +53,7 @@ fn select_id(pool: &Pool, selector: &LeaseSelector) -> Result<groove_core::Lease
 pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
     match command {
         Command::Pool(command) => match command {
+            PoolCommand::Get { key } => pool::get(context, key),
             PoolCommand::List {
                 all,
                 disk_usage,

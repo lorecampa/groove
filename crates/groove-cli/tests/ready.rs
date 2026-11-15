@@ -376,6 +376,76 @@ fn initialized(repo: &Repo) -> Pool {
     .unwrap();
     Pool::open(&repo.path).unwrap()
 }
+
+#[cfg(feature = "test-hooks")]
+#[test]
+fn refused_destroy_restarts_cancelled_preparation() {
+    use std::{io::Write, os::unix::net::UnixListener};
+    let repo = Repo::new();
+    Pool::init(
+        &repo.path,
+        PoolOptions {
+            capacity: 1,
+            ready: Some(ReadySettings {
+                ready_target: 1,
+                ..Default::default()
+            }),
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let pool = Pool::open(&repo.path).unwrap();
+    let reservation = pool.reserve(Default::default()).unwrap();
+    pool.configure(groove_core::PoolUpdate {
+        capacity: Some(2),
+        ..Default::default()
+    })
+    .unwrap();
+    let (mut background, listener) = worker(&repo, &pool, "ready-between-slots");
+    let mut background_stream = background
+        .checkpoint(&listener, "ready-between-slots", support::PROCESS_TIMEOUT)
+        .unwrap();
+    let socket = repo.temp.path().join("destroy.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let mut command = support::groove_in(&repo.path);
+    command
+        .args(["pool", "destroy"])
+        .env("GROOVE_TEST_CHECKPOINT", "ready-cancel-requested")
+        .env("GROOVE_TEST_SOCKET", &socket);
+    let mut destroy = support::TestChild::spawn(&mut command);
+    let mut destroy_stream = destroy
+        .checkpoint(
+            &listener,
+            "ready-cancel-requested",
+            support::PROCESS_TIMEOUT,
+        )
+        .unwrap();
+    background_stream.write_all(b"continue\n").unwrap();
+    assert!(background.wait().unwrap().success());
+    assert_eq!(pool.ready_report().unwrap().ready, 0);
+    assert!(!repo.slot(2).exists());
+    destroy_stream.write_all(b"continue\n").unwrap();
+    let output = destroy.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(4));
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["api_version"], 2);
+    assert_eq!(value["error"]["code"], "CONFIG_CONFLICT");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let report = cli(&repo, &["pool", "show"]);
+        if report["ready"]["ready"] == 1 {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "preparation was not restarted: {report}"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(pool.is_reserved(reservation.lease_id).unwrap());
+    pool.release_lease(reservation.lease_id).unwrap();
+}
 #[cfg(feature = "test-hooks")]
 #[test]
 fn killed_preparer_recovers_and_concurrent_worker_cannot_duplicate_preparation() {

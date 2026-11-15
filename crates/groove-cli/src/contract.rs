@@ -133,6 +133,8 @@ fn concise_help(path: &str) -> &'static str {
         "snapshot delete" => include_str!("../help/short/snapshot-delete.txt"),
         "config" => include_str!("../help/short/config.txt"),
         "config show" => include_str!("../help/short/config-show.txt"),
+        "config get" => include_str!("../help/short/config-get.txt"),
+        "pool get" => include_str!("../help/short/pool-get.txt"),
         "config set" => include_str!("../help/short/config-set.txt"),
         "config path" => include_str!("../help/short/config-path.txt"),
         "config edit" => include_str!("../help/short/config-edit.txt"),

@@ -1,0 +1,4 @@
+EXAMPLE:
+  groove pool get capacity
+
+Print one pool setting; use --help for keys and JSON output.

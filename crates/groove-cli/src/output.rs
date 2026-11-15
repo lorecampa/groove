@@ -371,7 +371,10 @@ pub fn fields(value: &Value, depth: usize) -> String {
                     Value::Object(inner) if inner.is_empty() => {}
                     Value::Array(items) if items.is_empty() => {}
                     Value::Object(_) | Value::Array(_) => {
-                        out.push_str(&format!("{indent}{key}:\n{}", fields(value, depth + 1)));
+                        let contents = fields(value, depth + 1);
+                        if !contents.is_empty() {
+                            out.push_str(&format!("{indent}{key}:\n{contents}"));
+                        }
                     }
                     scalar => out.push_str(&format!("{indent}{key}: {}\n", scalar_text(scalar))),
                 }

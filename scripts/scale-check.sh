@@ -12,6 +12,7 @@ git_timeout=30m
 max_reuse_percent=60
 max_error_bytes=65536
 keep=false
+last_response=
 usage() {
     cat <<'HELP'
 Usage: scripts/scale-check.sh [OPTIONS]
@@ -29,7 +30,16 @@ Exit: 0 contracts hold; 1 contract violation; 2 usage/setup error.
 HELP
 }
 setup() { printf 'scale-check setup: %s\n' "$*" >&2; exit 2; }
-fail() { printf 'scale-check violation: %s\n' "$*" >&2; exit 1; }
+fail() {
+    printf 'scale-check violation: %s' "$*" >&2
+    if [[ -n $last_response && -f $last_response ]]; then
+        printf ' (response: ' >&2
+        head -c 400 "$last_response" >&2
+        printf ')' >&2
+    fi
+    printf '\n' >&2
+    exit 1
+}
 while (($#)); do
     case "$1" in
         -h|--help) usage; exit 0 ;;
@@ -144,7 +154,8 @@ invoke() {
 }
 call() {
     local name=$1; shift
-    invoke "$@" > "$scratch/$name.json" 2> "$scratch/$name.err" || fail "$name failed (see $scratch/$name.json)"
+    last_response=$scratch/$name.json
+    invoke "$@" > "$last_response" 2> "$scratch/$name.err" || fail "$name failed"
 }
 lease_fields() {
     slot=$(field "$scratch/acquire.json" slot_id)
@@ -203,6 +214,7 @@ cp "$workspace/$untouched" "$scratch/expected-tracked"
 cp "$workspace/scale-new.txt" "$scratch/expected-text"
 cp "$workspace/scale-new.bin" "$scratch/expected-binary"
 status=0
+last_response=$scratch/refused.json
 invoke --pool scale-check release --reservation-id "$id" > "$scratch/refused.json" 2> "$scratch/refused.err" || status=$?
 [[ $status == 5 ]] || fail 'plain release did not refuse unsaved work with exit 5'
 start=$(now)
@@ -211,7 +223,9 @@ save_time=$(( $(now) - start ))
 (( $(wc -c < "$scratch/release.json") <= max_error_bytes )) || fail 'saved release response exceeds size limit'
 snapshot=$(field "$scratch/release.json" id)
 [[ -n $snapshot ]] || fail 'saved release has no snapshot'
+start=$(now)
 call restore --git-timeout "$git_timeout" snapshot restore "$snapshot" --to "$scratch/restored"
+restore_to=$(( $(now) - start ))
 compare() {
     cmp "$scratch/expected-tracked" "$1/$untouched" || fail 'tracked bytes changed on restore'
     cmp "$scratch/expected-text" "$1/scale-new.txt" || fail 'text bytes changed on restore'
@@ -219,15 +233,23 @@ compare() {
 }
 compare "$scratch/restored"
 acquire
+start=$(now)
+last_response=$scratch/in-place.json
+# Contract: small in-place restores use the default two-minute Git timeout.
 (cd "$workspace"; repo=$workspace; invoke snapshot restore "$snapshot") > "$scratch/in-place.json" 2> "$scratch/in-place.err" || fail 'in-place restore failed'
+in_place=$(( $(now) - start ))
 # --repo must select the workspace when restoring in place.
 compare "$workspace"
+if ((cold >= 5000 && in_place > cold)); then
+    fail "in-place restore (${in_place}ms) exceeds cold acquisition (${cold}ms)"
+fi
 release --force
 if ((cold >= 5000 && fastest * 100 > cold * max_reuse_percent)); then fail 'fastest reuse exceeds cold acquisition percentage'; fi
 count=0
 for path in "$scratch"/worktrees/wt-*; do if [[ -d $path ]]; then count=$((count + 1)); fi; done
 [[ $count == 1 ]] || fail 'sequential tasks materialised more than one checkout'
 status=0
+last_response=$scratch/error.json
 invoke --pool scale-check acquire --base refs/heads/does-not-exist > "$scratch/error.json" 2> "$scratch/error.err" || status=$?
 [[ $status != 0 ]] || fail 'invalid revision unexpectedly acquired a workspace'
 (( $(wc -c < "$scratch/error.json") <= max_error_bytes )) || fail 'error response exceeds size limit'
@@ -235,7 +257,7 @@ call destroy --pool scale-check pool destroy --force
 for path in "$scratch"/worktrees/wt-*; do [[ ! -d $path ]] || fail 'destroy left a checkout'; done
 {
     printf '%-24s %12s\n' Operation Milliseconds
-    printf '%-24s %12s\n' cold-acquire "$cold" warm-acquire "$warm" config-reuse "$config_reuse" fastest-reuse "$fastest" release-save "$save_time"
+    printf '%-24s %12s\n' cold-acquire "$cold" warm-acquire "$warm" config-reuse "$config_reuse" fastest-reuse "$fastest" release-save "$save_time" restore-to "$restore_to" in-place-restore "$in_place"
     printf 'All scale contracts hold.\n'
 } | tee "$scratch/report.txt"
 cp "$scratch/report.txt" "$scratch_parent/last-report.txt"

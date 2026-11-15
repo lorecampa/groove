@@ -47,7 +47,11 @@ registration.
 Retries: with --idempotency-key, repeating the same key, base and task
 returns the original reservation without cleaning the checkout or resetting edits,
 even across restarts or after the base branch moves. Changed inputs and
-completed keys are rejected; keys never expire, so use a new key per task.
+completed keys are rejected during retention: an idempotency key is remembered for
+7 days after release. Background passes and pool destruction prune expired journals;
+after pruning the key can allocate a new reservation. Use a new key per task.
+Active reservations never expire. Permanent historical lock files are retained;
+new keys and task labels use bounded shared lock sets.
 Without a key, run `groove list` BEFORE retrying a lost response.
 
 Acquisition prefers prepared spares, then existing verified checkouts, then empty

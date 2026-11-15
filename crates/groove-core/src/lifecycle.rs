@@ -248,7 +248,7 @@ pub(crate) fn require_phase(record: Option<&Lifecycle>, retained: bool) -> Resul
     match record.map(|r| r.phase) {
         None | Some(Phase::Ready) => Ok(()),
         Some(Phase::Deleted) if retained => Ok(()),
-        Some(Phase::Deleted) => Err(Error::new(ErrorCode::NotInitialized, "Pool was deleted; retained history and snapshots remain available, or run init to create a new pool")),
+        Some(Phase::Deleted) => Err(Error::new(ErrorCode::NotInitialized, "Pool was deleted; retained history and snapshots remain available, or run pool init to create a new pool")),
         Some(Phase::Deleting) => Err(Error::new(ErrorCode::ConfigConflict, "Pool deletion is incomplete; retry destroy with the original options")),
         Some(Phase::Initializing) => Err(Error::new(ErrorCode::ConfigConflict, "Pool initialization is incomplete; retry pool init --resume with the original settings")),
     }

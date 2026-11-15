@@ -27,7 +27,8 @@ pub(crate) fn now_ms() -> u64 {
         .min(u64::MAX as u128) as u64
 }
 
-/// Durable reservation settings. Keys are scoped to one pool namespace and never expire.
+/// Durable reservation settings. Keys are scoped to one pool namespace and retained
+/// for at least seven days after completion; active reservations never expire.
 ///
 /// ```no_run
 /// use groove_core::{Pool, ReservationOptions};
@@ -85,7 +86,7 @@ impl ReservationOptions {
     }
 }
 
-/// Journal entry for a request key; completed keys stay tombstoned forever.
+/// Journal entry for a request key; completed keys have a seven-day retention period.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RequestRecord {
@@ -102,6 +103,148 @@ fn key_reused() -> Error {
     Error::new(
         ErrorCode::InvalidArgument,
         "Request key was already used with different base/task inputs",
+    )
+}
+
+/// Retain existing permanent per-key locks; new keys and labels share bounded,
+/// separate sets of 256 permanent locks. Never unlink a lock: a waiter may already
+/// hold its inode. As elsewhere, mixed Groove versions in one pool are unsupported.
+fn request_lock_path(repo: &repository::Repository, key: &str, label: bool) -> Result<PathBuf> {
+    let digest = crate::state::hex(Sha256::digest(key.as_bytes()));
+    let prefix = if label { "task-" } else { "" };
+    let legacy = repo
+        .root
+        .join("requests")
+        .join(format!("{prefix}{digest}.lock"));
+    if legacy.try_exists()? {
+        return Ok(legacy);
+    }
+    let directory = repo.root.join("request-locks");
+    repository::mkdir(&directory)?;
+    repository::owned_dir(&directory)?;
+    Ok(directory.join(format!("{prefix}{}.lock", &digest[..2])))
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PruneCursor {
+    schema_version: u32,
+    offset: usize,
+}
+
+/// Called with lifecycle admission by the worker, or exclusive admission by
+/// destroy. Only journals are disposable; permanent synchronization inodes stay.
+pub(crate) fn prune_requests(repo: &repository::Repository) -> Result<()> {
+    use std::{fs, os::fd::AsFd, time::Duration};
+    const RETENTION: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+    const LIMIT: usize = 1000;
+    let directory = repo.root.join("requests");
+    if !directory.try_exists()? {
+        return Ok(());
+    }
+    repository::owned_dir(&directory)?;
+    // Rotate the inspected window so young entries and historical lock files do
+    // not permanently hide a backlog. Directory enumeration is cheap; bound the
+    // metadata reads, locks and journal parsing to LIMIT entries per pass.
+    let cursor_path = repo.root.join("request-prune-cursor.json");
+    let offset = if cursor_path.try_exists()? {
+        let cursor: PruneCursor = state::read(&cursor_path)?;
+        if cursor.schema_version != state::SCHEMA_VERSION {
+            return Err(Error::new(
+                ErrorCode::UnsupportedConfiguration,
+                "Unsupported request pruning cursor",
+            ));
+        }
+        cursor.offset
+    } else {
+        0
+    };
+    let mut visited = 0;
+    let mut removed = 0;
+    for entry in fs::read_dir(&directory)?.skip(offset).take(LIMIT) {
+        let entry = entry?;
+        visited += 1;
+        let path = entry.path();
+        let Some(name) = path.file_stem().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if path.extension().is_none_or(|extension| extension != "json")
+            || name.len() != 64
+            || !name.bytes().all(|byte| byte.is_ascii_hexdigit())
+        {
+            continue;
+        }
+        repository::no_symlinks(&path)?;
+        if !entry.file_type()?.is_file() {
+            continue;
+        }
+        let old = |path: &std::path::Path| -> Result<bool> {
+            Ok(fs::metadata(path)?
+                .modified()?
+                .elapsed()
+                .is_ok_and(|age| age > RETENTION))
+        };
+        if !old(&path)? {
+            continue;
+        }
+        let record: RequestRecord = state::read(&path)?;
+        if record.schema_version != state::SCHEMA_VERSION
+            || state::hex(Sha256::digest(record.key.as_bytes())) != name
+        {
+            return Err(Error::new(
+                ErrorCode::ProtocolError,
+                "Invalid request journal",
+            ));
+        }
+        let lock_path = request_lock_path(repo, &record.key, false)?;
+        let file = locking::open(&lock_path, true)?;
+        file.sync_all()?;
+        state::sync_dir(lock_path.parent().expect("request lock has a parent"))?;
+        if !locking::flock(file.as_fd(), libc::LOCK_EX | libc::LOCK_NB)? {
+            continue;
+        }
+        // Re-read under the same lock as acquire. A concurrent replay may have
+        // refreshed this record after the age check above.
+        let mut record: RequestRecord = state::read(&path)?;
+        if !old(&path)? {
+            continue;
+        }
+        let protection = repo.protection_path(&record.slot_id);
+        if protection.try_exists()? {
+            let active: state::ReuseProtection = state::read(&protection)?;
+            if active.schema_version != state::SCHEMA_VERSION {
+                return Err(Error::new(
+                    ErrorCode::ProtocolError,
+                    "Invalid reuse protection record",
+                ));
+            }
+            if active.lease.request_key.as_ref() == Some(&record.key) {
+                continue;
+            }
+        }
+        if record.released {
+            fs::remove_file(&path)?;
+            removed += 1;
+        } else {
+            // An interrupted completion without its tombstone has no reliable
+            // completion timestamp. Start retention now rather than use acquire age.
+            record.released = true;
+            state::write(&path, &record)?;
+        }
+    }
+    if removed > 0 {
+        state::sync_dir(&directory)?;
+    }
+    state::write(
+        &cursor_path,
+        &PruneCursor {
+            schema_version: state::SCHEMA_VERSION,
+            offset: if visited < LIMIT {
+                0
+            } else {
+                offset + visited - removed
+            },
+        },
     )
 }
 
@@ -134,19 +277,15 @@ impl Pool {
 
     /// Serialize all retries of one request key on its permanent lock file.
     fn lock_request_key(&self, key: &str, options: &AcquireOptions) -> Result<SlotGuard> {
-        self.lock_permanent(&self.request_path(key).with_extension("lock"), options)
+        self.lock_permanent(&request_lock_path(&self.repo, key, false)?, options)
     }
 
     /// Permanent lock serializing reservations that share one task label.
-    fn label_lock_path(&self, task: &str) -> PathBuf {
-        let digest = crate::state::hex(Sha256::digest(task.as_bytes()));
-        self.repo
-            .root
-            .join("requests")
-            .join(format!("task-{digest}.lock"))
+    fn label_lock_path(&self, task: &str) -> Result<PathBuf> {
+        request_lock_path(&self.repo, task, true)
     }
 
-    /// Open (creating if needed) and wait for a permanent lock under `requests/`.
+    /// Open (creating if needed) and wait for a permanent request/label lock.
     fn lock_permanent(
         &self,
         lock: &std::path::Path,
@@ -154,7 +293,7 @@ impl Pool {
     ) -> Result<SlotGuard> {
         let file = locking::open(lock, true)?;
         file.sync_all()?;
-        state::sync_dir(&self.repo.root.join("requests"))?;
+        state::sync_dir(lock.parent().expect("request lock has a parent"))?;
         SlotGuard::wait(lock, Some(locking::identity(&file)?), options.git_timeout)
     }
 
@@ -244,7 +383,7 @@ impl Pool {
         // protection publication, so concurrent acquisitions cannot both pass.
         let _label_guard = match &options.task {
             Some(task) => {
-                let guard = self.lock_permanent(&self.label_lock_path(task), &options.acquire)?;
+                let guard = self.lock_permanent(&self.label_lock_path(task)?, &options.acquire)?;
                 if let Some(existing) = self
                     .protected_leases()?
                     .into_iter()

@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+### Changed (breaking)
+
+- Infer the owning pool inside a registered managed workspace (including `--repo`)
+  when `--pool` is omitted; explicit selection still wins and other paths use `default`.
+- Remember completed idempotency keys for seven days after release rather than
+  forever. Background passes and destruction prune expired journals; reusing a
+  pruned key can allocate again. Active keys never expire. Historical permanent
+  locks remain intact; new keys and task labels use bounded sets of shared locks.
+
+### Added
+
+- Add `config get KEY` and `pool get KEY`, with typed JSON values and plain human
+  values. Unknown keys are rejected consistently with preference updates.
+
+### Fixed
+
+- Preserve cached index stats during in-place snapshot restore and reuse validation
+  results, keeping safety capture, delayed index replacement and final verification.
+- Enforce the default restore timeout and cold-acquisition timing ceiling in the
+  scale checker; report restore timings and response excerpts on failures.
+- Briefly retry release scans containing only Groove child processes during
+  pre-admission discovery, without exempting external workspace writers.
+- Restart background preparation after a refused pool destruction.
+- Validate existing workspace-root permissions before recording initialization;
+  automatically resume interrupted initialization when settings match.
+- Omit empty sections in human configuration output, use reservation/workspace
+  vocabulary in messages, and show legacy execution advice only for legacy records.
+- Correct pool command references and document CRLF snapshot and trusted-task limits.
+
 ## [0.4.0] - 2026-11-15
 
 ### Changed (breaking)

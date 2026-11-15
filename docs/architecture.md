@@ -89,8 +89,8 @@ Snapshots use separate `groove-snapshots` administration and
 Durable records carry versioned formats and permanent lock identities; readers
 reject incompatible formats instead of guessing or replacing locks.
 
-`pool init` is create-only; interrupted setup needs an explicit resume with identical
-settings. Growth/settings updates hold administrative exclusion, validate all
+`pool init` is create-only; interrupted setup automatically resumes with identical
+settings. Stateless validation precedes the initialization journal. Growth/settings updates hold administrative exclusion, validate all
 values and preserve existing slot identities. Brand-new/unpublished slots must
 have empty diagnostic records. A slot retained after completed deletion may have
 old diagnostics; growth validates its archived lock identities and original
@@ -144,7 +144,7 @@ and publishes `deleted`. Roots, unknown files in checkout roots, permanent locks
 request journals, receipts and logs/history remain; snapshots and branches are independent.
 Completed receipts whose snapshots no longer exist are pruned after durable
 deletion, unless their pin-retirement journal is still pending. Permanent
-request/label locks and never-expiring key tombstones retain their identities.
+request/label locks retain their identities; completed key journals have seven-day retention.
 Once deletion is durable, the external `.groove-owner` symlink is removed when
 no active/pending pool uses the root. A crash before marker cleanup is repaired by
 a completed destroy retry; a later repository's replacement claim is preserved.
@@ -247,10 +247,19 @@ branches), saves task metadata and durable protection, then records an optional
 request key before closing the descriptor. Retries serialize
 per key and inspect protection to recover a crash before journal publication. An
 existing journal never authorizes allocating a replacement lease. Completed keys
-remain tombstoned. The same key, base and label return the original active
+remain tombstoned for at least seven days after release. The same key, base and label return the original active
 reservation, even if the base branch moved.
 
-Within one pool, at most one active reservation carries each task label. A permanent per-label
+New request keys and labels use separate sets of 256 permanent hash-selected locks;
+existing per-key and per-label lock inodes remain authoritative and are never removed.
+Background passes and destruction prune completed journals after seven days, under
+nonblocking request admission and after checking active protection. Each pass checks
+at most 1,000 directory entries, rotating the window; directory enumeration to reach
+that window can still grow with historical lock storage. Active requests never expire.
+An incomplete completion without a reliable release time is tombstoned at observation
+and retained for another seven days. Reusing a pruned key starts a new acquisition.
+
+Within one pool, at most one active reservation carries each task label. A permanent label
 lock (taken after any request-key lock) serializes the duplicate check with
 protection publication. Labels and keys reject control characters, and human
 output escapes them in any stored text.

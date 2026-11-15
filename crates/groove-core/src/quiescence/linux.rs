@@ -10,6 +10,32 @@ use std::{
 /// Scan `/proc` for processes using `root`. Exclude this process and its ancestors
 /// only when `skip_ancestors` is set; destructive cleanup also checks the caller.
 pub(super) fn processes_using(root: &Path, skip_ancestors: bool) -> Result<Vec<WorkspaceProcess>> {
+    let started = std::time::Instant::now();
+    let executable = fs::metadata("/proc/self/exe")?;
+    loop {
+        let found = scan_processes(root, skip_ancestors)?;
+        // Discovery can start Git in the caller's workspace before Groove knows
+        // which pool/slot admission to take. The caller already excludes admitted
+        // inspectors. Briefly wait only for these pre-admission Groove children;
+        // never exempt them or delay reporting unrelated workspace users.
+        if !skip_ancestors
+            || found.is_empty()
+            || started.elapsed() >= std::time::Duration::from_millis(500)
+            || !found.iter().all(|process| {
+                super::parent_of(process.pid).is_some_and(|parent| {
+                    fs::metadata(format!("/proc/{parent}/exe")).is_ok_and(|metadata| {
+                        metadata.dev() == executable.dev() && metadata.ino() == executable.ino()
+                    })
+                })
+            })
+        {
+            return Ok(found);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+fn scan_processes(root: &Path, skip_ancestors: bool) -> Result<Vec<WorkspaceProcess>> {
     let skip = if skip_ancestors {
         self_and_ancestors()
     } else {

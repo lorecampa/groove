@@ -27,6 +27,42 @@ fn init(repo: &Repo) {
 }
 
 #[test]
+#[ignore = "200 real-process acquire/release cycles with concurrent inspection"]
+fn release_waits_for_concurrent_detailed_inspection() {
+    let repo = Repo::new();
+    init(&repo);
+    cli(&repo, &["acquire", "--task", "initial"]);
+    let workspace = repo.slot(1);
+    // Run discovery inside the slot as well as its admitted status query.
+    let stop = repo.temp.path().join("stop-inspection");
+    let ready = repo.temp.path().join("inspection-started");
+    let mut command = support::command(&repo.path, "bash");
+    command.env("GROOVE", support::groove_binary())
+        .env("WORKSPACE", &workspace).env("STOP", &stop).env("READY", &ready)
+        .args(["-c", "set -eo pipefail; while [[ ! -e $STOP ]]; do \"$GROOVE\" --json --repo \"$WORKSPACE\" pool show --details | jq -e '.api_version == 2 and .ok' > /dev/null; touch \"$READY\"; done"]);
+    let mut observer = support::TestChild::spawn(&mut command);
+    let deadline = Instant::now() + support::PROCESS_TIMEOUT;
+    while !ready.exists() {
+        assert!(
+            observer.try_wait().unwrap().is_none(),
+            "observer exited before inspection"
+        );
+        assert!(
+            Instant::now() < deadline,
+            "observer did not start inspecting"
+        );
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    cli(&repo, &["release", "--task", "initial"]);
+    for _ in 0..200 {
+        cli(&repo, &["acquire", "--task", "cycle"]);
+        cli(&repo, &["release", "--task", "cycle"]);
+    }
+    fs::write(stop, b"stop").unwrap();
+    assert!(observer.wait_with_output().unwrap().status.success());
+}
+
+#[test]
 #[cfg(target_os = "linux")]
 fn release_supports_transitive_pipeline_readers() {
     use std::os::unix::process::CommandExt;

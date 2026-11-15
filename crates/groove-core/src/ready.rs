@@ -417,6 +417,9 @@ impl Pool {
                 attempted_at_unix_ms: crate::reservation::now_ms(),
                 ..Default::default()
             };
+            if let Err(error) = crate::reservation::prune_requests(&current.repo) {
+                report.error = Some(error.summary());
+            }
             if let Err(error) = current.ready_pass(&mut report, &token) {
                 report.error = Some(error.summary());
             }

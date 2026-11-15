@@ -217,6 +217,18 @@ suite does not invoke a paid agent service.
 
 ## Repository scale
 
+Run `cargo test -p groove-cli --test large_repository_regressions release_waits_for_concurrent_detailed_inspection -- --ignored`
+for 200 acquire/release cycles during real-process detailed inspection. It is
+ignored in the fast suite because of its runtime; it needs Bash and jq.
+Run `cargo test -p groove-cli --all-features --test concurrent_operations -- --ignored --nocapture`
+for six independent worker processes and a concurrent administration observer
+over 155 seconds. It covers plain/saved/forced release and SIGKILL during saved
+release followed by retry, verifies clean and exclusive acquisitions, and parses
+every completed response as one API-v2 JSON object.
+The restore regression observes Linux file-access events as well as unchanged
+inodes and nanosecond mtimes. macOS checks identity only; the scale checker covers
+the timing contract on either supported host.
+
 The required suite includes fast directory-inventory, untouched-file and process
 regressions. Run `bash scripts/scale-check.sh` for a full lifecycle on a larger
 synthetic fixture, or pass `--repo PATH` to check a shared clone without changing

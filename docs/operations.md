@@ -50,7 +50,29 @@ Maintenance clears repository-selection overrides and disables hooks, fsmonitor,
 system/global Git configuration. Baselines follow controlled Git checkout
 semantics, including normal attributes/line-ending conversion.
 
+Text checked out with CRLF cannot be snapshotted: `core.autocrlf=true`,
+`core.eol=crlf`, or a changed file under `* text eol=crlf` can cause `release --save`
+and `snapshot save` to return `UNSUPPORTED_CONFIGURATION`. The disk bytes differ
+from Git's stored bytes, while a snapshot must restore exact bytes. Keep such files
+out of the change, or commit them before releasing. Unchanged base paths with
+explicit CRLF attributes follow ordinary checkout rules; see [snapshots](snapshots.md).
+
+Tasks are trusted not to modify Groove's files inside `.git`. A slot's verified
+marker and directory inventory live in `.git/worktrees/<slot>/` and are owned by
+the same user as the task. Groove protects against accidents, including crashes,
+leftover files and changed permissions, not a task deliberately rewriting those
+files. Workspaces are not security sandboxes.
+
 ## Setup and storage
+
+An idempotency key is remembered for 7 days after release. A replay during
+retention returns the original active reservation or rejects a completed key;
+after pruning a completed key can allocate again. Use a new key for each task.
+Pruning runs during background preparation passes and non-dry-run pool destruction,
+checking at most 1,000 entries per pass and skipping busy keys. Active reservations
+are never pruned. Expiry is opportunistic, so idle pools can retain journals longer.
+Historical permanent request/label lock files are never unlinked; new keys and
+labels use separate bounded sets of 256 locks, avoiding unbounded new lock growth.
 
 Follow the [installation guide](../README.md#install), then initialize from your
 repository:
@@ -72,15 +94,16 @@ A ready pool rejects every repeated init. Its checkout root stays fixed until
 the pool is deleted and reinitialized.
 Use `groove pool set --capacity 8 --cleanup warm` to grow/change future cleanup.
 Updates validate all values before publication; shrinking is unsupported. Active
-reservations and permanent locks survive. Retry matching interrupted init with
-`--resume`; use `pool show` after a lost response if initialization already completed. A custom root must be dedicated, initially empty, owned by you
+reservations and permanent locks survive. Matching interrupted initialization
+resumes automatically; `--resume` remains accepted. Differing settings are rejected.
+Use `pool show` after a lost response if initialization already completed. A custom root must be dedicated, initially empty, owned by you
 and outside Git administration. Relative paths resolve from the caller's directory.
 
 
 State stays in `<GIT_COMMON_DIR>/groove/`; new checkout roots default to
 `~/.worktrees/<project>-<repo-id>/<pool>` on Linux and macOS. Change the parent with
 `groove config set worktrees.root=/absolute/worktrees`, or choose an exact
-pool root with `init --workspace-root`. See `init --help` for naming and precedence.
+pool root with `pool init --workspace-root`. See `pool init --help` for naming and precedence.
 Existing pools retain their recorded roots, including legacy roots in `.git`.
 To relocate one, stop all writers, preserve results and release every reservation,
 then destroy and reinitialize with the desired root. Never move checkout directories
@@ -107,8 +130,9 @@ groove --pool frontend acquire --task fix-navigation --idempotency-key navigatio
 groove --pool frontend release --save --task fix-navigation
 ```
 
-Pass the same `--pool` on later pool commands. Omission always selects `default`,
-even from a named checkout; missing pools never fall back to another namespace.
+Pass the same `--pool` on later pool commands. Without it, a managed workspace
+selects its owning pool (also when selected through `--repo`); other paths select `default`,
+and missing selected pools never fall back to another namespace.
 Labels/keys can be reused independently across pools. Named state lives under
 `<common>/groove/pools/<name>/`; default retains its original layout and keys.
 All linked checkouts share the catalog. Snapshots, branches, objects and Git configuration
@@ -150,7 +174,7 @@ artifact caches. Permanent locks, journals, saved-release receipts, execution hi
 branches and snapshots survive, except that completed saved-release receipts are
 pruned when their snapshot no longer exists and no pin retirement is pending.
 Damaged receipts are preserved. Request-key tombstones and permanent request/label
-locks are retained to honor never-expiring retry identities and lock-inode guarantees.
+locks are retained to honor lock-inode guarantees; completed key journals have seven-day retention.
 The checkout root itself survives. Snapshot commands remain
 available. Legacy logs and history are retained without cleanup commands.
 No Git object collection is run. Keeping a small coordination area is intentional:

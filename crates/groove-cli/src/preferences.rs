@@ -205,6 +205,28 @@ const KEYS: &[&str] = &[
     "max_files",
     "max_age_days",
 ];
+
+fn setting_key(key: &str) -> Result<(&str, &str)> {
+    key.split_once('.')
+        .filter(|(section, field)| {
+            (*section == "logging" && KEYS.contains(field))
+                || (*section == "worktrees" && *field == "root")
+                || (*section == "pool_defaults" && ["ready_target", "idle_timeout"].contains(field))
+                || (*section == "experimental" && *field == "features")
+        })
+        .ok_or_else(|| invalid(format!("Unknown setting: {key}")))
+}
+
+/// Read one effective preference using the same key validation as updates.
+pub fn get(key: &str) -> Result<serde_json::Value> {
+    let (section, field) = setting_key(key)?;
+    let config = load()?;
+    // Empty experimental opt-ins are deliberately omitted from serialized config.
+    if key == "experimental.features" {
+        return Ok(serde_json::json!(config.experimental.features));
+    }
+    Ok(serde_json::to_value(config)?[section][field].clone())
+}
 /// Effective preferences, their file, and which environment variables override them.
 pub fn show() -> Result<serde_json::Value> {
     let path = path()?;
@@ -284,16 +306,7 @@ pub fn change(change: Change) -> Result<serde_json::Value> {
                 if !seen.insert(key) {
                     return Err(invalid(format!("Setting specified twice: {key}")));
                 }
-                let (section, field) = key
-                    .split_once('.')
-                    .filter(|(section, field)| {
-                        (*section == "logging" && KEYS.contains(field))
-                            || (*section == "worktrees" && *field == "root")
-                            || (*section == "pool_defaults"
-                                && ["ready_target", "idle_timeout"].contains(field))
-                            || (*section == "experimental" && *field == "features")
-                    })
-                    .ok_or_else(|| invalid(format!("Unknown setting: {key}")))?;
+                let (section, field) = setting_key(key)?;
                 if let Some(value) = value {
                     // Accept TOML literals (true, 50, "text"); anything else is a bare string.
                     let mut value = value

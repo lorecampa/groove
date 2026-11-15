@@ -9,6 +9,25 @@ use groove_core::{LeaseInfo, Pool, PoolInspection, PoolOptions, Result, SlotId, 
 use serde_json::json;
 use std::path::PathBuf;
 
+pub fn get(context: &Context<'_>, key: &str) -> Result<Output> {
+    let field = match key {
+        "capacity" => "capacity",
+        "cleanup" => "cleanup_policy",
+        "ready-target" => "ready_target",
+        "idle-timeout" => "idle_timeout",
+        "ready-base" => "ready_base",
+        "workspace-root" => "worktree_root",
+        _ => {
+            return Err(groove_core::Error::new(
+                groove_core::ErrorCode::InvalidArgument,
+                format!("Unknown setting: {key}"),
+            ))
+        }
+    };
+    let settings = serde_json::to_value(context.pool()?.settings()?)?;
+    super::config::setting_output(key, settings[field].clone())
+}
+
 pub fn pools(
     context: &Context<'_>,
     all: bool,

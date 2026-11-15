@@ -1,0 +1,8 @@
+EXAMPLES:
+  groove pool get capacity
+  groove --pool frontend pool get workspace-root
+
+Print one effective setting and a newline, or an empty line when unset.
+Keys: capacity, cleanup, ready-target, idle-timeout, ready-base, workspace-root.
+JSON returns key and value (with null for an unset setting).
+Unknown keys fail with INVALID_ARGUMENT. Use pool set to change typed settings.

@@ -11,7 +11,8 @@ A first commit is required, even with --ready-target 0. Commit the initial files
 before init; standalone snapshot commands also work before the first commit.
 Running init on a ready pool fails with CONFIG_CONFLICT, even with
 identical settings: use `pool show` or `pool set` instead. An interrupted
-init must be resumed with --resume and the original settings.
+init resumes automatically with the original settings; --resume is also accepted.
+Different settings are rejected with the differing setting named in the error.
 
 Pristine cleanup is the default and removes ignored files on acquisition. Choose
 warm only when your workflow validates retained ignored residue; rebuilding a
