@@ -287,7 +287,7 @@ impl Pool {
         Ok(lease.info)
     }
 
-    /// Resolve a reservation or current-generation release receipt by lease ID.
+    /// Resolve a reservation or current-generation release receipt by reservation ID.
     ///
     /// # Errors
     /// Rejects unknown/stale IDs and malformed metadata. Resolving never grants lock ownership.
@@ -311,7 +311,7 @@ impl Pool {
         Err(failure.unwrap_or_else(|| {
             Error::new(
                 ErrorCode::LeaseMismatch,
-                "Lease is unknown or superseded by another generation",
+                "Reservation is unknown or superseded by another generation",
             )
         }))
     }
@@ -333,12 +333,12 @@ impl Pool {
             )),
             (Some(_), Some(_)) => Err(Error::new(
                 ErrorCode::InvalidArgument,
-                "Several active reservations share this task label; select one by lease ID",
+                "Several active reservations share this task label; select one by reservation ID",
             )),
         }
     }
 
-    /// Release by lease ID; the slot is resolved and rechecked while its lock is held.
+    /// Release by reservation ID; the slot is resolved and rechecked while its lock is held.
     /// All external writers must already have stopped.
     ///
     /// # Errors

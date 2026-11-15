@@ -6,7 +6,42 @@ use serde_json::{json, Value};
 use std::io::{self, Write};
 
 /// Wire version of the JSON envelope.
-pub const API_VERSION: u32 = 1;
+pub const API_VERSION: u32 = 2;
+
+fn cli_key(key: &str) -> &str {
+    match key {
+        "lease" => "reservation",
+        "leases" => "reservations",
+        "lease_id" => "reservation_id",
+        "lease_active" => "reservation_active",
+        "request_key" => "idempotency_key",
+        "worktree_path" => "workspace_path",
+        "worktree_root" => "workspace_root",
+        _ => key,
+    }
+}
+
+/// Translate only presentation values; durable core records retain their vocabulary.
+fn cli_value(value: Value) -> Value {
+    match value {
+        Value::Object(object) => Value::Object(
+            object
+                .into_iter()
+                .map(|(key, value)| (cli_key(&key).to_owned(), cli_value(value)))
+                .collect(),
+        ),
+        Value::Array(values) => Value::Array(values.into_iter().map(cli_value).collect()),
+        scalar => scalar,
+    }
+}
+
+pub const fn cli_error_code(code: ErrorCode) -> &'static str {
+    match code {
+        ErrorCode::InvalidLease => "INVALID_RESERVATION",
+        ErrorCode::LeaseMismatch => "RESERVATION_MISMATCH",
+        _ => code.as_str(),
+    }
+}
 /// Exit status when stdout cannot be written.
 pub const EXIT_OUTPUT_FAILED: u8 = 7;
 
@@ -61,7 +96,7 @@ impl Output {
         result: impl Serialize,
         render: impl FnOnce(&Value) -> String,
     ) -> Result<Self, Error> {
-        let result = serde_json::to_value(result)?;
+        let result = cli_value(serde_json::to_value(result)?);
         let text = render(&result);
         Ok(Self {
             result,
@@ -175,12 +210,12 @@ pub fn emit_error(
         .message
         .split_once('\n')
         .unwrap_or((&error.message, ""));
-    let mut message = format!("error: {summary} ({})\n", error.code);
+    let mut message = format!("error: {summary} ({})\n", cli_error_code(error.code));
     if !body.trim_end().is_empty() {
         message.push_str(body.trim_end());
         message.push('\n');
     }
-    let details = serde_json::to_value(&error.details).unwrap_or_default();
+    let details = cli_value(serde_json::to_value(&error.details).unwrap_or_default());
     if details.as_object().is_some_and(|d| !d.is_empty()) {
         message.push_str(&fields(&details, 1));
     }
@@ -194,10 +229,10 @@ pub fn emit_error(
     terminal.finish();
     if format == Format::Json {
         let mut body = json!({"ok": false, "error": {
-            "code": error.code,
+            "code": cli_error_code(error.code),
             "message": error.message,
             "retryable": error.retryable,
-            "details": error.details,
+            "details": details,
         }});
         if let Some(hint) = hint {
             body["error"]["hint"] = json!(hint);
@@ -213,35 +248,35 @@ pub fn emit_error(
 /// Advisory recovery text selected from typed failures, never message matching.
 fn error_hint(error: &Error, args: Option<&crate::args::Args>) -> Option<String> {
     let hint = match error.code {
-        ErrorCode::UnsavedChanges if args.is_some_and(|args| matches!(args.command, crate::args::Command::Destroy { .. })) => Some(
-            "Export any wanted residual files from the reported path before deletion, including ignored caches (snapshots exclude them). Then preview `groove destroy --discard-changes --dry-run` and repeat without --dry-run to acknowledge their loss. Released tasks cannot save new files through a release retry.",
+        ErrorCode::UnsavedChanges if args.is_some_and(|args| matches!(args.command, crate::args::Command::Pool(crate::args::PoolCommand::Destroy { .. }))) => Some(
+            "Export any wanted residual files from the reported path before deletion, including ignored caches (snapshots exclude them). Then preview `groove pool destroy --force --dry-run` and repeat without --dry-run to acknowledge their loss. Released tasks cannot save new files through a release retry.",
         ),
         ErrorCode::InvalidLease if error.retryable => Some(
-            "Another operation holds a reservation lock. Retry with the original lease ID after contention clears. Never remove locks or protection.",
+            "Another operation holds a reservation lock. Retry with the original reservation ID after contention clears. Never remove locks or protection.",
         ),
         ErrorCode::PoolExhausted | ErrorCode::AcquireTimeout => Some(
-            "Run `groove list --slots` to inspect reservations. Wait for an owner to finish, or retry acquire with `--wait-ms 30000`. Reservations never expire automatically.",
+            "Run `groove list --slots` to inspect reservations. Wait for an owner to finish, or retry acquire with `--wait 30s`. Reservations never expire automatically.",
         ),
         ErrorCode::NotInitialized => Some(
-            "Check `--repo`. For a new pool, run `groove init --capacity 4` in that repository; for interrupted initialization, see `groove init --help` before using --resume.",
+            "Check `--repo`. For a new pool, run `groove pool init --capacity 4` in that repository; for interrupted initialization, see `groove pool init --help` before using --resume.",
         ),
         ErrorCode::InvalidRevision => Some(
             "Check that the requested revision exists locally and resolves to a commit. Retry with `--base` naming an existing commit, branch or tag.",
         ),
         ErrorCode::LeaseMismatch => Some(
-            "Run `groove list` to find the active task and lease ID, then check your selector. A released or reassigned lease cannot select its successor.",
+            "Run `groove list` to find the active task and reservation ID, then check your selector. A released or reassigned reservation cannot select its successor.",
         ),
         ErrorCode::InvalidLease => Some(
             "Inspect `groove list --slots` and `groove show` with your selector. Legacy execution records must be resolved using the previous Groove version before upgrading. Never delete lock or protection files.",
         ),
         ErrorCode::UnsavedChanges => Some(
-            "Preserve the changes before releasing. Stop all writers, then use `groove release --save` with the same --task or --lease-id to save a snapshot and release the workspace.",
+            "Preserve the changes before releasing. Stop all writers, then use `groove release --save` with the same --task or --reservation-id to save a snapshot and release the workspace.",
         ),
         ErrorCode::WorkspaceInUse => Some(
             "Stop the reported processes and all other workspace writers, then retry.",
         ),
         ErrorCode::PoolUnhealthy | ErrorCode::RecoveryFailed => Some(
-            "Run `groove list --slots` and inspect the reported slot failures. Resolve the underlying filesystem or Git problem before retrying; for a slow Git operation, increase --git-timeout-ms. Never remove lock or protection files to force reuse.",
+            "Run `groove list --slots` and inspect the reported slot failures. Resolve the underlying filesystem or Git problem before retrying; for a slow Git operation, increase --git-timeout. Never remove lock or protection files to force reuse.",
         ),
         _ => None,
     }?;
@@ -330,6 +365,7 @@ pub fn fields(value: &Value, depth: usize) -> String {
     match value {
         Value::Object(map) => {
             for (key, value) in map {
+                let key = cli_key(key);
                 match value {
                     Value::Null => {}
                     Value::Object(inner) if inner.is_empty() => {}

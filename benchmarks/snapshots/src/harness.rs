@@ -135,8 +135,8 @@ fn cli_command(
     let mut all = vec![
         "--repo".into(),
         repo.as_os_str().to_owned(),
-        "--git-timeout-ms".into(),
-        "300000".into(),
+        "--git-timeout".into(),
+        "5m".into(),
         "--json".into(),
     ];
     if diagnostics {
@@ -155,7 +155,7 @@ fn cli_command(
     )?;
     let response: Value = serde_json::from_slice(&out.stdout)?;
     require(
-        response["api_version"] == 1,
+        response["api_version"] == 2,
         "Unsupported CLI response version",
     )?;
     let result = if let Some((code, status)) = expected_error {

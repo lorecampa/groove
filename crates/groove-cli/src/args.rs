@@ -11,7 +11,7 @@ macro_rules! help {
 }
 
 /// Changed files larger than this abort a snapshot unless explicitly raised.
-const DEFAULT_MAX_FILE_BYTES: &str = "104857600";
+const DEFAULT_MAX_FILE_BYTES: &str = "100M";
 
 #[derive(Parser)]
 #[command(
@@ -60,8 +60,8 @@ pub struct Args {
     /// Hide warnings and progress; errors and results remain.
     #[arg(short, long, global = true, help_heading = "Global options")]
     pub quiet: bool,
-    /// Git/lock timeout (ms).
-    #[arg(long, global = true, help_heading = "Global options", long_help = "Timeout per Git operation and pool admin/snapshot lock wait, in milliseconds.", default_value_t = 120_000, value_parser = clap::value_parser!(u64).range(1..))]
+    /// Positive Git and lock timeout, e.g. 2m or 30s.
+    #[arg(long = "git-timeout", value_name = "DURATION", global = true, help_heading = "Global options", default_value = "2m", value_parser = parse_positive_duration)]
     pub git_timeout_ms: u64,
     #[command(subcommand)]
     pub command: Command,
@@ -71,20 +71,20 @@ pub struct Args {
 #[derive(ClapArgs, Debug, Clone)]
 #[group(required = true, multiple = false)]
 pub struct LeaseSelector {
-    /// Lease UUID returned by acquire.
-    #[arg(long)]
+    /// Reservation UUID returned by acquire.
+    #[arg(long = "reservation-id", value_name = "ID")]
     pub lease_id: Option<LeaseId>,
     /// Task label of exactly one active reservation.
     #[arg(long)]
     pub task: Option<String>,
 }
 
-/// Like [`LeaseSelector`], but selecting nothing is allowed.
+/// Select exactly one reservation or permanent slot.
 #[derive(ClapArgs, Debug, Clone, Default)]
-#[group(multiple = false)]
+#[group(required = true, multiple = false)]
 pub struct OptionalSelector {
-    /// Lease UUID returned by acquire.
-    #[arg(long)]
+    /// Reservation UUID returned by acquire.
+    #[arg(long = "reservation-id", value_name = "ID")]
     pub lease_id: Option<LeaseId>,
     /// Task label of exactly one active reservation.
     #[arg(long)]
@@ -112,59 +112,9 @@ impl From<Cleanup> for groove_core::CleanupPolicy {
 
 #[derive(Subcommand)]
 pub enum Command {
-    /// List repository pools, including interrupted pools; hide deleted pools by default.
-    #[command(after_long_help = help!("pools"))]
-    Pools {
-        /// Sort pools by name or lifecycle state, then name.
-        #[arg(long, value_enum, default_value = "name")]
-        sort: PoolSort,
-        #[command(flatten)]
-        page: PageArgs,
-        /// Include deleted pools with retained history and recovery information.
-        #[arg(long)]
-        all: bool,
-        /// Scan logical workspace, cache and log sizes (can be slow on large pools).
-        #[arg(long)]
-        disk_usage: bool,
-    },
-    /// Delete an idle pool's checkouts and legacy caches, retaining snapshots.
-    #[command(after_long_help = help!("destroy"))]
-    Destroy {
-        /// Validate and preview deletion without removing data or changing lifecycle state.
-        #[arg(long)]
-        dry_run: bool,
-        /// Discard residual edits, ignored files and broken checkouts; never bypasses owners or reservations.
-        #[arg(long)]
-        discard_changes: bool,
-        /// Require the generation returned by a previous preview; protects a replacement pool.
-        #[arg(long)]
-        pool_id: Option<PoolId>,
-    },
-    /// Create a pool of reusable worktree slots for this repository.
-    #[command(after_long_help = help!("init"))]
-    Init {
-        /// Desired ready, unreserved checkouts (default: pool_defaults.ready_target, 0).
-        #[arg(long)]
-        ready_target: Option<usize>,
-        /// Evict excess idle checkouts after this duration, e.g. 7d, or never.
-        #[arg(long)]
-        idle_timeout: Option<groove_core::IdleTimeout>,
-        /// Local revision for spare preparation; defaults to the initializing checkout's HEAD branch or commit.
-        #[arg(long)]
-        ready_base: Option<String>,
-        /// Maximum simultaneous reservations (1..=4096); grow later with `config set`.
-        #[arg(long, value_parser = parse_capacity)]
-        capacity: usize,
-        /// Cleanup applied when a slot is reused; may delete workspace contents.
-        #[arg(long, value_enum, default_value = "pristine")]
-        cleanup: Cleanup,
-        /// Exact, initially empty checkout root (overrides worktrees.root and ~/.worktrees).
-        #[arg(long)]
-        worktree_root: Option<PathBuf>,
-        /// Resume an interrupted init with its original settings.
-        #[arg(long)]
-        resume: bool,
-    },
+    /// Create, inspect, configure and delete repository pools.
+    #[command(subcommand, after_long_help = help!("pool"))]
+    Pool(PoolCommand),
     /// Reserve a clean checkout of a commit until it is released.
     #[command(after_long_help = help!("acquire"))]
     Acquire {
@@ -183,13 +133,17 @@ pub enum Command {
         task: Option<String>,
         /// Idempotency key for safe acquisition retries.
         #[arg(
-            long,
+            long = "idempotency-key",
+            value_name = "KEY",
             long_help = "Idempotency key: retrying the same key/base/task returns the same reservation."
         )]
         request_key: Option<String>,
-        /// Milliseconds to wait for a free slot; 0 scans once.
-        #[arg(long, default_value_t = 0)]
+        /// Wait for a free slot, e.g. 30s; 0s scans once.
+        #[arg(long = "wait", value_name = "DURATION", default_value = "0s", value_parser = parse_duration)]
         wait_ms: u64,
+        /// Print exactly the workspace path in human output.
+        #[arg(long)]
+        path_only: bool,
     },
     /// Return a workspace to the pool; optionally save a pinned snapshot first.
     #[command(after_long_help = help!("release"))]
@@ -202,11 +156,12 @@ pub enum Command {
         /// Description recorded with the pinned snapshot.
         #[arg(long, requires = "save", default_value = "workspace saved")]
         description: String,
-        /// File size limit in bytes; 0 means unlimited.
-        #[arg(long, requires = "save", default_value = DEFAULT_MAX_FILE_BYTES, long_help = "Largest changed file to capture, in bytes; 0 removes the limit.")]
+        /// File size limit, e.g. 100M; 0 means unlimited.
+        #[arg(long = "max-file-size", value_name = "SIZE", value_parser = parse_size, requires = "save", default_value = DEFAULT_MAX_FILE_BYTES, long_help = "Largest changed file to capture, e.g. 100M; 0 removes the limit.")]
         max_file_bytes: u64,
         /// Skip change/process checks; unsaved work can be lost.
         #[arg(
+            short = 'f',
             long,
             long_help = "Skip unsaved-change and process checks (with --save, still save changes). Without --save, unsaved contents are discarded on the next acquisition."
         )]
@@ -227,23 +182,14 @@ pub enum Command {
         #[arg(long)]
         details: bool,
     },
-    /// Show pool settings and slots, or one reservation.
-    #[command(after_long_help = help!("show"), group(clap::ArgGroup::new("collection_options")
-        .args(["limit", "offset", "unlimited", "sort", "order"]).multiple(true).conflicts_with("OptionalSelector")))]
+    /// Show exactly one reservation or slot.
+    #[command(after_long_help = help!("show"))]
     Show {
-        /// Sort the slot collection by slot ID or task label, then slot ID.
-        #[arg(long, value_enum, default_value = "slot")]
-        sort: SlotSort,
-        #[command(flatten)]
-        page: PageArgs,
         #[command(flatten)]
         selector: OptionalSelector,
         /// Include bounded local Git status.
         #[arg(long)]
         details: bool,
-        /// Scan this pool's logical storage sizes (can be slow; pool view only).
-        #[arg(long, conflicts_with_all = ["lease_id", "task", "slot"])]
-        disk_usage: bool,
     },
     /// Print a shell completion script for commands, options and fixed values.
     #[command(after_long_help = help!("completions"))]
@@ -255,7 +201,7 @@ pub enum Command {
     /// Save, inspect, restore and delete local checkpoints.
     #[command(subcommand, after_long_help = help!("snapshot"))]
     Snapshot(SnapshotCommand),
-    /// Pool settings and user preferences.
+    /// User preferences shared by every repository.
     #[command(subcommand, after_long_help = help!("config"))]
     Config(ConfigCommand),
 }
@@ -361,8 +307,8 @@ pub enum SnapshotCommand {
         /// Task or session identifier recorded with the snapshot.
         #[arg(long)]
         session: Option<String>,
-        /// Largest changed file to capture, in bytes; 0 removes the limit.
-        #[arg(long, default_value = DEFAULT_MAX_FILE_BYTES)]
+        /// Largest changed file to capture, e.g. 100M; 0 removes the limit.
+        #[arg(long = "max-file-size", value_name = "SIZE", value_parser = parse_size, default_value = DEFAULT_MAX_FILE_BYTES)]
         max_file_bytes: u64,
     },
     /// List snapshots across all linked worktrees (default: newest first).
@@ -389,7 +335,7 @@ pub enum SnapshotCommand {
         other: Option<String>,
         /// Largest changed current file to capture, in bytes; 0 removes the limit.
         /// Unused when comparing two saved snapshots.
-        #[arg(long, default_value = DEFAULT_MAX_FILE_BYTES)]
+        #[arg(long = "max-file-size", value_name = "SIZE", value_parser = parse_size, default_value = DEFAULT_MAX_FILE_BYTES)]
         max_file_bytes: u64,
     },
     /// Restore in place or into a new directory.
@@ -402,7 +348,7 @@ pub enum SnapshotCommand {
         to: Option<PathBuf>,
         /// Largest changed file in the safety snapshot, in bytes; 0 removes the limit.
         /// Unused with --to.
-        #[arg(long, default_value = DEFAULT_MAX_FILE_BYTES)]
+        #[arg(long = "max-file-size", value_name = "SIZE", value_parser = parse_size, default_value = DEFAULT_MAX_FILE_BYTES)]
         max_file_bytes: u64,
     },
     /// Delete one snapshot.
@@ -410,17 +356,83 @@ pub enum SnapshotCommand {
         /// Snapshot ID.
         id: String,
         /// Also delete a snapshot pinned by `release --save`.
-        #[arg(long)]
+        #[arg(short = 'f', long)]
         force: bool,
     },
 }
 
 #[derive(Subcommand)]
-pub enum ConfigCommand {
-    /// Show this repository's pool settings.
-    Show,
+pub enum PoolCommand {
+    /// List repository pools, including interrupted pools; hide deleted pools by default.
+    #[command(after_long_help = help!("pool-list"))]
+    List {
+        /// Sort pools by name or lifecycle state, then name.
+        #[arg(long, value_enum, default_value = "name")]
+        sort: PoolSort,
+        #[command(flatten)]
+        page: PageArgs,
+        /// Include deleted pools with retained history and recovery information.
+        #[arg(long)]
+        all: bool,
+        /// Scan logical workspace, cache and log sizes (can be slow on large pools).
+        #[arg(long)]
+        disk_usage: bool,
+    },
+    /// Delete an idle pool's checkouts and legacy caches, retaining snapshots.
+    #[command(after_long_help = help!("pool-destroy"))]
+    Destroy {
+        /// Validate and preview deletion without removing data or changing lifecycle state.
+        #[arg(short = 'n', long)]
+        dry_run: bool,
+        /// Discard residual edits, ignored files and broken checkouts; never bypasses owners or reservations.
+        #[arg(short = 'f', long = "force")]
+        discard_changes: bool,
+        /// Require the generation returned by a previous preview; protects a replacement pool.
+        #[arg(long)]
+        pool_id: Option<PoolId>,
+    },
+    /// Create a pool of reusable worktree slots for this repository.
+    #[command(after_long_help = help!("pool-init"))]
+    Init {
+        /// Desired ready, unreserved checkouts (default: pool_defaults.ready_target, 0).
+        #[arg(long)]
+        ready_target: Option<usize>,
+        /// Evict excess idle checkouts after this duration, e.g. 7d, or never.
+        #[arg(long)]
+        idle_timeout: Option<groove_core::IdleTimeout>,
+        /// Local revision for spare preparation; defaults to the initializing checkout's HEAD branch or commit.
+        #[arg(long)]
+        ready_base: Option<String>,
+        /// Maximum simultaneous reservations (1..=4096); grow later with `pool set`.
+        #[arg(long, value_parser = parse_capacity)]
+        capacity: usize,
+        /// Cleanup applied when a slot is reused; may delete workspace contents.
+        #[arg(long, value_enum, default_value = "pristine")]
+        cleanup: Cleanup,
+        /// Exact, initially empty checkout root (overrides worktrees.root and ~/.worktrees).
+        #[arg(long = "workspace-root", value_name = "DIR")]
+        worktree_root: Option<PathBuf>,
+        /// Resume an interrupted init with its original settings.
+        #[arg(long)]
+        resume: bool,
+    },
+    /// Show pool settings, slots and background preparation.
+    #[command(after_long_help = help!("pool-show"))]
+    Show {
+        /// Include bounded Git status for every slot.
+        #[arg(long)]
+        details: bool,
+        /// Scan logical storage sizes (can be slow).
+        #[arg(long)]
+        disk_usage: bool,
+        /// Sort slots, with slot ID breaking ties.
+        #[arg(long, value_enum, default_value = "slot")]
+        sort: SlotSort,
+        #[command(flatten)]
+        page: PageArgs,
+    },
     /// Grow capacity and/or change cleanup for future acquisitions.
-    #[command(group(clap::ArgGroup::new("settings").required(true).multiple(true)
+    #[command(after_long_help = help!("pool-set"), group(clap::ArgGroup::new("settings").required(true).multiple(true)
         .args(["capacity", "cleanup", "ready_target", "idle_timeout", "ready_base"])))]
     Set {
         /// Desired ready, unreserved checkouts; cannot exceed resulting capacity. Zero disables replenishment.
@@ -439,13 +451,10 @@ pub enum ConfigCommand {
         #[arg(long, value_enum)]
         cleanup: Option<Cleanup>,
     },
-    /// User preferences shared by every repository.
-    #[command(subcommand)]
-    Global(GlobalCommand),
 }
 
 #[derive(Subcommand)]
-pub enum GlobalCommand {
+pub enum ConfigCommand {
     /// Show effective preferences and which environment variables override them.
     Show,
     /// Print the preferences file path, even if its contents are invalid.
@@ -470,9 +479,13 @@ impl Command {
     /// Stable command name for logs.
     pub fn name(&self) -> &'static str {
         match self {
-            Self::Pools { .. } => "pools",
-            Self::Destroy { .. } => "destroy",
-            Self::Init { .. } => "init",
+            Self::Pool(command) => match command {
+                PoolCommand::Init { .. } => "pool init",
+                PoolCommand::List { .. } => "pool list",
+                PoolCommand::Show { .. } => "pool show",
+                PoolCommand::Set { .. } => "pool set",
+                PoolCommand::Destroy { .. } => "pool destroy",
+            },
             Self::Acquire { .. } => "acquire",
             Self::Release { .. } => "release",
             Self::List { .. } => "list",
@@ -482,6 +495,60 @@ impl Command {
             Self::Config(_) => "config",
         }
     }
+}
+
+fn parse_duration(value: &str) -> Result<u64, String> {
+    let (number, multiplier) = if let Some(number) = value.strip_suffix("ms") {
+        (number, 1)
+    } else if let Some(number) = value.strip_suffix('s') {
+        (number, 1_000)
+    } else if let Some(number) = value.strip_suffix('m') {
+        (number, 60_000)
+    } else if let Some(number) = value.strip_suffix('h') {
+        (number, 3_600_000)
+    } else {
+        return Err("Duration requires a unit: ms, s, m or h (for example 30s)".into());
+    };
+    if number.is_empty() || !number.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err("Duration must be a non-negative integer with a unit, for example 30s".into());
+    }
+    number
+        .parse::<u64>()
+        .ok()
+        .and_then(|number| number.checked_mul(multiplier))
+        .ok_or_else(|| "Duration is too large".into())
+}
+
+fn parse_positive_duration(value: &str) -> Result<u64, String> {
+    let duration = parse_duration(value)?;
+    if duration == 0 {
+        return Err("Git timeout must be positive, for example 2m".into());
+    }
+    Ok(duration)
+}
+
+fn parse_size(value: &str) -> Result<u64, String> {
+    let boundary = value
+        .bytes()
+        .position(|byte| !byte.is_ascii_digit())
+        .unwrap_or(value.len());
+    let (number, suffix) = value.split_at(boundary);
+    let multiplier = match suffix.to_ascii_lowercase().as_str() {
+        "" => 1,
+        "k" | "kb" | "kib" => 1024,
+        "m" | "mb" | "mib" => 1024 * 1024,
+        "g" | "gb" | "gib" => 1024 * 1024 * 1024,
+        _ => {
+            return Err(
+                "Size requires bytes or K, M or G, for example 100M (0 is unlimited)".into(),
+            )
+        }
+    };
+    number
+        .parse::<u64>()
+        .ok()
+        .and_then(|number| number.checked_mul(multiplier))
+        .ok_or_else(|| "Size must be a non-negative integer within the supported byte range".into())
 }
 
 fn parse_capacity(value: &str) -> Result<usize, String> {
@@ -612,7 +679,7 @@ mod tests {
             "release",
             "--task",
             "a",
-            "--lease-id",
+            "--reservation-id",
             "00000000-0000-4000-8000-000000000000",
         ];
         assert!(Args::try_parse_from(both).is_err());
@@ -620,7 +687,7 @@ mod tests {
 
     #[test]
     fn pool_configuration_requires_any_setting_rather_than_capacity() {
-        let error = Args::try_parse_from(["groove", "config", "set"])
+        let error = Args::try_parse_from(["groove", "pool", "set"])
             .err()
             .unwrap()
             .to_string();
@@ -632,16 +699,108 @@ mod tests {
             ("--ready-base", "main"),
         ] {
             assert!(error.contains(flag), "{error}");
-            assert!(Args::try_parse_from(["groove", "config", "set", flag, value]).is_ok());
+            assert!(Args::try_parse_from(["groove", "pool", "set", flag, value]).is_ok());
         }
         assert!(Args::try_parse_from([
             "groove",
-            "config",
+            "pool",
             "set",
             "--ready-target",
             "0",
             "--idle-timeout",
             "never"
+        ])
+        .is_ok());
+    }
+}
+
+#[cfg(test)]
+mod scalar_tests {
+    use super::*;
+
+    #[test]
+    fn durations_require_units_and_reject_signs_fractions_and_overflow() {
+        for (input, expected) in [
+            ("0s", 0),
+            ("7ms", 7),
+            ("30s", 30_000),
+            ("2m", 120_000),
+            ("3h", 10_800_000),
+            ("18446744073709551615ms", u64::MAX),
+        ] {
+            assert_eq!(parse_duration(input).unwrap(), expected, "{input}");
+        }
+        for input in [
+            "30",
+            "",
+            "s",
+            "-1s",
+            "+1s",
+            "1.5s",
+            "1d",
+            "1S",
+            "18446744073709551616ms",
+            "18446744073709551615s",
+        ] {
+            assert!(parse_duration(input).is_err(), "{input}");
+        }
+        assert!(parse_duration("30").unwrap_err().contains("30s"));
+        assert!(parse_positive_duration("0ms").is_err());
+        assert_eq!(parse_positive_duration("1ms").unwrap(), 1);
+    }
+
+    #[test]
+    fn file_sizes_accept_binary_units_and_reject_overflow() {
+        for (input, expected) in [
+            ("0", 0),
+            ("123", 123),
+            ("1K", 1024),
+            ("2kb", 2048),
+            ("3KiB", 3072),
+            ("100M", 104_857_600),
+            ("1gIb", 1_073_741_824),
+            ("18446744073709551615", u64::MAX),
+        ] {
+            assert_eq!(parse_size(input).unwrap(), expected, "{input}");
+        }
+        for input in [
+            "",
+            "M",
+            "-1",
+            "+1K",
+            "1.5M",
+            "1T",
+            "1 B",
+            "18446744073709551616",
+            "18446744073709551615G",
+        ] {
+            assert!(parse_size(input).is_err(), "{input}");
+        }
+    }
+
+    #[test]
+    fn show_requires_exactly_one_selector_and_pool_show_has_collection_options() {
+        assert!(Args::try_parse_from(["groove", "show"]).is_err());
+        for (flag, value) in [
+            ("--task", "label"),
+            ("--slot", "wt-0001"),
+            ("--reservation-id", "00000000-0000-4000-8000-000000000000"),
+        ] {
+            assert!(Args::try_parse_from(["groove", "show", flag, value]).is_ok());
+            assert!(Args::try_parse_from(["groove", "show", flag, value, "--limit", "1"]).is_err());
+        }
+        assert!(
+            Args::try_parse_from(["groove", "show", "--task", "label", "--slot", "wt-0001"])
+                .is_err()
+        );
+        assert!(Args::try_parse_from([
+            "groove",
+            "pool",
+            "show",
+            "--details",
+            "--disk-usage",
+            "--limit",
+            "1"
         ])
         .is_ok());
     }

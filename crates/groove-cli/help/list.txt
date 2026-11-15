@@ -19,3 +19,6 @@ Concurrent changes can shift offset pages; observations never grant ownership.
 slot ID breaking ties. --sort slot restores the default order.
 --order asc (default) or --order desc applies to the sort key and slot-ID
 tie-breaker before pagination. Descending task order puts unlabelled entries last.
+
+Detailed status waits at most two seconds for a slot busy with a save, release
+or preparation, then reports that slot's Git status as unavailable and retryable.

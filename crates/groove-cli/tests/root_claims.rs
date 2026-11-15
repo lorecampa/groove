@@ -19,6 +19,7 @@ fn released_root_claim(interrupt: bool) {
     let init = |repo: &Repo| {
         let output = support::groove_in(&repo.path)
             .args([
+                "pool",
                 "init",
                 "--capacity",
                 "1",
@@ -26,7 +27,7 @@ fn released_root_claim(interrupt: bool) {
                 "0",
                 "--idle-timeout",
                 "never",
-                "--worktree-root",
+                "--workspace-root",
             ])
             .arg(&root)
             .output()
@@ -37,7 +38,7 @@ fn released_root_claim(interrupt: bool) {
     let marker = root.join(".groove-owner");
     assert!(marker.is_symlink());
     let preview = support::groove_in(&first.path)
-        .args(["destroy", "--dry-run"])
+        .args(["pool", "destroy", "--dry-run"])
         .output()
         .unwrap();
     assert_success(&preview);
@@ -48,7 +49,7 @@ fn released_root_claim(interrupt: bool) {
         let listener = UnixListener::bind(&socket).unwrap();
         let mut child = TestChild::spawn(
             support::groove_in(&first.path)
-                .arg("destroy")
+                .args(["pool", "destroy"])
                 .env("GROOVE_TEST_CHECKPOINT", "pool-deleted")
                 .env("GROOVE_TEST_SOCKET", &socket),
         );
@@ -62,7 +63,7 @@ fn released_root_claim(interrupt: bool) {
     }
     assert_success(
         &support::groove_in(&first.path)
-            .arg("destroy")
+            .args(["pool", "destroy"])
             .output()
             .unwrap(),
     );
@@ -79,7 +80,7 @@ fn released_root_claim(interrupt: bool) {
     std::fs::write(&file, b"new repository's work").unwrap();
     assert_success(
         &support::groove_in(&first.path)
-            .arg("destroy")
+            .args(["pool", "destroy"])
             .output()
             .unwrap(),
     );
@@ -92,8 +93,8 @@ fn released_root_claim(interrupt: bool) {
             .unwrap(),
     );
     assert_eq!(
-        active["result"]["leases"][0]["lease_id"],
-        lease["result"]["lease_id"]
+        active["result"]["reservations"][0]["reservation_id"],
+        lease["result"]["reservation_id"]
     );
 }
 
@@ -110,6 +111,7 @@ fn initializer_losing_the_root_race_can_choose_another_root() {
         let mut child = TestChild::spawn(
             support::groove_in(&repo.path)
                 .args([
+                    "pool",
                     "init",
                     "--capacity",
                     "1",
@@ -117,7 +119,7 @@ fn initializer_losing_the_root_race_can_choose_another_root() {
                     "0",
                     "--idle-timeout",
                     "never",
-                    "--worktree-root",
+                    "--workspace-root",
                 ])
                 .arg(&root)
                 .env("GROOVE_TEST_CHECKPOINT", "init-before-root-claim")
@@ -143,6 +145,7 @@ fn initializer_losing_the_root_race_can_choose_another_root() {
     assert_success(
         &support::groove_in(&second.path)
             .args([
+                "pool",
                 "init",
                 "--capacity",
                 "1",
@@ -150,7 +153,7 @@ fn initializer_losing_the_root_race_can_choose_another_root() {
                 "0",
                 "--idle-timeout",
                 "never",
-                "--worktree-root",
+                "--workspace-root",
             ])
             .arg(second.temp.path().join("independent"))
             .output()
@@ -167,6 +170,7 @@ fn independent_repositories_cannot_claim_the_same_empty_checkout_root() {
         TestChild::spawn(
             support::groove_in(&repo.path)
                 .args([
+                    "pool",
                     "init",
                     "--capacity",
                     "1",
@@ -174,7 +178,7 @@ fn independent_repositories_cannot_claim_the_same_empty_checkout_root() {
                     "0",
                     "--idle-timeout",
                     "never",
-                    "--worktree-root",
+                    "--workspace-root",
                 ])
                 .arg(&root),
         )
@@ -197,6 +201,7 @@ fn independent_repositories_cannot_claim_the_same_empty_checkout_root() {
     assert_eq!(error["error"]["code"], "CONFIG_CONFLICT");
     let nested = support::groove_in(&loser.path)
         .args([
+            "pool",
             "init",
             "--capacity",
             "1",
@@ -204,7 +209,7 @@ fn independent_repositories_cannot_claim_the_same_empty_checkout_root() {
             "0",
             "--idle-timeout",
             "never",
-            "--worktree-root",
+            "--workspace-root",
         ])
         .arg(root.join("nested"))
         .output()
@@ -224,15 +229,15 @@ fn independent_repositories_cannot_claim_the_same_empty_checkout_root() {
         &support::groove_in(&owner.path)
             .args([
                 "release",
-                "--lease-id",
-                lease["result"]["lease_id"].as_str().unwrap(),
+                "--reservation-id",
+                lease["result"]["reservation_id"].as_str().unwrap(),
             ])
             .output()
             .unwrap(),
     );
     assert_success(
         &support::groove_in(&owner.path)
-            .arg("destroy")
+            .args(["pool", "destroy"])
             .output()
             .unwrap(),
     );

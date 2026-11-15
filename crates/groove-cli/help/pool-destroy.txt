@@ -1,26 +1,26 @@
 EXAMPLES:
-  groove destroy --dry-run
-  groove destroy
-  groove destroy --discard-changes --dry-run
-  groove destroy --discard-changes --pool-id POOL_UUID
-  groove --pool frontend destroy --dry-run
+  groove pool destroy --dry-run
+  groove pool destroy
+  groove pool destroy --force --dry-run
+  groove pool destroy --force --pool-id POOL_UUID
+  groove --pool frontend pool destroy --dry-run
 
 Omitting --pool targets default. When several non-deleted pools exist, select
 --pool NAME explicitly, including --pool default. Only that pool is removed;
-other pools and their reservations remain intact. Use groove pools to inspect
+other pools and their reservations remain intact. Use groove pool list to inspect
 the catalog. --pool-id checks a generation inside the selected namespace.
 Completed deletion releases its external .groove-owner root claim once no pool
 uses that root. Retrying destroy finishes interrupted claim cleanup. For a marker
 left by a deleted repository, see the recovery procedure in docs/operations.md.
 It also prunes completed saved-release receipts for deleted snapshots, preserving
-pending pin cleanup, request-key tombstones and all permanent lock files.
+pending pin cleanup, idempotency-key tombstones and all permanent lock files.
 
 Release every reservation and stop ALL writers first. Live lease and
 execution descriptors, protected reservations and orphaned execution records
 always refuse deletion. Resolve legacy executions with the previous Groove version. Run
 destroy from outside every directory being removed, including your shell's cwd.
 An active background worker receives a cancel request, stops between slots, and
-is awaited up to --git-timeout-ms. A busy worker that cannot stop in time still
+is awaited up to --git-timeout. A busy worker that cannot stop in time still
 refuses deletion; retry after its current operation finishes. No reservation is cancelled.
 --dry-run never cancels a worker; an active operation can return retryable
 CONFIG_CONFLICT instead of a preview. Retry after that operation finishes.
@@ -30,31 +30,38 @@ detected by cleanup's device checks. Linux also checks visible bind mounts.
 Deletion removes every configured checkout, its exact Git worktree registration,
 and disposable artifact caches, including ignored files even for warm pools.
 Residual edits, untracked/ignored files and broken registrations require explicit
---discard-changes. That flag never bypasses ownership, process or path checks.
+--force. That flag never bypasses ownership, process or path checks.
 Recognizable foreign repositories, moved worktrees and conflicting registration
-claims at slot paths are preserved, including with --discard-changes. Safely
+claims at slot paths are preserved, including with --force. Safely
 restore or move the occupant before retrying deletion.
 Unreferenced detached commits must first be preserved on a branch or snapshot.
 Index flags that hide edits and interrupted Git operations also block inspection;
-repair them or explicitly acknowledge their loss with --discard-changes. Inspection
+repair them or explicitly acknowledge their loss with --force. Inspection
 uses bounded Git output; an inspection failure never authorizes removal.
 Warnings from Git status are inspection failures even when Git exits zero.
 
-Permanent locks, request-key tombstones, saved-release receipts, execution history/logs,
+Permanent locks, idempotency-key tombstones, saved-release receipts, execution history/logs,
 branches and snapshots remain. Checkout root directories (including external
 roots) and unknown files in them remain. Snapshot commands remain available.
 Legacy logs/history are retained without a cleanup command.
 
 An interrupted deletion blocks normal pool use. Retry destroy with the same
---discard-changes policy to resume. Retrying a completed deletion succeeds.
+--force policy to resume. Retrying a completed deletion succeeds.
 Do not edit or repurpose checkout/cache paths while deletion is incomplete;
 retries continue the removal already authorized by the first invocation.
 Use --pool-id from the preview/result to ensure a retry cannot delete a newly
 initialized pool. After deletion, init can create a new pool with new settings;
-permanent lock identities and that pool's request-key tombstones survive.
+permanent lock identities and that pool's idempotency-key tombstones survive.
 Destroy can also cancel matching interrupted initialization. Unsafe or malformed
 metadata requires repair; it is never ignored to force deletion.
 
-A running background checkout worker holds lifecycle admission, so deletion refuses
-with CONFIG_CONFLICT until it exits. Inspect `groove show` and retry; never remove
-its permanent ready.lock. Deleted pools retain that lock with their other history.
+A running background workspace worker holds lifecycle admission. Normal deletion
+requests its cancellation and waits up to --git-timeout for admission; previews
+wait without cancelling it. Other live pool operations can still refuse deletion
+with CONFIG_CONFLICT. Inspect `groove pool show` and retry; never remove the
+permanent ready.lock. Deleted pools retain that lock with their other history.
+
+A preview waits briefly for active pool operations, up to the smaller of the Git
+timeout and five seconds, without cancelling the background worker. Once deletion
+is durable, failure to release an ancillary root claim or prune missing receipts
+is a warning; rerun destroy to retry that cleanup. Saved snapshots remain intact.

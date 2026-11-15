@@ -144,10 +144,7 @@ fn run(args: &Args) -> u8 {
         quiet: args.quiet,
     });
     // The preferences editor owns the terminal while it runs.
-    if !matches!(
-        args.command,
-        Command::Config(args::ConfigCommand::Global(args::GlobalCommand::Edit))
-    ) {
+    if !matches!(args.command, Command::Config(args::ConfigCommand::Edit)) {
         terminal.start_progress(args.json, args.request_id.clone(), args.command.name());
     }
     run_command(args, &terminal)
@@ -156,6 +153,26 @@ fn run(args: &Args) -> u8 {
 fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {
     let format = requested_format(args.json);
     let request_id = args.request_id.as_deref();
+    if args.pool.is_some()
+        && matches!(
+            args.command,
+            Command::Snapshot(_)
+                | Command::Config(_)
+                | Command::Completions { .. }
+                | Command::Pool(args::PoolCommand::List { .. })
+        )
+    {
+        return output::emit_error(
+            format,
+            request_id,
+            &Error::new(
+                ErrorCode::InvalidArgument,
+                "--pool is not used by this command; omit it",
+            ),
+            terminal,
+            Some(args),
+        );
+    }
     // Configuration and completion commands work even with broken preferences.
     let logging = if matches!(
         args.command,

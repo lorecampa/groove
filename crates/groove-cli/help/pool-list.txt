@@ -1,11 +1,11 @@
 EXAMPLES:
-  groove pools
-  groove pools --all
-  groove pools --disk-usage
-  groove --pool frontend init --capacity 3 --cleanup warm
-  groove --pool backend init --capacity 2 --cleanup pristine
+  groove pool list
+  groove pool list --all
+  groove pool list --disk-usage
+  groove --pool frontend pool init --capacity 3 --cleanup warm
+  groove --pool backend pool init --capacity 2 --cleanup pristine
   groove --pool frontend acquire --task fix-navigation
-  groove --pool frontend destroy --dry-run
+  groove --pool frontend pool destroy --dry-run
 
 Omitting --pool selects default; it never selects a different available pool.
 Names are 1..64 lowercase ASCII letters, digits, '_' or '-', starting with a
@@ -28,7 +28,7 @@ concurrent changes can shift offset pages. Disk usage scans only the returned pa
 history. Large pools can take time to scan. Sizes are logical file bytes; shared
 Git objects and snapshots are excluded. Interrupted pools show '-' (storage:null).
 
-Capacity, cleanup, checkout roots, task labels, request keys, caches, history and
+Capacity, cleanup, checkout roots, task labels, idempotency keys, caches, history and
 saved-release receipts are scoped to each pool. Keys stay tombstoned across reinit of
 that same pool. Snapshots, branches, Git objects and repository configuration are
 shared. Pools are not security sandboxes; slot numbers are pool-local.

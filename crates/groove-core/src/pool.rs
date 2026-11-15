@@ -144,7 +144,7 @@ impl Pool {
             if !options.resume {
                 return Err(Error::new(
                     crate::ErrorCode::ConfigConflict,
-                    "Interrupted initialization exists; retry the original settings with init --resume",
+                    "Interrupted initialization exists; retry the original settings with pool init --resume",
                 ));
             }
             if state::read::<InitIntent>(&intent)? != expected {

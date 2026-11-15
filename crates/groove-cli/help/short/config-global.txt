@@ -1,4 +1,0 @@
-EXAMPLE:
-  groove config global set logging.max_files=50
-
-Preferences apply to every repository; environment variables can override them.

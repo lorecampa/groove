@@ -1,5 +1,5 @@
 //! Internal short-lived worker transport. No public maintenance command or daemon.
-use crate::args::{Args, Command, ConfigCommand};
+use crate::args::{Args, Command, PoolCommand};
 use groove_core::{Pool, Result};
 use std::{
     os::unix::process::CommandExt,
@@ -69,10 +69,10 @@ fn worker(raw: &[std::ffi::OsString]) -> Result<()> {
 pub fn trigger(args: &Args) {
     if !matches!(
         args.command,
-        Command::Init { .. }
+        Command::Pool(PoolCommand::Init { .. })
             | Command::Acquire { .. }
             | Command::Release { .. }
-            | Command::Config(ConfigCommand::Set { .. })
+            | Command::Pool(PoolCommand::Set { .. })
     ) {
         return;
     }

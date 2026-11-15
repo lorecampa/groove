@@ -455,21 +455,21 @@ fn repeated_package_checks_compile_the_current_archive_at_the_same_version() {
     let cwd = std::env::current_dir().unwrap();
     let result = match std::env::args().nth(2).unwrap().as_str() {
         "--version" => "{\"text\":\"groove 0.1.0\"}".to_string(),
-        "init" => {
+        "pool" => {
             let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap());
             assert!(!home.starts_with(&cwd), "Default pool storage must be outside the smoke checkout");
             "{}".to_string()
         },
-        "acquire" => format!("{{\"worktree_path\":\"{}\",\"lease_id\":\"fixture\"}}", cwd.display()),
+        "acquire" => format!("{{\"workspace_path\":\"{}\",\"reservation_id\":\"fixture\"}}", cwd.display()),
         "exec" => {
             let stdout = cwd.join("stdout");
             std::fs::write(&stdout, "true\n").unwrap();
             format!("{{\"execution\":{{\"termination\":\"exited\",\"exit_code\":0,\"run\":{{\"stdout_path\":\"{}\"}}}}}}", stdout.display())
         },
-        "list" => "{\"leases\":[]}".to_string(),
+        "list" => "{\"reservations\":[]}".to_string(),
         _ => "{}".to_string(),
     };
-    println!("{{\"api_version\":1,\"ok\":true,\"result\":{result}}}");
+    println!("{{\"api_version\":2,\"ok\":true,\"result\":{result}}}");
 }
 "#;
     fs::write(&cli, source).unwrap();
@@ -528,15 +528,15 @@ fn target_bundles_keep_independent_metadata_and_valid_checksums() {
     // inside the fixture. This peer supplies only the smoke protocol responses;
     // product execution semantics are covered by the native CLI/process suite.
     let result = |value: serde_json::Value| {
-        let response = serde_json::json!({"api_version":1,"ok":true,"result":value}).to_string();
+        let response = serde_json::json!({"api_version":2,"ok":true,"result":value}).to_string();
         format!("printf '%s\\n' '{}'", response.replace('\'', "'\\''"))
     };
     let script = format!(
         "#!/bin/sh\nset -eu\nshift\ncase \"$1\" in\n--version) {};;\nacquire) {};;\nexec) {};;\nlist) {};;\n*) {};;\nesac\n",
         result(serde_json::json!({"text":"groove 0.1.0"})),
-        result(serde_json::json!({"worktree_path":f.path("checkout"),"lease_id":"fixture"})),
+        result(serde_json::json!({"workspace_path":f.path("checkout"),"reservation_id":"fixture"})),
         result(serde_json::json!({"execution":{"termination":"exited","exit_code":0,"run":{"stdout_path":stdout}}})),
-        result(serde_json::json!({"leases":[]})),
+        result(serde_json::json!({"reservations":[]})),
         result(serde_json::json!({})),
     );
     let binary = f.path("bin/groove");

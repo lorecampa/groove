@@ -182,14 +182,14 @@ verify both trees and base HEAD, preservation of existing ignored residue, and
 absence of ignored data in new checkouts. The Git oracle writes only into separate
 object storage, so it cannot repair a broken snapshot or change object-growth data.
 
-Workspace cases inspect actual files, Git state and cleanup policy. Concurrent workers must have distinct lease IDs and
+Workspace cases inspect actual files, Git state and cleanup policy. Concurrent workers must have distinct reservation IDs and
 paths, succeed, reject excess capacity with the typed CLI error/exit category, and
 release every reservation. Expected failures are asserted rather than discarded.
 Multi-pool workers reuse task labels/request keys across namespaces, verify distinct
 IDs/paths, and exhaust each pool independently.
 Their first registration measurements are separate from warm batch throughput.
 Deletion cases verify every configured path/native registration is removed and
-permanent lock inodes, snapshot recovery, saved-release receipts, request-key tombstones,
+permanent lock inodes, snapshot recovery, saved-release receipts, idempotency-key tombstones,
 root neighbors and a protected sibling survive. The external-cache case creates
 legacy artifact fixtures directly; dirty cases add tracked, untracked and ignored
 files using the profile's fixture definition. Fixture

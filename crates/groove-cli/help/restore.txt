@@ -20,7 +20,7 @@ from the target are removed. Rejected preflight checks leave no safety snapshot.
 If restoration fails after the safety snapshot is saved, the error includes its
 ID for recovery. Earlier failures may leave no safety snapshot. A failed restore
 can leave partial working-file changes.
-Use --max-file-bytes to raise the safety capture limit (default 100 MiB per
+Use --max-file-size to raise the safety capture limit (default 100 MiB per
 changed file; 0 is unlimited). This limit is unused with --to.
 Recovery preserves saved bytes, executable bits and symlinks even if Git
 preferences changed after capture. Active conversion/filter attributes are

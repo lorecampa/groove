@@ -144,7 +144,7 @@ mod tests {
             .unwrap();
         progress.clear(&mut output).unwrap();
         let schema: serde_json::Value =
-            serde_json::from_str(include_str!("../schemas/progress-v1.schema.json")).unwrap();
+            serde_json::from_str(include_str!("../schemas/progress-v2.schema.json")).unwrap();
         let validator = jsonschema::validator_for(&schema).unwrap();
         let text = String::from_utf8(output).unwrap();
         let events: Vec<serde_json::Value> = text

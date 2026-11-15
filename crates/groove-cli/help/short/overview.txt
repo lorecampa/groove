@@ -1,5 +1,5 @@
 WORKFLOW:
-  groove init --capacity 4
+  groove pool init --capacity 4
   groove acquire --task fix-parser
   # Work in the returned checkout; create a branch to keep commits.
   groove release --save --task fix-parser

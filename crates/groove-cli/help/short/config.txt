@@ -1,3 +1,7 @@
 EXAMPLES:
   groove config show
-  groove config set --capacity 8
+  groove config path
+  groove config set logging.level=trace
+  groove config unset logging.directory
+  groove config edit
+Preferences are user-wide. Use pool show and pool set for repository pool settings.

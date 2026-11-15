@@ -146,6 +146,7 @@ impl Release {
         )?;
         // No background preparation or eviction may outlive this fixture.
         groove(args![
+            "pool",
             "init",
             "--capacity",
             "1",
@@ -161,17 +162,21 @@ impl Release {
                 .ok_or_else(|| Error::Invalid(format!("Missing lease field {key}")))
         };
         require(
-            Path::new(field("worktree_path")?).is_dir(),
+            Path::new(field("workspace_path")?).is_dir(),
             "Acquire did not create a worktree",
         )?;
         runner.run(
-            Path::new(field("worktree_path")?),
+            Path::new(field("workspace_path")?),
             "git",
             args!["rev-parse", "--is-inside-work-tree"],
         )?;
-        groove(args!["release", "--lease-id", field("lease_id")?])?;
+        groove(args![
+            "release",
+            "--reservation-id",
+            field("reservation_id")?
+        ])?;
         require(
-            groove(args!["list"])?["leases"]
+            groove(args!["list"])?["reservations"]
                 .as_array()
                 .is_some_and(Vec::is_empty),
             "Smoke test left a reservation",

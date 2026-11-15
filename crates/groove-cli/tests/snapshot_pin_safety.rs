@@ -19,7 +19,7 @@ fn git_error(output: &std::process::Output) {
     assert_eq!(output.status.code(), Some(7));
     let response: Value = serde_json::from_slice(&output.stdout).unwrap();
     let schema: Value =
-        serde_json::from_str(include_str!("../schemas/response-v1.schema.json")).unwrap();
+        serde_json::from_str(include_str!("../schemas/response-v2.schema.json")).unwrap();
     jsonschema::validator_for(&schema)
         .unwrap()
         .validate(&response)

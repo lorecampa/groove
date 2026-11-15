@@ -183,7 +183,7 @@ fn cli(repo: &Repo, args: &[&str]) -> std::process::Output {
 fn checked(repo: &Repo, args: &[&str]) -> Value {
     let response = assert_success(&cli(repo, args));
     let schema: Value =
-        serde_json::from_str(include_str!("../schemas/response-v1.schema.json")).unwrap();
+        serde_json::from_str(include_str!("../schemas/response-v2.schema.json")).unwrap();
     jsonschema::validator_for(&schema)
         .unwrap()
         .validate(&response)
@@ -197,7 +197,7 @@ fn diff_and_restore_honor_the_current_file_capture_limit() {
     let id = saved["snapshot"]["id"].as_str().unwrap();
     fs::write(repo.path.join("tracked.txt"), b"larger current work\n").unwrap();
     for command in ["diff", "restore"] {
-        let output = cli(&repo, &["snapshot", command, id, "--max-file-bytes", "1"]);
+        let output = cli(&repo, &["snapshot", command, id, "--max-file-size", "1"]);
         assert_eq!(output.status.code(), Some(2));
         let error: Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(error["error"]["code"], "INVALID_ARGUMENT");
@@ -214,12 +214,12 @@ fn diff_and_restore_honor_the_current_file_capture_limit() {
         );
     }
     assert!(
-        checked(&repo, &["snapshot", "diff", id, "--max-file-bytes", "0"])["patch"]
+        checked(&repo, &["snapshot", "diff", id, "--max-file-size", "0"])["patch"]
             .as_str()
             .unwrap()
             .contains("+larger current work")
     );
-    let restored = checked(&repo, &["snapshot", "restore", id, "--max-file-bytes", "0"]);
+    let restored = checked(&repo, &["snapshot", "restore", id, "--max-file-size", "0"]);
     assert_eq!(
         fs::read(repo.path.join("tracked.txt")).unwrap(),
         b"baseline\n"
@@ -234,7 +234,7 @@ fn diff_and_restore_honor_the_current_file_capture_limit() {
             safety,
             "--to",
             recovered.to_str().unwrap(),
-            "--max-file-bytes",
+            "--max-file-size",
             "1",
         ],
     );
@@ -326,7 +326,7 @@ fn crash_publication_and_concurrent_writer_boundaries() {
         // This budget also bounds Git discovery before the lock wait. Allow
         // startup on loaded native runners; the paused checkpoint, rather than
         // elapsed time, guarantees the other process still holds the lock.
-        let blocked = cli(&repo, &["--git-timeout-ms", "1000", "snapshot", "save"]);
+        let blocked = cli(&repo, &["--git-timeout", "1000ms", "snapshot", "save"]);
         assert_eq!(
             blocked.status.code(),
             Some(2),
@@ -556,9 +556,9 @@ fn global_lfs_definitions_do_not_strand_an_ordinary_task() {
             .output()
             .unwrap()
     };
-    assert_success(&invoke(&["init", "--capacity", "1"]));
+    assert_success(&invoke(&["pool", "init", "--capacity", "1"]));
     let lease = assert_success(&invoke(&["acquire", "--task", "ordinary"]));
-    let workspace = std::path::Path::new(lease["result"]["worktree_path"].as_str().unwrap());
+    let workspace = std::path::Path::new(lease["result"]["workspace_path"].as_str().unwrap());
     fs::write(workspace.join("result.txt"), "precious result\n").unwrap();
     let finished = assert_success(&invoke(&["release", "--save", "--task", "ordinary"]));
     let snapshot = finished["result"]["snapshot"]["id"].as_str().unwrap();
@@ -574,7 +574,7 @@ fn global_lfs_definitions_do_not_strand_an_ordinary_task() {
         fs::read(destination.join("result.txt")).unwrap(),
         b"precious result\n"
     );
-    assert!(assert_success(&invoke(&["list"]))["result"]["leases"]
+    assert!(assert_success(&invoke(&["list"]))["result"]["reservations"]
         .as_array()
         .unwrap()
         .is_empty());
@@ -589,16 +589,17 @@ fn snapshot_wait_honors_timeout_and_preserves_reserved_results() {
         time::{Duration, Instant},
     };
     let repo = Repo::new();
-    checked(&repo, &["init", "--capacity", "2"]);
+    checked(&repo, &["pool", "init", "--capacity", "2"]);
     for task in ["first", "second"] {
         let lease = checked(&repo, &["acquire", "--task", task]);
         fs::write(
-            std::path::Path::new(lease["worktree_path"].as_str().unwrap()).join("result.txt"),
+            std::path::Path::new(lease["workspace_path"].as_str().unwrap()).join("result.txt"),
             task,
         )
         .unwrap();
     }
-    let second_workspace = checked(&repo, &["show", "--task", "second"])["lease"]["worktree_path"]
+    let second_workspace = checked(&repo, &["show", "--task", "second"])["reservation"]
+        ["workspace_path"]
         .as_str()
         .unwrap()
         .to_owned();
@@ -621,7 +622,7 @@ fn snapshot_wait_honors_timeout_and_preserves_reserved_results() {
     let second_listener = UnixListener::bind(&second_socket).unwrap();
     let mut second = support::TestChild::spawn(
         support::groove_in(std::path::Path::new(&second_workspace))
-            .args(["--git-timeout-ms", "10000", "snapshot", "save"])
+            .args(["--git-timeout", "10000ms", "snapshot", "save"])
             .env("GROOVE_TEST_CHECKPOINT", "snapshot-lock-contended")
             .env("GROOVE_TEST_SOCKET", &second_socket),
     );
@@ -636,7 +637,7 @@ fn snapshot_wait_honors_timeout_and_preserves_reserved_results() {
     // A third caller deliberately exhausts a real lock wait while the first
     // owner stays paused. This establishes contention beyond the old 100 ms cap.
     let started = Instant::now();
-    let blocked = cli(&repo, &["--git-timeout-ms", "350", "snapshot", "save"]);
+    let blocked = cli(&repo, &["--git-timeout", "350ms", "snapshot", "save"]);
     assert_eq!(blocked.status.code(), Some(2));
     let error: Value = serde_json::from_slice(&blocked.stdout).unwrap();
     assert_eq!(error["error"]["retryable"], true);
@@ -644,8 +645,8 @@ fn snapshot_wait_honors_timeout_and_preserves_reserved_results() {
     let finish_blocked = cli(
         &repo,
         &[
-            "--git-timeout-ms",
-            "350",
+            "--git-timeout",
+            "350ms",
             "release",
             "--save",
             "--force",
@@ -657,7 +658,7 @@ fn snapshot_wait_honors_timeout_and_preserves_reserved_results() {
     let finish_error: Value = serde_json::from_slice(&finish_blocked.stdout).unwrap();
     assert_eq!(finish_error["error"]["retryable"], true);
     assert_eq!(
-        checked(&repo, &["list"])["leases"]
+        checked(&repo, &["list"])["reservations"]
             .as_array()
             .unwrap()
             .len(),
@@ -686,7 +687,7 @@ fn snapshot_wait_honors_timeout_and_preserves_reserved_results() {
             task
         );
     }
-    assert!(checked(&repo, &["list"])["leases"]
+    assert!(checked(&repo, &["list"])["reservations"]
         .as_array()
         .unwrap()
         .is_empty());

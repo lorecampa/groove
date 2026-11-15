@@ -1,0 +1,6 @@
+EXAMPLES:
+  groove pool init --capacity 4
+  groove pool list
+  groove pool show --details
+  groove pool set --cleanup warm
+  groove pool destroy --dry-run

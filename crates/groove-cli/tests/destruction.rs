@@ -14,7 +14,7 @@ fn check(output: &std::process::Output) -> Value {
     assert_eq!(output.stdout.iter().filter(|b| **b == b'\n').count(), 1);
     let response: Value = serde_json::from_slice(&output.stdout).unwrap();
     let schema: Value =
-        serde_json::from_str(include_str!("../schemas/response-v1.schema.json")).unwrap();
+        serde_json::from_str(include_str!("../schemas/response-v2.schema.json")).unwrap();
     jsonschema::validator_for(&schema)
         .unwrap()
         .validate(&response)
@@ -27,6 +27,7 @@ fn destruction_prunes_missing_snapshot_receipts_but_preserves_retry_and_lock_ide
     use std::os::unix::fs::MetadataExt;
     let repo = Repo::new();
     let init = [
+        "pool",
         "init",
         "--capacity",
         "1",
@@ -40,10 +41,10 @@ fn destruction_prunes_missing_snapshot_receipts_but_preserves_retry_and_lock_ide
     for task in ["removed", "retained"] {
         let lease = assert_success(&cli(
             &repo,
-            &["acquire", "--task", task, "--request-key", task],
+            &["acquire", "--task", task, "--idempotency-key", task],
         ));
-        let id = lease["result"]["lease_id"].as_str().unwrap();
-        let saved = assert_success(&cli(&repo, &["release", "--save", "--lease-id", id]));
+        let id = lease["result"]["reservation_id"].as_str().unwrap();
+        let saved = assert_success(&cli(&repo, &["release", "--save", "--reservation-id", id]));
         receipts.push((
             repo.state().join(format!("slots/finish-{id}.json")),
             saved["result"]["snapshot"]["id"]
@@ -65,9 +66,9 @@ fn destruction_prunes_missing_snapshot_receipts_but_preserves_retry_and_lock_ide
         &repo,
         &["snapshot", "delete", &receipts[0].1, "--force"],
     ));
-    assert_success(&cli(&repo, &["destroy", "--dry-run"]));
+    assert_success(&cli(&repo, &["pool", "destroy", "--dry-run"]));
     assert!(receipts[0].0.exists());
-    assert_success(&cli(&repo, &["destroy"]));
+    assert_success(&cli(&repo, &["pool", "destroy"]));
     assert!(!receipts[0].0.exists());
     assert!(receipts[1].0.exists());
     for (path, inode, bytes) in coordination {
@@ -77,10 +78,16 @@ fn destruction_prunes_missing_snapshot_receipts_but_preserves_retry_and_lock_ide
     assert_success(&cli(&repo, &init));
     let retried = cli(
         &repo,
-        &["acquire", "--task", "removed", "--request-key", "removed"],
+        &[
+            "acquire",
+            "--task",
+            "removed",
+            "--idempotency-key",
+            "removed",
+        ],
     );
     assert!(!retried.status.success());
-    assert_eq!(check(&retried)["error"]["code"], "INVALID_LEASE");
+    assert_eq!(check(&retried)["error"]["code"], "INVALID_RESERVATION");
     let retained = assert_success(&cli(&repo, &["snapshot", "show", &receipts[1].1]));
     assert_eq!(retained["result"]["snapshot"]["pinned"], true);
 }
@@ -88,19 +95,20 @@ fn destruction_prunes_missing_snapshot_receipts_but_preserves_retry_and_lock_ide
 #[test]
 fn destroy_contract_includes_preview_rejection_and_generation_preconditions() {
     let repo = Repo::new();
-    let output = cli(&repo, &["destroy", "--help"]);
+    let output = cli(&repo, &["pool", "destroy", "--help"]);
     assert!(output.status.success());
     assert!(check(&output)["result"]["text"]
         .as_str()
         .unwrap()
-        .contains("--discard-changes"));
-    let missing = cli(&repo, &["destroy"]);
+        .contains("--force"));
+    let missing = cli(&repo, &["pool", "destroy"]);
     assert_eq!(missing.status.code(), Some(4));
     assert_eq!(check(&missing)["error"]["code"], "NOT_INITIALIZED");
     assert!(!repo.state().exists());
     assert_success(&cli(
         &repo,
         &[
+            "pool",
             "init",
             "--capacity",
             "1",
@@ -111,13 +119,13 @@ fn destroy_contract_includes_preview_rejection_and_generation_preconditions() {
         ],
     ));
     let lease = assert_success(&cli(&repo, &["acquire", "--task", "retained"]));
-    let path = lease["result"]["worktree_path"].as_str().unwrap();
-    let busy = cli(&repo, &["destroy", "--discard-changes"]);
+    let path = lease["result"]["workspace_path"].as_str().unwrap();
+    let busy = cli(&repo, &["pool", "destroy", "--force"]);
     assert_eq!(busy.status.code(), Some(4));
     assert_eq!(check(&busy)["error"]["code"], "CONFIG_CONFLICT");
     assert!(std::path::Path::new(path).exists());
     assert_success(&cli(&repo, &["release", "--task", "retained"]));
-    let preview = cli(&repo, &["destroy", "--dry-run"]);
+    let preview = cli(&repo, &["pool", "destroy", "--dry-run"]);
     assert!(preview.status.success());
     let preview = check(&preview);
     let id = preview["result"]["destruction"]["pool_id"]
@@ -125,11 +133,11 @@ fn destroy_contract_includes_preview_rejection_and_generation_preconditions() {
         .unwrap();
     assert_eq!(preview["result"]["destruction"]["deleted"], false);
     assert!(std::path::Path::new(path).exists());
-    let deleted = cli(&repo, &["destroy", "--pool-id", id]);
+    let deleted = cli(&repo, &["pool", "destroy", "--pool-id", id]);
     assert!(deleted.status.success());
     assert_eq!(check(&deleted)["result"]["destruction"]["deleted"], true);
     assert!(!std::path::Path::new(path).exists());
-    let again = cli(&repo, &["destroy", "--pool-id", id]);
+    let again = cli(&repo, &["pool", "destroy", "--pool-id", id]);
     assert!(again.status.success());
     assert_eq!(
         check(&again)["result"]["destruction"]["already_deleted"],
@@ -138,6 +146,7 @@ fn destroy_contract_includes_preview_rejection_and_generation_preconditions() {
     assert_success(&cli(
         &repo,
         &[
+            "pool",
             "init",
             "--capacity",
             "2",
@@ -147,7 +156,7 @@ fn destroy_contract_includes_preview_rejection_and_generation_preconditions() {
             "never",
         ],
     ));
-    let stale = cli(&repo, &["destroy", "--pool-id", id]);
+    let stale = cli(&repo, &["pool", "destroy", "--pool-id", id]);
     assert_eq!(stale.status.code(), Some(4));
     assert_eq!(check(&stale)["error"]["code"], "CONFIG_CONFLICT");
     assert_success(&cli(&repo, &["acquire", "--task", "new"]));
@@ -168,6 +177,7 @@ fn deletion_refuses_a_shell_in_a_released_workspace_even_with_discard() {
     assert_success(&cli(
         &repo,
         &[
+            "pool",
             "init",
             "--capacity",
             "1",
@@ -178,17 +188,17 @@ fn deletion_refuses_a_shell_in_a_released_workspace_even_with_discard() {
         ],
     ));
     let lease = assert_success(&cli(&repo, &["acquire"]));
-    let id = lease["result"]["lease_id"].as_str().unwrap();
-    let path = lease["result"]["worktree_path"].as_str().unwrap();
-    assert_success(&cli(&repo, &["release", "--lease-id", id]));
+    let id = lease["result"]["reservation_id"].as_str().unwrap();
+    let path = lease["result"]["workspace_path"].as_str().unwrap();
+    assert_success(&cli(&repo, &["release", "--reservation-id", id]));
     let output = support::groove_in(std::path::Path::new(path))
         .arg("--repo")
         .arg(&repo.path)
-        .args(["destroy", "--discard-changes"])
+        .args(["pool", "destroy", "--force"])
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(5));
     assert_eq!(check(&output)["error"]["code"], "WORKSPACE_IN_USE");
     assert!(std::path::Path::new(path).exists());
-    assert_success(&cli(&repo, &["destroy"]));
+    assert_success(&cli(&repo, &["pool", "destroy"]));
 }

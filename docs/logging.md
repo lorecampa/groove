@@ -1,9 +1,9 @@
 # Diagnostics
 
-Use `groove --help` for terminal verbosity and `groove config global --help`
+Use `groove --help` for terminal verbosity and `groove config --help`
 for preference keys, defaults, overrides and configuration repair. Effective
 settings and their environment overrides are available through
-`groove config global show` without a repository.
+`groove config show` without a repository.
 
 Stdout carries command results; stderr carries diagnostics, including in JSON mode.
 Keep the streams separate when parsing JSON. Terminal delivery is bounded and best effort.

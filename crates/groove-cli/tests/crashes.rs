@@ -43,10 +43,11 @@ fn initialization_crash_boundaries_resume_without_replacing_locks() {
             &r,
             name,
             &[
+                "pool",
                 "init",
                 "--capacity",
                 "1",
-                "--worktree-root",
+                "--workspace-root",
                 root.to_str().unwrap(),
             ],
         );
@@ -140,8 +141,7 @@ fn assert_deletion_crash_preserves_results_and_inodes(name: &str) {
             (path, ino)
         })
         .collect();
-    let (mut command, listener) =
-        checkpoint_command(&repo, name, &["destroy", "--discard-changes"]);
+    let (mut command, listener) = checkpoint_command(&repo, name, &["pool", "destroy", "--force"]);
     kill_at_checkpoint(&mut command, listener, name);
     assert_eq!(
         Pool::open(&repo.path).unwrap_err().code,
@@ -254,8 +254,13 @@ fn deletion_excludes_new_operations_and_covers_finish_metadata_after_unlock() {
         };
         let args = match point {
             "before-normalization" => vec!["acquire"],
-            "before-pool-update" => vec!["config", "set", "--capacity", "2"],
-            _ => vec!["release", "--save", "--lease-id", id.as_deref().unwrap()],
+            "before-pool-update" => vec!["pool", "set", "--capacity", "2"],
+            _ => vec![
+                "release",
+                "--save",
+                "--reservation-id",
+                id.as_deref().unwrap(),
+            ],
         };
         let (mut command, listener) = checkpoint_command(&repo, point, &args);
         let mut child = support::TestChild::spawn(&mut command);
@@ -277,7 +282,7 @@ fn deletion_excludes_new_operations_and_covers_finish_metadata_after_unlock() {
             pool.release_lease(lease.lease_id).unwrap();
         }
         let (mut command, listener) =
-            checkpoint_command_after_removing_socket(&repo, "pool-deleting", &["destroy"]);
+            checkpoint_command_after_removing_socket(&repo, "pool-deleting", &["pool", "destroy"]);
         let mut child = support::TestChild::spawn(&mut command);
         let mut stream = child
             .checkpoint(&listener, "pool-deleting", support::PROCESS_TIMEOUT)
@@ -311,7 +316,8 @@ fn interrupted_initialization_can_be_cancelled_and_reinitialized() {
     }
     for name in ["metadata-renamed", "before-ready-manifest"] {
         let repo = Repo::new();
-        let (mut command, listener) = checkpoint_command(&repo, name, &["init", "--capacity", "2"]);
+        let (mut command, listener) =
+            checkpoint_command(&repo, name, &["pool", "init", "--capacity", "2"]);
         kill_at_checkpoint(&mut command, listener, name);
         let result = Pool::destroy(&repo.path, Default::default()).unwrap();
         assert!(result.deleted);
@@ -353,7 +359,7 @@ fn deletion_retries_after_unregistering_and_after_a_reported_io_failure() {
         .unwrap();
         let p = Pool::open(&repo.path).unwrap();
         drop(p.acquire(Default::default()).unwrap());
-        let (mut command, listener) = checkpoint_command(&repo, point, &["destroy"]);
+        let (mut command, listener) = checkpoint_command(&repo, point, &["pool", "destroy"]);
         let mut child = support::TestChild::spawn(&mut command);
         let mut stream = child
             .checkpoint(&listener, point, support::PROCESS_TIMEOUT)
@@ -406,8 +412,11 @@ fn reinit_intent_crashes_can_be_cancelled_without_overwriting_retired_identity()
         .join("retired")
         .join(format!("{}.json", old.pool_id.unwrap()));
     let original = std::fs::read(&archive).unwrap();
-    let (mut command, listener) =
-        checkpoint_command(&repo, "metadata-renamed", &["init", "--capacity", "1"]);
+    let (mut command, listener) = checkpoint_command(
+        &repo,
+        "metadata-renamed",
+        &["pool", "init", "--capacity", "1"],
+    );
     kill_at_checkpoint(&mut command, listener, "metadata-renamed");
     let preview = Pool::destroy(
         &repo.path,
@@ -481,10 +490,11 @@ fn interrupted_named_initialization_keeps_its_root_claim_and_sibling_usable() {
         &[
             "--pool",
             "frontend",
+            "pool",
             "init",
             "--capacity",
             "1",
-            "--worktree-root",
+            "--workspace-root",
             root.to_str().unwrap(),
         ],
     );
@@ -507,7 +517,7 @@ fn interrupted_named_initialization_keeps_its_root_claim_and_sibling_usable() {
         PoolPhase::Initializing
     );
     let listed = support::groove_in(&repo.path)
-        .arg("pools")
+        .args(["pool", "list"])
         .output()
         .unwrap();
     let listed = support::assert_success(&listed);
@@ -517,7 +527,7 @@ fn interrupted_named_initialization_keeps_its_root_claim_and_sibling_usable() {
         .iter()
         .any(|pool| pool["name"] == "frontend" && pool["phase"] == "initializing"));
     let sizes = support::groove_in(&repo.path)
-        .args(["pools", "--disk-usage"])
+        .args(["pool", "list", "--disk-usage"])
         .output()
         .unwrap();
     let sizes = support::assert_success(&sizes);
@@ -593,8 +603,11 @@ fn interrupted_named_deletion_never_disables_a_siblings_workers_or_results() {
     let back = Pool::open_named(&repo.path, &backend).unwrap();
     let b = back.reserve(Default::default()).unwrap();
     std::fs::write(b.worktree_path.join("tracked.txt"), "backend result").unwrap();
-    let (mut command, listener) =
-        checkpoint_command(&repo, "pool-deleting", &["--pool", "frontend", "destroy"]);
+    let (mut command, listener) = checkpoint_command(
+        &repo,
+        "pool-deleting",
+        &["--pool", "frontend", "pool", "destroy"],
+    );
     let mut child = support::TestChild::spawn(&mut command);
     let stream = child
         .checkpoint(&listener, "pool-deleting", support::PROCESS_TIMEOUT)
@@ -610,7 +623,7 @@ fn interrupted_named_deletion_never_disables_a_siblings_workers_or_results() {
         PoolPhase::Deleting
     );
     let listed = support::groove_in(&repo.path)
-        .arg("pools")
+        .args(["pool", "list"])
         .output()
         .unwrap();
     let listed = support::assert_success(&listed);
@@ -625,7 +638,7 @@ fn interrupted_named_deletion_never_disables_a_siblings_workers_or_results() {
     );
     let finished = back.finish(b.lease_id, Default::default()).unwrap();
     let sizes = support::groove_in(&repo.path)
-        .args(["pools", "--disk-usage"])
+        .args(["pool", "list", "--disk-usage"])
         .output()
         .unwrap();
     let sizes = support::assert_success(&sizes);
@@ -809,7 +822,7 @@ fn pool_growth_crash_preserves_reservations_and_lock_inodes(name: &str, reinitia
     let (mut command, listener) = checkpoint_command(
         &r,
         name,
-        &["config", "set", "--capacity", "3", "--cleanup", "warm"],
+        &["pool", "set", "--capacity", "3", "--cleanup", "warm"],
     );
     kill_at_checkpoint(&mut command, listener, name);
     let new_locks: Vec<_> = ["wt-0002.lock", "wt-0002.execution.lock"]
@@ -928,7 +941,7 @@ fn durable_shell_reservations_survive_sigkill_and_release_retries_are_generation
             let (mut command, listener) = checkpoint_command(
                 &r,
                 checkpoint,
-                &["release", "--lease-id", &lease.lease_id.to_string()],
+                &["release", "--reservation-id", &lease.lease_id.to_string()],
             );
             kill_at_checkpoint(&mut command, listener, checkpoint);
         } else {
@@ -944,7 +957,7 @@ fn durable_shell_reservations_survive_sigkill_and_release_retries_are_generation
             support::groove_in(&r.path)
                 .arg("--repo")
                 .arg(&r.path)
-                .args(["release", "--lease-id", &id.to_string()])
+                .args(["release", "--reservation-id", &id.to_string()])
                 .output()
                 .unwrap()
         };
@@ -968,17 +981,23 @@ fn durable_request_retry_recovers_protection_published_before_its_journal() {
     for checkpoint in ["reservation-protected", "reservation-journaled"] {
         let r = Repo::new();
         let cli = |args: &[&str]| support::groove_in(&r.path).args(args).output().unwrap();
-        support::assert_success(&cli(&["init", "--capacity", "2"]));
-        let (mut command, listener) =
-            checkpoint_command(&r, checkpoint, &["acquire", "--request-key", "lost-task"]);
+        support::assert_success(&cli(&["pool", "init", "--capacity", "2"]));
+        let (mut command, listener) = checkpoint_command(
+            &r,
+            checkpoint,
+            &["acquire", "--idempotency-key", "lost-task"],
+        );
         kill_at_checkpoint(&mut command, listener, checkpoint);
         let original = Pool::open(&r.path)
             .unwrap()
             .protected_leases()
             .unwrap()
             .remove(0);
-        let retry = support::assert_success(&cli(&["acquire", "--request-key", "lost-task"]));
-        assert_eq!(retry["result"]["lease_id"], original.lease_id.to_string());
+        let retry = support::assert_success(&cli(&["acquire", "--idempotency-key", "lost-task"]));
+        assert_eq!(
+            retry["result"]["reservation_id"],
+            original.lease_id.to_string()
+        );
         assert_eq!(
             Pool::open(&r.path)
                 .unwrap()
@@ -1003,9 +1022,9 @@ fn pin_retirement_recovers_after_release_and_slot_reuse() {
 fn superseded_pins(interrupt_retirement: bool) {
     let repo = Repo::new();
     let cli = |args: &[&str]| support::groove_in(&repo.path).args(args).output().unwrap();
-    support::assert_success(&cli(&["init", "--capacity", "1"]));
+    support::assert_success(&cli(&["pool", "init", "--capacity", "1"]));
     let lease = support::assert_success(&cli(&["acquire"]))["result"].clone();
-    let id = lease["lease_id"].as_str().unwrap();
+    let id = lease["reservation_id"].as_str().unwrap();
     let mut superseded = Vec::new();
     for attempt in 0..3 {
         if attempt > 0 {
@@ -1019,7 +1038,7 @@ fn superseded_pins(interrupt_retirement: bool) {
         let (mut command, listener) = checkpoint_command(
             &repo,
             "finish-snapshot-saved",
-            &["release", "--save", "--lease-id", id],
+            &["release", "--save", "--reservation-id", id],
         );
         kill_at_checkpoint(&mut command, listener, "finish-snapshot-saved");
         let receipt: serde_json::Value = serde_json::from_slice(
@@ -1037,7 +1056,7 @@ fn superseded_pins(interrupt_retirement: bool) {
         let (mut command, listener) = checkpoint_command_after_removing_socket(
             &repo,
             "finish-before-pin-retirement",
-            &["release", "--save", "--lease-id", id],
+            &["release", "--save", "--reservation-id", id],
         );
         kill_at_checkpoint(&mut command, listener, "finish-before-pin-retirement");
         let successor = support::assert_success(&cli(&["acquire"]))["result"].clone();
@@ -1046,7 +1065,7 @@ fn superseded_pins(interrupt_retirement: bool) {
     } else {
         None
     };
-    let finished = support::assert_success(&cli(&["release", "--save", "--lease-id", id]));
+    let finished = support::assert_success(&cli(&["release", "--save", "--reservation-id", id]));
     assert_eq!(finished["result"]["snapshot"]["pinned"], true);
     for old in &superseded {
         let snapshot = support::assert_success(&cli(&["snapshot", "show", old]));
@@ -1073,7 +1092,7 @@ fn superseded_pins(interrupt_retirement: bool) {
             Pool::open(&repo.path).unwrap().protected_leases().unwrap()[0]
                 .lease_id
                 .to_string(),
-            successor["lease_id"].as_str().unwrap()
+            successor["reservation_id"].as_str().unwrap()
         );
     }
 }
@@ -1083,12 +1102,15 @@ fn finish_crash_retries_preserve_checkpoint_and_never_release_a_successor() {
     for checkpoint in ["finish-snapshot-saved", "finish-released"] {
         let r = Repo::new();
         let cli = |args: &[&str]| support::groove_in(&r.path).args(args).output().unwrap();
-        support::assert_success(&cli(&["init", "--capacity", "1"]));
+        support::assert_success(&cli(&["pool", "init", "--capacity", "1"]));
         let lease = support::assert_success(&cli(&["acquire"]))["result"].clone();
-        let id = lease["lease_id"].as_str().unwrap();
+        let id = lease["reservation_id"].as_str().unwrap();
         std::fs::write(r.slot(1).join("tracked.txt"), "checkpoint results").unwrap();
-        let (mut command, listener) =
-            checkpoint_command(&r, checkpoint, &["release", "--save", "--lease-id", id]);
+        let (mut command, listener) = checkpoint_command(
+            &r,
+            checkpoint,
+            &["release", "--save", "--reservation-id", id],
+        );
         kill_at_checkpoint(&mut command, listener, checkpoint);
         let receipt: serde_json::Value = serde_json::from_slice(
             &std::fs::read(r.state().join(format!("slots/finish-{id}.json"))).unwrap(),
@@ -1100,7 +1122,7 @@ fn finish_crash_retries_preserve_checkpoint_and_never_release_a_successor() {
             assert!(!cli(&["acquire"]).status.success());
             None
         };
-        let retry = support::assert_success(&cli(&["release", "--save", "--lease-id", id]));
+        let retry = support::assert_success(&cli(&["release", "--save", "--reservation-id", id]));
         if successor.is_some() {
             assert_eq!(retry["result"]["snapshot"]["id"], receipt["snapshot"]["id"]);
         }
@@ -1120,8 +1142,8 @@ fn finish_crash_retries_preserve_checkpoint_and_never_release_a_successor() {
             assert!(!cli(&["acquire"]).status.success());
             support::assert_success(&cli(&[
                 "release",
-                "--lease-id",
-                successor["lease_id"].as_str().unwrap(),
+                "--reservation-id",
+                successor["reservation_id"].as_str().unwrap(),
             ]));
         }
     }
@@ -1130,12 +1152,15 @@ fn finish_crash_retries_preserve_checkpoint_and_never_release_a_successor() {
 fn retry_unreleased_finish(checkpoint: &str, delete_snapshot: bool, fail_capture: bool) {
     let r = Repo::new();
     let cli = |args: &[&str]| support::groove_in(&r.path).args(args).output().unwrap();
-    support::assert_success(&cli(&["init", "--capacity", "1"]));
+    support::assert_success(&cli(&["pool", "init", "--capacity", "1"]));
     let lease = support::assert_success(&cli(&["acquire"]))["result"].clone();
-    let id = lease["lease_id"].as_str().unwrap();
+    let id = lease["reservation_id"].as_str().unwrap();
     std::fs::write(r.slot(1).join("tracked.txt"), "first checkpoint").unwrap();
-    let (mut command, listener) =
-        checkpoint_command(&r, checkpoint, &["release", "--save", "--lease-id", id]);
+    let (mut command, listener) = checkpoint_command(
+        &r,
+        checkpoint,
+        &["release", "--save", "--reservation-id", id],
+    );
     kill_at_checkpoint(&mut command, listener, checkpoint);
     let receipt: serde_json::Value = serde_json::from_slice(
         &std::fs::read(r.state().join(format!("slots/finish-{id}.json"))).unwrap(),
@@ -1157,9 +1182,9 @@ fn retry_unreleased_finish(checkpoint: &str, delete_snapshot: bool, fail_capture
         let failure = cli(&[
             "release",
             "--save",
-            "--lease-id",
+            "--reservation-id",
             id,
-            "--max-file-bytes",
+            "--max-file-size",
             "1",
         ]);
         assert!(!failure.status.success());
@@ -1178,7 +1203,7 @@ fn retry_unreleased_finish(checkpoint: &str, delete_snapshot: bool, fail_capture
             b"new work"
         );
     }
-    let retry = support::assert_success(&cli(&["release", "--save", "--lease-id", id]));
+    let retry = support::assert_success(&cli(&["release", "--save", "--reservation-id", id]));
     assert_ne!(retry["result"]["snapshot"]["id"], receipt["snapshot"]["id"]);
     assert_eq!(retry["result"]["snapshot"]["pinned"], true);
     // Reuse destroys the checkout; recovery must depend on the new snapshot alone.
@@ -1236,15 +1261,15 @@ fn finish_retry_capture_failure_preserves_reservation() {
 fn completed_finish_retry_rejects_deleted_snapshot_and_preserves_successor() {
     let r = Repo::new();
     let cli = |args: &[&str]| support::groove_in(&r.path).args(args).output().unwrap();
-    support::assert_success(&cli(&["init", "--capacity", "1"]));
+    support::assert_success(&cli(&["pool", "init", "--capacity", "1"]));
     let lease = support::assert_success(&cli(&["acquire"]))["result"].clone();
-    let id = lease["lease_id"].as_str().unwrap();
-    let finished = support::assert_success(&cli(&["release", "--save", "--lease-id", id]));
+    let id = lease["reservation_id"].as_str().unwrap();
+    let finished = support::assert_success(&cli(&["release", "--save", "--reservation-id", id]));
     let snapshot = finished["result"]["snapshot"]["id"].as_str().unwrap();
     support::assert_success(&cli(&["snapshot", "delete", snapshot, "--force"]));
     let successor = support::assert_success(&cli(&["acquire"]))["result"].clone();
     std::fs::write(r.slot(1).join("new.txt"), "successor work").unwrap();
-    let retry = cli(&["release", "--save", "--lease-id", id]);
+    let retry = cli(&["release", "--save", "--reservation-id", id]);
     assert!(!retry.status.success());
     let error: serde_json::Value = serde_json::from_slice(&retry.stdout).unwrap();
     assert_eq!(error["error"]["code"], "INVALID_ARGUMENT");
@@ -1258,7 +1283,7 @@ fn completed_finish_retry_rejects_deleted_snapshot_and_preserves_successor() {
         Pool::open(&r.path).unwrap().protected_leases().unwrap()[0]
             .lease_id
             .to_string(),
-        successor["lease_id"]
+        successor["reservation_id"]
     );
     assert_eq!(
         std::fs::read(r.slot(1).join("new.txt")).unwrap(),

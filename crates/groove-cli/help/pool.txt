@@ -1,0 +1,12 @@
+EXAMPLES:
+  groove pool init --capacity 4
+  groove pool list --all
+  groove --pool default pool show --details
+  groove pool set --capacity 8 --cleanup warm
+  groove pool destroy --force --dry-run
+
+Pools bound reusable workspace capacity for this repository. --pool selects a
+namespace (default: default), except pool list, which lists the repository catalog
+and rejects --pool. Settings updates preserve active reservations and permanent
+locks. Deletion requires stopped writers and never bypasses durable reservations.
+Run each subcommand's --help for its defaults, effects and recovery rules.

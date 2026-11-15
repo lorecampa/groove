@@ -1,4 +1,2 @@
 EXAMPLE:
-  groove config set --capacity 8
-
-Capacity can only grow. Cleanup changes apply to future acquisitions.
+  groove config set logging.max_files=50

@@ -24,7 +24,7 @@ fn ok(out: Output) -> Value {
     );
     let value: Value = serde_json::from_slice(&out.stdout).unwrap();
     let schema: Value =
-        serde_json::from_str(include_str!("../schemas/response-v1.schema.json")).unwrap();
+        serde_json::from_str(include_str!("../schemas/response-v2.schema.json")).unwrap();
     assert!(jsonschema::validator_for(&schema).unwrap().is_valid(&value));
     value["result"].clone()
 }
@@ -35,11 +35,11 @@ fn broken_configuration_show_reports_the_repair_path_without_rewriting_it() {
     fs::create_dir(h.join("groove")).unwrap();
     let path = h.join("groove/config.toml");
     fs::write(&path, "broken!").unwrap();
-    let output = run(h, &["config", "global", "show"]);
+    let output = run(h, &["config", "show"]);
     assert_eq!(output.status.code(), Some(2));
     let response: Value = serde_json::from_slice(&output.stdout).unwrap();
     let schema: Value =
-        serde_json::from_str(include_str!("../schemas/response-v1.schema.json")).unwrap();
+        serde_json::from_str(include_str!("../schemas/response-v2.schema.json")).unwrap();
     assert!(jsonschema::validator_for(&schema)
         .unwrap()
         .is_valid(&response));
@@ -50,7 +50,7 @@ fn broken_configuration_show_reports_the_repair_path_without_rewriting_it() {
         .contains(path.to_str().unwrap()));
     assert_eq!(fs::read_to_string(&path).unwrap(), "broken!");
     assert_eq!(
-        ok(run(h, &["config", "global", "path"]))["config_path"],
+        ok(run(h, &["config", "path"]))["config_path"],
         path.to_str().unwrap()
     );
 }
@@ -59,14 +59,14 @@ fn broken_configuration_show_reports_the_repair_path_without_rewriting_it() {
 fn invalid_supplied_preferences_name_the_key_and_expected_values() {
     let home = tempfile::tempdir().unwrap();
     let h = home.path();
-    ok(run(h, &["config", "global", "set", "logging.max_files=12"]));
+    ok(run(h, &["config", "set", "logging.max_files=12"]));
     let before = fs::read(h.join("groove/config.toml")).unwrap();
     for (setting, expected) in [
         ("logging.level=verbose", "error"),
         ("logging.enabled=maybe", "boolean"),
         ("pool_defaults.idle_timeout=banana", "positive"),
     ] {
-        let output = run(h, &["config", "global", "set", setting]);
+        let output = run(h, &["config", "set", setting]);
         assert_eq!(output.status.code(), Some(2));
         let response: Value = serde_json::from_slice(&output.stdout).unwrap();
         let message = response["error"]["message"].as_str().unwrap();
@@ -89,7 +89,6 @@ fn invalid_supplied_preferences_name_the_key_and_expected_values() {
         h,
         &[
             "config",
-            "global",
             "set",
             "logging.max_file_mib=200",
             "logging.max_total_mib=300",
@@ -101,34 +100,31 @@ fn invalid_supplied_preferences_name_the_key_and_expected_values() {
 fn defaults_updates_precedence_and_validation() {
     let home = tempfile::tempdir().unwrap();
     let h = home.path();
-    let show = |h| ok(run(h, &["config", "global", "show"]));
+    let show = |h| ok(run(h, &["config", "show"]));
     assert_eq!(show(h)["config"]["logging"]["max_files"], 100);
     assert!(!h.join("groove/config.toml").exists());
-    ok(run(h, &["config", "global", "set", "logging.max_files=12"]));
-    ok(run(
-        h,
-        &["config", "global", "set", "logging.enabled=false"],
-    ));
+    ok(run(h, &["config", "set", "logging.max_files=12"]));
+    ok(run(h, &["config", "set", "logging.enabled=false"]));
     assert_eq!(show(h)["config"]["logging"]["enabled"], false);
     let effective = ok(command(h)
         .env("GROOVE_LOG_ENABLED", "true")
-        .args(["config", "global", "show"])
+        .args(["config", "show"])
         .output()
         .unwrap());
     assert_eq!(effective["config"]["logging"]["enabled"], true);
     assert_eq!(effective["environment_overrides"]["logging.enabled"], true);
     let before = fs::read(h.join("groove/config.toml")).unwrap();
     for args in [
-        vec!["config", "global", "set", "logging.max_files=0"],
-        vec!["config", "global", "set", "logging.unknown=true"],
-        vec!["config", "global", "set", "pool.backend=git"],
-        vec!["config", "global", "set", "logging.enabled=123"],
-        vec!["config", "global", "set", "no-equals-sign"],
+        vec!["config", "set", "logging.max_files=0"],
+        vec!["config", "set", "logging.unknown=true"],
+        vec!["config", "set", "pool.backend=git"],
+        vec!["config", "set", "logging.enabled=123"],
+        vec!["config", "set", "no-equals-sign"],
     ] {
         assert!(!run(h, &args).status.success(), "{args:?}");
         assert_eq!(fs::read(h.join("groove/config.toml")).unwrap(), before);
     }
-    ok(run(h, &["config", "global", "unset", "logging.enabled"]));
+    ok(run(h, &["config", "unset", "logging.enabled"]));
     assert_eq!(show(h)["config"]["logging"]["enabled"], true);
     // Bare strings need no TOML quoting.
     let logs = h.join("custom logs");
@@ -136,7 +132,6 @@ fn defaults_updates_precedence_and_validation() {
         h,
         &[
             "config",
-            "global",
             "set",
             &format!("logging.directory={}", logs.display()),
         ],
@@ -155,7 +150,7 @@ fn defaults_updates_precedence_and_validation() {
         ),
     )
     .unwrap();
-    ok(run(h, &["config", "global", "set", "logging.max_files=15"]));
+    ok(run(h, &["config", "set", "logging.max_files=15"]));
     assert!(fs::read_to_string(file)
         .unwrap()
         .contains("# Keep this comment"));
@@ -165,7 +160,7 @@ fn defaults_updates_precedence_and_validation() {
 fn editor_validates_and_keeps_stdout_json_only() {
     let home = tempfile::tempdir().unwrap();
     let h = home.path();
-    ok(run(h, &["config", "global", "set", "logging.max_files=12"]));
+    ok(run(h, &["config", "set", "logging.max_files=12"]));
     let editor = h.join("editor.sh");
     fs::write(
         &editor,
@@ -174,25 +169,24 @@ fn editor_validates_and_keeps_stdout_json_only() {
     .unwrap();
     let out = command(h)
         .env("VISUAL", format!("bash '{}'", editor.display()))
-        .args(["config", "global", "edit"])
+        .args(["config", "edit"])
         .output()
         .unwrap();
     assert!(String::from_utf8_lossy(&out.stderr).contains("editor UI"));
     ok(out);
-    let max_files =
-        |h| ok(run(h, &["config", "global", "show"]))["config"]["logging"]["max_files"].clone();
+    let max_files = |h| ok(run(h, &["config", "show"]))["config"]["logging"]["max_files"].clone();
     assert_eq!(max_files(h), 22);
     fs::write(&editor, "printf '%s' 'invalid TOML!' > \"$1\"\n").unwrap();
     let out = command(h)
         .env("VISUAL", format!("bash '{}'", editor.display()))
-        .args(["config", "global", "edit"])
+        .args(["config", "edit"])
         .output()
         .unwrap();
     assert!(!out.status.success());
     assert_eq!(max_files(h), 22);
     // Broken configuration is still reachable through path/edit.
     fs::write(h.join("groove/config.toml"), "broken!").unwrap();
-    ok(run(h, &["config", "global", "path"]));
+    ok(run(h, &["config", "path"]));
 }
 
 #[test]
@@ -203,7 +197,6 @@ fn global_updates_validate_and_publish_all_preferences_together() {
         h,
         &[
             "config",
-            "global",
             "set",
             "logging.max_file_mib=200",
             "logging.max_total_mib=300",
@@ -217,7 +210,6 @@ fn global_updates_validate_and_publish_all_preferences_together() {
             h,
             &[
                 "config",
-                "global",
                 "set",
                 "logging.max_files=5",
                 "logging.max_total_mib=100"
@@ -291,7 +283,7 @@ fn log_fields_are_typed_and_correlated() {
 fn configured_retention_is_used_and_removed_flags_are_rejected() {
     let home = tempfile::tempdir().unwrap();
     let h = home.path();
-    ok(run(h, &["config", "global", "set", "logging.max_files=2"]));
+    ok(run(h, &["config", "set", "logging.max_files=2"]));
     for _ in 0..5 {
         run(h, &["list"]);
     }
@@ -331,16 +323,17 @@ fn successful_lifecycle_has_fresh_matching_timestamps_and_startup_notices() {
     let repo = support::Repo::new();
     let mut lease = Value::Null;
     let mut invocations = std::collections::HashSet::new();
-    for action in ["init", "acquire", "list", "release"] {
+    for action in ["pool init", "acquire", "list", "release"] {
         let logs = home.path().join(action);
         let before = chrono::Utc::now().timestamp_millis();
         let mut cmd = command(home.path());
         cmd.env("GROOVE_LOG_DIR", &logs)
             .arg("--repo")
             .arg(&repo.path)
-            .args(["-vv", "--request-id", "lifecycle", action]);
+            .args(["-vv", "--request-id", "lifecycle"])
+            .args(action.split_whitespace());
         match action {
-            "init" => {
+            "pool init" => {
                 cmd.args([
                     "--capacity",
                     "1",
@@ -351,7 +344,10 @@ fn successful_lifecycle_has_fresh_matching_timestamps_and_startup_notices() {
                 ]);
             }
             "release" => {
-                cmd.args(["--lease-id", lease["lease_id"].as_str().unwrap()]);
+                cmd.args([
+                    "--reservation-id",
+                    lease["reservation_id"].as_str().unwrap(),
+                ]);
             }
             _ => {}
         }
@@ -364,7 +360,7 @@ fn successful_lifecycle_has_fresh_matching_timestamps_and_startup_notices() {
             if let Ok(progress) = serde_json::from_str::<Value>(line) {
                 // Slow JSON commands also emit the documented stderr liveness
                 // envelope. It is separate from timestamped tracing output.
-                assert_eq!(progress["api_version"], 1);
+                assert_eq!(progress["api_version"], 2);
                 assert_eq!(progress["event"], "progress");
                 assert_eq!(progress["command"], action);
                 assert_eq!(progress["request_id"], "lifecycle");
@@ -522,7 +518,7 @@ fn unsafe_log_destinations_never_block_commands_or_remove_existing_files() {
         cmd.arg("--repo").arg(&repo.path).args(args);
         cmd
     };
-    ok(invoke(&["init", "--capacity", "1"])
+    ok(invoke(&["pool", "init", "--capacity", "1"])
         .env("GROOVE_LOG_ENABLED", "false")
         .output()
         .unwrap());
@@ -594,7 +590,7 @@ fn unsafe_log_destinations_never_block_commands_or_remove_existing_files() {
         );
         let listing = ok(output);
         assert_eq!(
-            listing["leases"][0]["lease_id"], lease["lease_id"],
+            listing["reservations"][0]["reservation_id"], lease["reservation_id"],
             "{case}"
         );
         assert_eq!(
@@ -635,11 +631,11 @@ fn concurrent_cleanup_protects_live_logs_and_reclaims_crashed_owner() {
     let home = tempfile::tempdir().unwrap();
     let h = home.path();
     let repo = support::Repo::new();
-    ok(run(h, &["config", "global", "set", "logging.max_files=2"]));
+    ok(run(h, &["config", "set", "logging.max_files=2"]));
     ok(command(h)
         .arg("--repo")
         .arg(&repo.path)
-        .args(["init", "--capacity", "1"])
+        .args(["pool", "init", "--capacity", "1"])
         .output()
         .unwrap());
     let logs = h.join("state/groove/logs");
@@ -734,6 +730,7 @@ fn concurrent_log_publication_keeps_logging_available() {
         .arg("--repo")
         .arg(&repo.path)
         .args([
+            "pool",
             "init",
             "--capacity",
             "1",

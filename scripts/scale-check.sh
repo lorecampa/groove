@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Contract and timing checks in disposable, isolated repository storage.
 set -euo pipefail
+set -E
+trap 'status=$?; printf "scale-check setup: command failed at line %s (exit %s)\n" "$LINENO" "$status" >&2; exit 2' ERR
 binary=target/release/groove
 source_repo=
 files=60000
@@ -58,6 +60,7 @@ scratch=$scratch_parent/$(basename "$scratch")
 mkdir "$scratch"
 export HOME=$scratch/home XDG_CONFIG_HOME=$scratch/config XDG_STATE_HOME=$scratch/state
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_CONFIG_COUNT
 mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_STATE_HOME"
 repo=$scratch/repo
 if [[ -n $source_repo ]]; then
@@ -96,10 +99,11 @@ fi
 git -C "$repo" rev-parse --verify HEAD~1 > /dev/null || setup 'fixture requires HEAD~1'
 # Pick a regular source path without modifying conversion rules themselves.
 untouched=
+git -C "$repo" ls-files -z > "$scratch/tracked-paths"
 while IFS= read -r -d '' path; do
     case "$path" in .gitattributes|*/.gitattributes|*.bat) continue ;; esac
     if [[ -f $repo/$path && ! -L $repo/$path ]]; then untouched=$path; break; fi
-done < <(git -C "$repo" ls-files -z)
+done < "$scratch/tracked-paths"
 [[ -n $untouched ]] || setup 'fixture has no regular tracked file'
 field() { sed -n "s/.*\"$2\":\"\([^\"]*\)\".*/\1/p" "$1"; }
 now() {

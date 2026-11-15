@@ -18,10 +18,10 @@ groove snapshot list
 groove snapshot show ID
 groove snapshot diff ID            # versus current files, including untracked
 groove snapshot diff ID OTHER_ID
-groove snapshot diff ID --max-file-bytes 0  # unlimited current-file capture
+groove snapshot diff ID --max-file-size 0  # unlimited current-file capture
 groove snapshot restore ID --to ../recovery
 groove snapshot restore ID         # automatic safety checkpoint first
-groove snapshot restore ID --max-file-bytes 0  # unlimited safety capture
+groove snapshot restore ID --max-file-size 0  # unlimited safety capture
 ```
 
 Save includes staged state, unstaged changes, deletions, executable modes,
@@ -112,7 +112,7 @@ Snapshots live under `refs/groove/snapshots/<UUID>`, pins under
 `<GIT_COMMON_DIR>/groove-snapshots/`. All linked worktrees share this namespace.
 The manifest records the originating Git directory. This deliberately uses a
 repository-wide snapshot lock to coordinate save, delete and restore.
-Concurrent operations wait up to `--git-timeout-ms` for this
+Concurrent operations wait up to `--git-timeout` for this
 lock, including snapshots taken by `release --save`. A lock timeout returns a retryable
 error and keeps task reservations and files protected; retry the same operation.
 Git mutation children inherit the lock so killing the parent cannot release it
@@ -136,7 +136,7 @@ objects alive. There is no byte quota; the maximum-file limit bounds ordinary
 growth. Groove never runs GC itself.
 
 Snapshots are local and ordinary branch pushes do not publish them. Deleting the
-repository's Git directory loses them. `groove destroy` preserves snapshots and
+repository's Git directory loses them. `groove pool destroy` preserves snapshots and
 pins; recover with restore from the main or another surviving checkout. Restore
 destinations must be outside the pool checkout root. Snapshot handles opened in a
 managed slot reject a subsequently reinitialized pool. All named pools share the

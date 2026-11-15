@@ -29,13 +29,13 @@ coordinator supplies task scheduling, communication, command execution and resul
 
 - **Coordinator:** you are responsible for acquiring and eventually finishing
   the task's reservation, including stopping delegated workers.
-- **Assigned worker:** a coordinator already supplied a checkout, lease ID and
+- **Assigned worker:** a coordinator already supplied a checkout, reservation ID and
   pool. Work in that assignment; do not acquire another slot or release
   it. Report results and stop your writers before returning to the coordinator.
   Separately assigned tasks can have their own reservations.
 
-Assigned workers use the checkout, lease ID and pool supplied by their coordinator.
-Match that assignment with `groove show --lease-id ID` before using it. In JSON
+Assigned workers use the checkout, reservation ID and pool supplied by their coordinator.
+Match that assignment with `groove show --reservation-id ID` before using it. In JSON
 output, require `result.active` to be true; a successful show can otherwise describe
 a released reservation. Inspection, directory location, PIDs and metadata do not
 grant ownership. If the assignment is
@@ -43,23 +43,23 @@ ambiguous, inspect and report it rather than guessing.
 
 Carry the same explicit `--pool NAME` on **every pool command**, including
 retries. Omission always means `default`; neither cwd nor `GROOVE_POOL` selects
-it automatically. Labels and request keys are pool-local. Do not switch pools
+it automatically. Labels and idempotency keys are pool-local. Do not switch pools
 to bypass contention.
 
 ## Acquire and work (coordinator)
 
-1. Inspect the selected pool with `groove --json --pool NAME config show`.
-   Initialize it with `groove --pool NAME init --capacity N` when repository
+1. Inspect the selected pool with `groove --json --pool NAME pool show`.
+   Initialize it with `groove --pool NAME pool init --capacity N` when repository
    setup is part of the assignment; otherwise report an uninitialized pool as
    a prerequisite. Do not silently change capacity or existing configuration.
-2. Choose a task label and a new request key for this logical acquisition:
+2. Choose a task label and a new idempotency key for this logical acquisition:
 
    ```sh
-   groove --json --pool default acquire --task fix-parser --request-key fix-parser-attempt-1
+   groove --json --pool default acquire --task fix-parser --idempotency-key fix-parser-attempt-1
    ```
 
-   Retain the pool, key, original base argument, `result.lease_id` and
-   `result.worktree_path` outside the checkout. After a lost response, repeat
+   Retain the pool, key, original base argument, `result.reservation_id` and
+   `result.workspace_path` outside the checkout. After a lost response, repeat
    the same acquisition inputs and key. Do not generate a second key to retry.
 3. Direct **all** edits, Git commands and terminal work to the returned path.
    Set tool working directories explicitly. If the harness cannot move its
@@ -70,7 +70,7 @@ to bypass contention.
    terminal. Keep the reservation until every writer has stopped and results are preserved.
 
 On `POOL_EXHAUSTED` or `ACQUIRE_TIMEOUT`, wait/retry with the same acquisition
-identity (for example `--wait-ms 5000`). Never create overflow worktrees, enlarge
+identity (for example `--wait 5s`). Never create overflow worktrees, enlarge
 capacity or remove protection to make progress. If a bounded wait still cannot
 make progress, report contention with the retained retry inputs instead of
 spinning indefinitely.
@@ -89,7 +89,7 @@ A coordinator finishing the task must:
 3. Preserve the result and release:
 
    ```sh
-   groove --json --pool default release --save --lease-id LEASE_ID --description 'parser fix'
+   groove --json --pool default release --save --reservation-id RESERVATION_ID --description 'parser fix'
    ```
 
    Retain the pinned snapshot ID from `result.snapshot.id`. Recover files and staging state with
@@ -107,10 +107,10 @@ Never delete locks, protection or execution records. Reservations never expire.
 
 For a lost response, conflicting label or blocked `release --save`,
 read [references/recovery.md](references/recovery.md). Retry finalization with
-its original **lease ID and pool**, never a reusable task label. Stale IDs cannot
+its original **reservation ID and pool**, never a reusable task label. Stale IDs cannot
 release a successor; saved-release receipts survive slot reuse.
 
 Report the task/pool, verification results and one explicit final state:
-reservation retained with path/lease ID, handed back to its coordinator, or
+reservation retained with path/reservation ID, handed back to its coordinator, or
 finished with snapshot ID and restore command. Include unresolved writer or
 recovery problems. A local snapshot is not a remote backup.

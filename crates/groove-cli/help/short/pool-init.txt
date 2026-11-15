@@ -1,0 +1,4 @@
+EXAMPLE:
+  groove pool init --capacity 4
+
+Existing pools keep their settings; use pool show or pool set.

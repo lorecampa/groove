@@ -35,10 +35,10 @@ pub(crate) fn init_pool(
 ) -> Result<(Value, Value)> {
     // Capability discovery is outside the measured initialization command and
     // lets older baseline binaries keep their existing lazy initialization.
-    let output = runner.run(binary, ["--json", "init", "--help"], repo)?;
+    let output = runner.run(binary, ["--json", "pool", "init", "--help"], repo)?;
     let help: Value = serde_json::from_slice(&output.stdout)?;
     require(
-        help["api_version"] == 1 && help["ok"] == true,
+        help["api_version"] == 2 && help["ok"] == true,
         "Invalid CLI init help response",
     )?;
     let text = help["result"]["text"]
@@ -67,7 +67,7 @@ pub(crate) fn init_pool(
     Ok(result)
 }
 fn path(lease: &Value) -> Result<PathBuf> {
-    lease["worktree_path"]
+    lease["workspace_path"]
         .as_str()
         .map(PathBuf::from)
         .ok_or_else(|| Error::Invalid("Missing acquired worktree".into()))
@@ -167,7 +167,7 @@ fn artifact_contents(repo: &Path, lease: &Value, expected_files: usize) -> Resul
 fn empty(runner: &Runner, binary: &Path, repo: &Path) -> Result<()> {
     let (list, _) = call(runner, binary, repo, &["list"])?;
     require(
-        list["leases"].as_array().is_some_and(Vec::is_empty),
+        list["reservations"].as_array().is_some_and(Vec::is_empty),
         "Workload left active reservations",
     )
 }
@@ -215,6 +215,7 @@ pub(crate) fn measure(
         repo,
         None,
         &[
+            "pool",
             "init",
             "--capacity",
             &case.capacity().to_string(),
@@ -352,19 +353,19 @@ fn concurrent(
                 "acquire",
                 "--task",
                 &format!("worker-{i}"),
-                "--wait-ms",
-                "60000",
+                "--wait",
+                "60000ms",
             ],
         )
     })?;
     let acquire_seconds = start.elapsed().as_secs_f64();
     let ids: BTreeSet<_> = acquired
         .iter()
-        .map(|(l, _)| l["lease_id"].as_str())
+        .map(|(l, _)| l["reservation_id"].as_str())
         .collect();
     let paths: BTreeSet<_> = acquired
         .iter()
-        .map(|(l, _)| l["worktree_path"].as_str())
+        .map(|(l, _)| l["workspace_path"].as_str())
         .collect();
     require(
         ids.len() == workers
@@ -425,10 +426,10 @@ fn multi_pool(
             binary,
             repo,
             Some(pool),
-            &["init", "--capacity", &workers.to_string()],
+            &["pool", "init", "--capacity", &workers.to_string()],
         )?;
         roots.push(PathBuf::from(
-            initialized["worktree_root"]
+            initialized["workspace_root"]
                 .as_str()
                 .ok_or_else(|| Error::Invalid("Missing pool root".into()))?,
         ));
@@ -466,21 +467,21 @@ fn multi_pool(
                 "acquire",
                 "--task",
                 &format!("worker-{}", i % workers),
-                "--request-key",
+                "--idempotency-key",
                 &format!("request-{}", i % workers),
-                "--wait-ms",
-                "60000",
+                "--wait",
+                "60000ms",
             ],
         )
     })?;
     let acquire_seconds = started.elapsed().as_secs_f64();
     let ids: BTreeSet<_> = acquired
         .iter()
-        .map(|(l, _)| l["lease_id"].as_str())
+        .map(|(l, _)| l["reservation_id"].as_str())
         .collect();
     let paths: BTreeSet<_> = acquired
         .iter()
-        .map(|(l, _)| l["worktree_path"].as_str())
+        .map(|(l, _)| l["workspace_path"].as_str())
         .collect();
     require(
         ids.len() == total
@@ -513,7 +514,7 @@ fn multi_pool(
         )?;
     }
     evidence.checked("full_pool_rejection");
-    let (catalog, timing) = call(runner, binary, repo, &["pools"])?;
+    let (catalog, timing) = call(runner, binary, repo, &["pool", "list"])?;
     let entries = catalog["pools"]
         .as_array()
         .ok_or_else(|| Error::Invalid("Missing pool catalog".into()))?;
@@ -546,7 +547,7 @@ fn multi_pool(
     for pool in &names {
         let (list, _) = named(runner, binary, repo, pool, &["list"])?;
         require(
-            list["leases"].as_array().is_some_and(Vec::is_empty),
+            list["reservations"].as_array().is_some_and(Vec::is_empty),
             "Named pool retained an active reservation",
         )?;
     }
@@ -597,18 +598,18 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
         .parent()
         .ok_or_else(|| Error::Invalid("Fixture has no parent".into()))?;
     let external_root = parent.join("external-worktrees");
-    let mut init = vec!["init", "--capacity"];
+    let mut init = vec!["pool", "init", "--capacity"];
     let capacity = slots.to_string();
     init.push(&capacity);
     let external_text = external_root
         .to_str()
         .ok_or_else(|| Error::Invalid("Non-UTF-8 fixture root".into()))?;
     if external {
-        init.extend(["--worktree-root", external_text]);
+        init.extend(["--workspace-root", external_text]);
     }
     let (initialized, _) = init_pool(runner, binary, repo, None, &init)?;
     let root = PathBuf::from(
-        initialized["worktree_root"]
+        initialized["workspace_root"]
             .as_str()
             .ok_or_else(|| Error::Invalid("Missing checkout root".into()))?,
     );
@@ -622,7 +623,7 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
         binary,
         repo,
         Some("survivor"),
-        &["init", "--capacity", "1"],
+        &["pool", "init", "--capacity", "1"],
     )?;
     let (sibling, _) = named(
         runner,
@@ -644,7 +645,7 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
                     "acquire",
                     "--task",
                     &format!("slot-{i}"),
-                    "--request-key",
+                    "--idempotency-key",
                     &format!("delete-{i}"),
                 ],
             )?;
@@ -684,7 +685,7 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
         }
         (
             finished["snapshot"].clone(),
-            first["lease_id"].as_str().map(String::from),
+            first["reservation_id"].as_str().map(String::from),
         )
     } else {
         let (saved, _) = call(runner, binary, repo, &["snapshot", "save"])?;
@@ -708,11 +709,18 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
     let mut evidence = Evidence::default();
     evidence.record(
         "ambiguous_rejection",
-        crate::harness::reject(runner, binary, repo, &["destroy"], "INVALID_ARGUMENT", 2)?,
+        crate::harness::reject(
+            runner,
+            binary,
+            repo,
+            &["pool", "destroy"],
+            "INVALID_ARGUMENT",
+            2,
+        )?,
     )?;
-    let mut args = vec!["destroy"];
+    let mut args = vec!["pool", "destroy"];
     if dirty {
-        args.push("--discard-changes");
+        args.push("--force");
     }
     let mut preview_args = args.clone();
     preview_args.push("--dry-run");
@@ -830,15 +838,16 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
         repo,
         Some("default"),
         &[
+            "pool",
             "init",
             "--capacity",
             "1",
-            "--worktree-root",
+            "--workspace-root",
             replacement_text,
         ],
     )?;
     require(
-        reinitialized["worktree_root"] == replacement_text && lock_identities(&state)? == locks,
+        reinitialized["workspace_root"] == replacement_text && lock_identities(&state)? == locks,
         "Reinit lost permanent lock identities or used the wrong root",
     )?;
     evidence.record("reinitialize", timing)?;
@@ -847,7 +856,7 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
         runner,
         binary,
         repo,
-        &["--pool", "default", "destroy", "--pool-id", id],
+        &["--pool", "default", "pool", "destroy", "--pool-id", id],
         "CONFIG_CONFLICT",
         4,
     )?;
@@ -857,7 +866,7 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
             binary,
             repo,
             "default",
-            &["release", "--save", "--lease-id", lease_id],
+            &["release", "--save", "--reservation-id", lease_id],
         )?;
         require(
             finished["snapshot"]["id"] == saved["id"],
@@ -867,8 +876,14 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
             runner,
             binary,
             repo,
-            &["acquire", "--task", "slot-0", "--request-key", "delete-0"],
-            "INVALID_LEASE",
+            &[
+                "acquire",
+                "--task",
+                "slot-0",
+                "--idempotency-key",
+                "delete-0",
+            ],
+            "INVALID_RESERVATION",
             5,
         )?;
     }
@@ -912,7 +927,7 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
         &["show", "--task", "slot-0"],
     )?;
     require(
-        shown["lease"]["lease_id"] == sibling["lease_id"]
+        shown["reservation"]["reservation_id"] == sibling["reservation_id"]
             && fs::read(&sibling_file)? == b"preserved sibling",
         "Deletion/reinit damaged a sibling reservation/result",
     )?;
@@ -931,7 +946,9 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
     empty(runner, binary, repo)?;
     let (sibling, _) = named(runner, binary, repo, "survivor", &["list"])?;
     require(
-        sibling["leases"].as_array().is_some_and(Vec::is_empty),
+        sibling["reservations"]
+            .as_array()
+            .is_some_and(Vec::is_empty),
         "Sibling reservation remained active",
     )?;
     evidence.checked("released");
@@ -972,11 +989,11 @@ mod tests {
         fs::write(root.join("entered"), b"entered").unwrap();
         let runner = Runner::new().isolated(root).unwrap();
         for mode in ["legacy", "current", "ignored-policy"] {
-            let help = serde_json::json!({"api_version":1,"ok":true,"request_id":null,"result":{"text":
-                if mode == "legacy" { "Usage: groove init --capacity N" }
-                else { "Usage: groove init --capacity N --ready-target N --idle-timeout D" }
+            let help = serde_json::json!({"api_version":2,"ok":true,"request_id":null,"result":{"text":
+                if mode == "legacy" { "Usage: groove pool init --capacity N" }
+                else { "Usage: groove pool init --capacity N --ready-target N --idle-timeout D" }
             }});
-            let response = serde_json::json!({"api_version":1,"ok":true,"request_id":null,"result":
+            let response = serde_json::json!({"api_version":2,"ok":true,"request_id":null,"result":
                 if mode == "legacy" { serde_json::json!({}) }
                 else { serde_json::json!({"ready_target":if mode == "current" {0} else {1},"idle_timeout":"never"}) }
             });
@@ -1020,7 +1037,7 @@ INIT_RESPONSE
                 &binary,
                 root,
                 Some("bench"),
-                &["init", "--capacity", "2"],
+                &["pool", "init", "--capacity", "2"],
             );
             if mode == "ignored-policy" {
                 assert!(

@@ -20,7 +20,7 @@ fn check(output: &std::process::Output) -> Value {
     let v: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(output.stdout.iter().filter(|b| **b == b'\n').count(), 1);
     let schema: Value =
-        serde_json::from_str(include_str!("../schemas/response-v1.schema.json")).unwrap();
+        serde_json::from_str(include_str!("../schemas/response-v2.schema.json")).unwrap();
     let validator = jsonschema::validator_for(&schema).unwrap();
     let errors: Vec<_> = validator.iter_errors(&v).map(|e| e.to_string()).collect();
     assert!(errors.is_empty(), "{errors:?}: {v}");
@@ -34,6 +34,7 @@ fn unwinding_panics_return_an_error_envelope_and_keep_protection() {
     assert_success(&cli(
         &repo,
         &[
+            "pool",
             "init",
             "--capacity",
             "1",
@@ -81,10 +82,10 @@ fn preference_defaults_in_help_can_be_used_as_a_real_configuration() {
             .output()
             .unwrap()
     };
-    let original = run(&["config", "global", "show"]);
+    let original = run(&["config", "show"]);
     assert_success(&original);
     let expected = check(&original)["result"]["config"].clone();
-    let output = run(&["config", "global", "--help"]);
+    let output = run(&["config", "--help"]);
     assert_success(&output);
     let response = check(&output);
     let help = response["result"]["text"].as_str().unwrap();
@@ -98,13 +99,13 @@ fn preference_defaults_in_help_can_be_used_as_a_real_configuration() {
     let directory = config_home.join("groove");
     std::fs::create_dir_all(&directory).unwrap();
     std::fs::write(directory.join("config.toml"), defaults).unwrap();
-    let configured = run(&["config", "global", "show"]);
+    let configured = run(&["config", "show"]);
     assert_success(&configured);
     assert_eq!(check(&configured)["result"]["config"], expected);
-    let leaf = run(&["config", "global", "set", "--help"]);
+    let leaf = run(&["config", "set", "--help"]);
     let leaf = check(&leaf);
     let leaf = leaf["result"]["text"].as_str().unwrap();
-    assert!(leaf.contains("groove config global --help"));
+    assert!(leaf.contains("groove config --help"));
     assert!(!leaf.contains("PREFERENCE DEFAULTS"));
 }
 
@@ -126,19 +127,15 @@ fn command_help_exposes_its_output_fields_without_repository_or_preferences() {
         (
             vec!["acquire"],
             vec![
-                "acquire -> result: lease",
-                "lease_id: uuid",
-                "worktree_path: string",
-                "request_key (optional): string",
+                "acquire -> result: reservation",
+                "reservation_id: uuid",
+                "workspace_path: string",
+                "idempotency_key (optional): string",
             ],
         ),
         (
             vec!["release"],
-            vec![
-                "release -> result: release | saved_release_result",
-                "release:",
-                "snapshot: snapshot",
-            ],
+            vec!["release -> result: release_result", "release:", "snapshot:"],
         ),
         (
             vec!["snapshot", "restore"],
@@ -186,7 +183,7 @@ fn command_help_exposes_its_output_fields_without_repository_or_preferences() {
 fn command_output_types_used_by_help_validate_real_responses() {
     let repo = Repo::new();
     let schema: Value =
-        serde_json::from_str(include_str!("../schemas/response-v1.schema.json")).unwrap();
+        serde_json::from_str(include_str!("../schemas/response-v2.schema.json")).unwrap();
     let verify = |name: &str, args: &[&str]| {
         let result = assert_success(&cli(&repo, args));
         let variants: Vec<_> = schema["x-groove-command-results"][name]
@@ -204,12 +201,12 @@ fn command_output_types_used_by_help_validate_real_responses() {
         assert!(errors.is_empty(), "{name}: {errors:?}");
         result
     };
-    verify("init", &["init", "--capacity", "1"]);
+    verify("pool init", &["pool", "init", "--capacity", "1"]);
     let lease = verify("acquire", &["acquire", "--task", "contract"]);
-    let id = lease["result"]["lease_id"].as_str().unwrap();
+    let id = lease["result"]["reservation_id"].as_str().unwrap();
     verify("list", &["list"]);
-    verify("show", &["show", "--lease-id", id]);
-    let finish = verify("release", &["release", "--save", "--lease-id", id]);
+    verify("show", &["show", "--reservation-id", id]);
+    let finish = verify("release", &["release", "--save", "--reservation-id", id]);
     let snapshot = finish["result"]["snapshot"]["id"].as_str().unwrap();
     verify("snapshot show", &["snapshot", "show", snapshot]);
     verify("snapshot list", &["snapshot", "list"]);
@@ -234,9 +231,9 @@ fn every_output_path_is_one_json_response() {
         (vec!["--version"], 0, Some(env!("CARGO_PKG_VERSION"))),
         (vec![], 2, None),
         (vec!["unknown"], 2, None),
-        (vec!["init", "--capacity", "0"], 2, None),
+        (vec!["pool", "init", "--capacity", "0"], 2, None),
         (vec!["acquire", "--lease-channel-fd", "3"], 2, None),
-        (vec!["release", "--lease-id", "no"], 2, None),
+        (vec!["release", "--reservation-id", "no"], 2, None),
         (vec!["release"], 2, None),
     ] {
         let output = cli(&r, &args);
@@ -262,15 +259,18 @@ fn every_output_path_is_one_json_response() {
             b"baseline\n"
         );
     }
-    let output = cli(&r, &["init", "--capacity", "2"]);
+    let output = cli(&r, &["pool", "init", "--capacity", "2"]);
     assert_success(&output);
     let v = check(&output);
     assert_eq!(v["request_id"], Value::Null);
     assert_eq!(v["result"]["created"], true);
-    let output = cli(&r, &["--request-id", "again", "init", "--capacity", "2"]);
+    let output = cli(
+        &r,
+        &["--request-id", "again", "pool", "init", "--capacity", "2"],
+    );
     assert_eq!(check(&output)["error"]["code"], "CONFIG_CONFLICT");
     assert_eq!(output.status.code(), Some(4));
-    let output = cli(&r, &["-v", "init", "--capacity", "3"]);
+    let output = cli(&r, &["-v", "pool", "init", "--capacity", "3"]);
     assert_eq!(output.status.code(), Some(4));
     assert_eq!(check(&output)["error"]["code"], "CONFIG_CONFLICT");
     assert!(String::from_utf8_lossy(&output.stderr).contains("CONFIG_CONFLICT"));
@@ -284,7 +284,7 @@ fn concurrent_init_creates_exactly_one_pool() {
             support::groove_in(&r.path)
                 .arg("--repo")
                 .arg(&r.path)
-                .args(["init", "--capacity", "2"])
+                .args(["pool", "init", "--capacity", "2"])
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
                 .spawn()
@@ -310,7 +310,7 @@ fn concurrent_init_creates_exactly_one_pool() {
 #[test]
 fn persisted_metadata_matches_published_schemas() {
     let r = Repo::new();
-    assert_success(&cli(&r, &["init", "--capacity", "1"]));
+    assert_success(&cli(&r, &["pool", "init", "--capacity", "1"]));
     let pool = groove_core::Pool::open(&r.path).unwrap();
     let mut lease = pool.acquire(Default::default()).unwrap();
     for (file, text) in [
@@ -339,19 +339,16 @@ fn persisted_metadata_matches_published_schemas() {
 #[test]
 fn settings_and_read_commands_match_the_protocol() {
     let r = Repo::new();
-    assert_success(&cli(&r, &["init", "--capacity", "1"]));
+    assert_success(&cli(&r, &["pool", "init", "--capacity", "1"]));
     let lease = check(&cli(&r, &["acquire", "--task", "live"]));
-    let id = lease["result"]["lease_id"].as_str().unwrap();
-    let configured = cli(
-        &r,
-        &["config", "set", "--capacity", "3", "--cleanup", "warm"],
-    );
+    let id = lease["result"]["reservation_id"].as_str().unwrap();
+    let configured = cli(&r, &["pool", "set", "--capacity", "3", "--cleanup", "warm"]);
     assert_success(&configured);
     let response = check(&configured);
     assert_eq!(response["result"]["pool"]["capacity"], 3);
     assert_eq!(response["result"]["updated"], true);
     assert_eq!(
-        check(&cli(&r, &["config", "show"]))["result"]["pool"]["cleanup_policy"],
+        check(&cli(&r, &["pool", "show"]))["result"]["pool"]["cleanup_policy"],
         "warm"
     );
     assert_eq!(
@@ -362,7 +359,7 @@ fn settings_and_read_commands_match_the_protocol() {
         3
     );
     assert_eq!(
-        check(&cli(&r, &["show", "--lease-id", id]))["result"]["lease"]["task"],
+        check(&cli(&r, &["show", "--reservation-id", id]))["result"]["reservation"]["task"],
         "live"
     );
     let schema: Value =
@@ -378,10 +375,10 @@ fn settings_and_read_commands_match_the_protocol() {
         vec!["config", "--global"],
         vec!["show", "--snapshot", id],
         vec!["list", "--snapshots"],
-        vec!["init", "--capacity", "1", "--backend", "git"],
+        vec!["pool", "init", "--capacity", "1", "--backend", "git"],
         vec![
             "exec",
-            "--lease-id",
+            "--reservation-id",
             id,
             "--cgroup-parent",
             "/",
@@ -389,13 +386,13 @@ fn settings_and_read_commands_match_the_protocol() {
             "true",
         ],
         vec!["inspect"],
-        vec!["leases"],
+        vec!["reservations"],
     ] {
         let out = cli(&r, &old);
         assert_eq!(out.status.code(), Some(2));
         assert_eq!(check(&out)["error"]["code"], "INVALID_ARGUMENT");
     }
-    assert_success(&cli(&r, &["release", "--lease-id", id]));
+    assert_success(&cli(&r, &["release", "--reservation-id", id]));
 }
 
 #[test]
@@ -406,7 +403,7 @@ fn malformed_identifiers_are_argument_errors_that_keep_the_request_id() {
         ["show", "--slot", "wt-0000"],
         ["show", "--slot", "wt-4097"],
         ["show", "--slot", "wt-1"],
-        ["release", "--lease-id", "not-a-uuid"],
+        ["release", "--reservation-id", "not-a-uuid"],
     ] {
         let output = cli(
             &r,
@@ -422,7 +419,7 @@ fn malformed_identifiers_are_argument_errors_that_keep_the_request_id() {
 #[test]
 fn published_slot_schema_agrees_with_validated_rust_ids() {
     let schema: Value =
-        serde_json::from_str(include_str!("../schemas/response-v1.schema.json")).unwrap();
+        serde_json::from_str(include_str!("../schemas/response-v2.schema.json")).unwrap();
     let validator = jsonschema::validator_for(&schema["$defs"]["slot"]).unwrap();
     for number in 0..=9999 {
         let text = format!("wt-{number:04}");
@@ -438,9 +435,9 @@ fn published_slot_schema_agrees_with_validated_rust_ids() {
 fn logging_flags_preserve_protocol_and_failures_are_best_effort() {
     let r = Repo::new();
     let logs = r.path.join("test-logs");
-    let output = cli(&r, &["init", "--capacity", "1"]);
+    let output = cli(&r, &["pool", "init", "--capacity", "1"]);
     assert_success(&output);
-    json_progress::assert_only(&output, "init");
+    json_progress::assert_only(&output, "pool init");
     let entries: Vec<_> = std::fs::read_dir(&logs)
         .unwrap()
         .flatten()
@@ -471,7 +468,11 @@ fn logging_flags_preserve_protocol_and_failures_are_best_effort() {
         .env("GROOVE_LOG_DIR", blocked)
         .env("XDG_CONFIG_HOME", r.path.join("config-home"))
         .env_remove("GROOVE_LOG_ENABLED")
-        .args(["release", "--lease-id", lease["lease_id"].as_str().unwrap()])
+        .args([
+            "release",
+            "--reservation-id",
+            lease["reservation_id"].as_str().unwrap(),
+        ])
         .output()
         .unwrap();
     assert_success(&output);
@@ -520,9 +521,10 @@ fn command_help_is_available_without_a_repository_or_valid_config() {
     std::fs::write(config_home.join("groove/config.toml"), "invalid toml [").unwrap();
     let commands: &[&[&str]] = &[
         &[],
-        &["pools"],
-        &["destroy"],
-        &["init"],
+        &["pool"],
+        &["pool", "list"],
+        &["pool", "destroy"],
+        &["pool", "init"],
         &["acquire"],
         &["release"],
         &["show"],
@@ -530,14 +532,14 @@ fn command_help_is_available_without_a_repository_or_valid_config() {
         &["completions"],
         &["release", "--save"],
         &["config"],
-        &["config", "show"],
+        &["pool", "show"],
+        &["pool", "set"],
+        &["config"],
+        &["config", "path"],
+        &["config", "edit"],
         &["config", "set"],
-        &["config", "global"],
-        &["config", "global", "path"],
-        &["config", "global", "edit"],
-        &["config", "global", "set"],
-        &["config", "global", "unset"],
-        &["config", "global", "show"],
+        &["config", "unset"],
+        &["config", "show"],
         &["snapshot"],
         &["snapshot", "save"],
         &["snapshot", "list"],
@@ -573,7 +575,7 @@ fn command_help_is_available_without_a_repository_or_valid_config() {
                 assert!(help.contains("-h for concise help"), "{command:?}: {help}");
             }
             if *command == ["release"] {
-                assert!(help.contains("groove release --lease-id UUID"));
+                assert!(help.contains("groove release --reservation-id UUID"));
                 assert!(help.contains("groove release --save"));
                 assert!(!help.contains("--writers-stopped"));
                 assert!(help.contains("next acquisition"));
@@ -606,12 +608,8 @@ fn concise_and_detailed_help_preserve_safety_and_json_output() {
             &["Stop ALL writers", "ignored", "--force", "work can be lost"],
         ),
         (
-            &["destroy"],
-            &[
-                "stop ALL writers",
-                "Deletes pool checkouts",
-                "--discard-changes",
-            ],
+            &["pool", "destroy"],
+            &["stop ALL writers", "Deletes pool checkouts", "--force"],
         ),
         (
             &["snapshot", "save"],
@@ -630,7 +628,7 @@ fn concise_and_detailed_help_preserve_safety_and_json_output() {
             &["snapshot", "delete"],
             &["Deletes", "--force", "pinned snapshot"],
         ),
-        (&["config", "global"], &["every repository"]),
+        (&["config"], &["every repository"]),
     ];
     for (command, safety) in cases {
         let mut texts = Vec::new();
@@ -689,21 +687,28 @@ fn concise_and_detailed_help_preserve_safety_and_json_output() {
 #[test]
 fn release_save_options_require_save_and_rejections_keep_the_reservation() {
     let repo = Repo::new();
-    assert_success(&cli(&repo, &["init", "--capacity", "1"]));
+    assert_success(&cli(&repo, &["pool", "init", "--capacity", "1"]));
     let lease = assert_success(&cli(&repo, &["acquire", "--task", "unfinished"]));
-    let id = lease["result"]["lease_id"].as_str().unwrap();
-    let workspace = std::path::Path::new(lease["result"]["worktree_path"].as_str().unwrap());
+    let id = lease["result"]["reservation_id"].as_str().unwrap();
+    let workspace = std::path::Path::new(lease["result"]["workspace_path"].as_str().unwrap());
     std::fs::write(workspace.join("tracked.txt"), "work in progress").unwrap();
     for args in [
-        vec!["finish", "--lease-id", id],
-        vec!["release", "--lease-id", id, "--description", "unfinished"],
-        vec!["release", "--lease-id", id, "--max-file-bytes", "0"],
+        vec!["finish", "--reservation-id", id],
+        vec![
+            "release",
+            "--reservation-id",
+            id,
+            "--description",
+            "unfinished",
+        ],
+        vec!["release", "--reservation-id", id, "--max-file-size", "0"],
     ] {
         let output = cli(&repo, &args);
         assert_eq!(output.status.code(), Some(2), "{args:?}");
         assert_eq!(check(&output)["error"]["code"], "INVALID_ARGUMENT");
         assert_eq!(
-            assert_success(&cli(&repo, &["show", "--lease-id", id]))["result"]["lease"]["lease_id"],
+            assert_success(&cli(&repo, &["show", "--reservation-id", id]))["result"]["reservation"]
+                ["reservation_id"],
             id
         );
         assert_eq!(
@@ -711,7 +716,10 @@ fn release_save_options_require_save_and_rejections_keep_the_reservation() {
             b"work in progress"
         );
     }
-    let output = cli(&repo, &["release", "--save", "--force", "--lease-id", id]);
+    let output = cli(
+        &repo,
+        &["release", "--save", "--force", "--reservation-id", id],
+    );
     assert!(output.status.success(), "{output:?}");
     let saved = check(&output);
     assert_eq!(saved["result"]["release"]["released"], true);
@@ -752,7 +760,7 @@ fn human_output_is_the_default_and_json_is_opt_in() {
             .output()
             .unwrap()
     };
-    let init = human(&["init", "--capacity", "1"]);
+    let init = human(&["pool", "init", "--capacity", "1"]);
     assert!(init.status.success());
     let text = String::from_utf8(init.stdout).unwrap();
     assert!(text.starts_with("Initialized a pool of 1 slot."), "{text}");
@@ -770,10 +778,10 @@ fn human_output_is_the_default_and_json_is_opt_in() {
     let missing = human(&["release", "--task", "absent"]);
     assert_eq!(missing.status.code(), Some(5));
     assert!(missing.stdout.is_empty());
-    assert!(String::from_utf8_lossy(&missing.stderr).contains("LEASE_MISMATCH"));
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("RESERVATION_MISMATCH"));
     // --json overrides the human default.
     let listed = human(&["--json", "list"]);
-    assert_eq!(check(&listed)["result"]["leases"][0]["task"], "human");
+    assert_eq!(check(&listed)["result"]["reservations"][0]["task"], "human");
     // Help is plain text unless JSON is requested.
     let help = human(&["--help"]);
     assert!(String::from_utf8_lossy(&help.stdout).starts_with("Reusable Git worktree"));
@@ -900,10 +908,10 @@ fn common_failures_have_the_same_advice_in_human_and_json_output() {
         assert!(human.stdout.is_empty());
         assert!(String::from_utf8_lossy(&human.stderr).contains(&format!("Hint: {hint}")));
     };
-    expect_hint(&["list"], "NOT_INITIALIZED", 4, "groove init");
-    assert_success(&cli(&r, &["init", "--capacity", "1"]));
+    expect_hint(&["list"], "NOT_INITIALIZED", 4, "groove pool init");
+    assert_success(&cli(&r, &["pool", "init", "--capacity", "1"]));
     assert_success(&cli(&r, &["acquire", "--task", "busy"]));
-    expect_hint(&["acquire"], "POOL_EXHAUSTED", 3, "--wait-ms");
+    expect_hint(&["acquire"], "POOL_EXHAUSTED", 3, "--wait");
     expect_hint(
         &["acquire", "--base", "missing-revision"],
         "INVALID_REVISION",
@@ -912,7 +920,7 @@ fn common_failures_have_the_same_advice_in_human_and_json_output() {
     );
     expect_hint(
         &["show", "--task", "absent"],
-        "LEASE_MISMATCH",
+        "RESERVATION_MISMATCH",
         5,
         "groove list",
     );
@@ -924,7 +932,7 @@ fn common_failures_have_the_same_advice_in_human_and_json_output() {
         "groove release --save",
     );
     assert_eq!(
-        check(&cli(&r, &["list"]))["result"]["leases"][0]["task"],
+        check(&cli(&r, &["list"]))["result"]["reservations"][0]["task"],
         "busy"
     );
 }
@@ -933,11 +941,11 @@ fn common_failures_have_the_same_advice_in_human_and_json_output() {
 fn selected_show_runs_git_status_only_in_the_selected_workspace() {
     use std::{fs, os::unix::fs::PermissionsExt, process::Command};
     let r = Repo::new();
-    assert_success(&cli(&r, &["init", "--capacity", "2"]));
+    assert_success(&cli(&r, &["pool", "init", "--capacity", "2"]));
     let first = check(&cli(&r, &["acquire", "--task", "first"]));
     let second = assert_success(&cli(&r, &["acquire", "--task", "second"]));
-    let first_path = first["result"]["worktree_path"].as_str().unwrap();
-    let second_path = second["result"]["worktree_path"].as_str().unwrap();
+    let first_path = first["result"]["workspace_path"].as_str().unwrap();
+    let second_path = second["result"]["workspace_path"].as_str().unwrap();
     fs::write(
         std::path::Path::new(first_path).join("tracked.txt"),
         "edited\n",
@@ -976,7 +984,10 @@ fn selected_show_runs_git_status_only_in_the_selected_workspace() {
     };
     for selector in [
         ["--task", "first"],
-        ["--lease-id", first["result"]["lease_id"].as_str().unwrap()],
+        [
+            "--reservation-id",
+            first["result"]["reservation_id"].as_str().unwrap(),
+        ],
         ["--slot", first["result"]["slot_id"].as_str().unwrap()],
     ] {
         let (output, calls) = run(&["show", selector[0], selector[1], "--details"]);
@@ -992,8 +1003,8 @@ fn selected_show_runs_git_status_only_in_the_selected_workspace() {
         assert!(check(&output)["result"]["slot"]["git"].is_null());
         assert!(calls.is_empty());
     }
-    for command in ["show", "list"] {
-        let (output, calls) = run(&[command, "--details"]);
+    for command in [vec!["pool", "show", "--details"], vec!["list", "--details"]] {
+        let (output, calls) = run(&command);
         assert_success(&output);
         check(&output);
         let mut expected = [first_path, second_path];
@@ -1009,7 +1020,7 @@ fn selected_show_runs_git_status_only_in_the_selected_workspace() {
 #[test]
 fn terminal_verbosity_and_file_logging_are_independent() {
     let r = Repo::new();
-    assert_success(&cli(&r, &["init", "--capacity", "1"]));
+    assert_success(&cli(&r, &["pool", "init", "--capacity", "1"]));
     for (flag, levels) in [
         (None, vec![]),
         (Some("-q"), vec![]),
@@ -1066,13 +1077,13 @@ fn terminal_verbosity_and_file_logging_are_independent() {
             let out = cmd.args(["show", "--task", "absent"]).output().unwrap();
             assert_eq!(out.status.code(), Some(5));
             if json {
-                assert_eq!(check(&out)["error"]["code"], "LEASE_MISMATCH");
+                assert_eq!(check(&out)["error"]["code"], "RESERVATION_MISMATCH");
             } else {
                 assert!(out.stdout.is_empty());
             }
             let stderr = String::from_utf8(out.stderr).unwrap();
             assert_eq!(stderr.contains("WARN File logging unavailable"), !quiet);
-            assert_eq!(stderr.matches("(LEASE_MISMATCH)").count(), 1);
+            assert_eq!(stderr.matches("(RESERVATION_MISMATCH)").count(), 1);
             assert!(!stderr.contains("Command failed"));
         }
     }
@@ -1087,13 +1098,10 @@ fn terminal_verbosity_and_file_logging_are_independent() {
 #[test]
 fn persistent_trace_can_be_enabled_while_terminal_is_quiet() {
     let r = Repo::new();
-    assert_success(&cli(&r, &["init", "--capacity", "1"]));
-    assert_success(&cli(
-        &r,
-        &["config", "global", "set", "logging.level=trace"],
-    ));
+    assert_success(&cli(&r, &["pool", "init", "--capacity", "1"]));
+    assert_success(&cli(&r, &["config", "set", "logging.level=trace"]));
     assert_eq!(
-        check(&cli(&r, &["config", "global", "show"]))["result"]["config"]["logging"]["level"],
+        check(&cli(&r, &["config", "show"]))["result"]["config"]["logging"]["level"],
         "trace"
     );
     let out = cli(&r, &["--quiet", "list"]);
@@ -1114,11 +1122,11 @@ fn persistent_trace_can_be_enabled_while_terminal_is_quiet() {
     assert!(events
         .iter()
         .any(|v| v["command"] == "list" && v["level"] == "TRACE"));
-    let invalid = cli(&r, &["config", "global", "set", "logging.level=invalid"]);
+    let invalid = cli(&r, &["config", "set", "logging.level=invalid"]);
     assert_eq!(invalid.status.code(), Some(2));
     assert_eq!(check(&invalid)["error"]["code"], "INVALID_ARGUMENT");
     assert_eq!(
-        check(&cli(&r, &["config", "global", "show"]))["result"]["config"]["logging"]["level"],
+        check(&cli(&r, &["config", "show"]))["result"]["config"]["logging"]["level"],
         "trace"
     );
 }
@@ -1133,7 +1141,7 @@ fn copied_advice_keeps_pool_selection_and_destroy_does_not_suggest_saving_releas
         .as_str()
         .unwrap()
         .split('`')
-        .find(|part| part.starts_with("groove init"))
+        .find(|part| part.starts_with("groove pool init"))
         .unwrap();
     let argv = shell_words::split(command).unwrap();
     let initialized = support::groove_in(&repo.path)
@@ -1149,7 +1157,7 @@ fn copied_advice_keeps_pool_selection_and_destroy_does_not_suggest_saving_releas
         "NOT_INITIALIZED"
     );
     let lease = assert_success(&cli(&repo, &["--pool", "review", "acquire"]));
-    let workspace = std::path::Path::new(lease["result"]["worktree_path"].as_str().unwrap());
+    let workspace = std::path::Path::new(lease["result"]["workspace_path"].as_str().unwrap());
     std::fs::create_dir(workspace.join("ignored")).unwrap();
     std::fs::write(workspace.join("ignored/cache"), "keep me").unwrap();
     assert_success(&cli(
@@ -1159,16 +1167,16 @@ fn copied_advice_keeps_pool_selection_and_destroy_does_not_suggest_saving_releas
             "review",
             "release",
             "--save",
-            "--lease-id",
-            lease["result"]["lease_id"].as_str().unwrap(),
+            "--reservation-id",
+            lease["result"]["reservation_id"].as_str().unwrap(),
         ],
     ));
-    let output = cli(&repo, &["--pool", "review", "destroy", "--dry-run"]);
+    let output = cli(&repo, &["--pool", "review", "pool", "destroy", "--dry-run"]);
     assert_eq!(output.status.code(), Some(5));
     let result = check(&output);
     let hint = result["error"]["hint"].as_str().unwrap();
     assert!(hint.contains("ignored"));
-    assert!(hint.contains("--discard-changes"));
+    assert!(hint.contains("--force"));
     assert!(!hint.contains("`groove release --save"));
     assert_eq!(
         std::fs::read(workspace.join("ignored/cache")).unwrap(),
@@ -1179,12 +1187,12 @@ fn copied_advice_keeps_pool_selection_and_destroy_does_not_suggest_saving_releas
 #[test]
 fn listing_windows_preserve_order_and_reject_zero_limits() {
     let repo = Repo::new();
-    assert_success(&cli(&repo, &["init", "--capacity", "1"]));
+    assert_success(&cli(&repo, &["pool", "init", "--capacity", "1"]));
     let lease = assert_success(&cli(&repo, &["acquire"]));
     for n in 0..3 {
         assert_success(
             &support::groove_in(std::path::Path::new(
-                lease["result"]["worktree_path"].as_str().unwrap(),
+                lease["result"]["workspace_path"].as_str().unwrap(),
             ))
             .env("GROOVE_LOG_ENABLED", "false")
             .args(["snapshot", "save", &n.to_string()])
@@ -1330,7 +1338,7 @@ fn snapshot_defaults_bound_real_output_and_unlimited_restores_complete_listing()
 #[test]
 fn pool_and_slot_views_sort_before_paging_and_preserve_capacity() {
     let repo = Repo::new();
-    assert_success(&cli(&repo, &["init", "--capacity", "51"]));
+    assert_success(&cli(&repo, &["pool", "init", "--capacity", "51"]));
     let mut acquired = Vec::new();
     for label in ["z-last", "a-first"] {
         let lease = assert_success(&cli(&repo, &["acquire", "--task", label]));
@@ -1339,7 +1347,7 @@ fn pool_and_slot_views_sort_before_paging_and_preserve_capacity() {
             label,
         ));
     }
-    for args in [vec!["list", "--slots"], vec!["show"]] {
+    for args in [vec!["list", "--slots"], vec!["pool", "show"]] {
         let default = check(&cli(&repo, &args));
         assert_eq!(
             default["result"]["inspection"]["slots"]
@@ -1353,26 +1361,26 @@ fn pool_and_slot_views_sort_before_paging_and_preserve_capacity() {
         sorted.extend(["--sort", "task", "--offset", "49", "--limit", "1"]);
         let page = check(&cli(&repo, &sorted));
         assert_eq!(
-            page["result"]["inspection"]["slots"][0]["lease"]["task"],
+            page["result"]["inspection"]["slots"][0]["reservation"]["task"],
             "a-first"
         );
         let mut descending = args.clone();
         descending.extend(["--sort", "task", "--order", "desc", "--limit", "1"]);
         let page = check(&cli(&repo, &descending));
         assert_eq!(
-            page["result"]["inspection"]["slots"][0]["lease"]["task"],
+            page["result"]["inspection"]["slots"][0]["reservation"]["task"],
             "z-last"
         );
     }
     let leases = check(&cli(&repo, &["list", "--sort", "task", "--limit", "1"]));
-    assert_eq!(leases["result"]["leases"][0]["task"], "a-first");
+    assert_eq!(leases["result"]["reservations"][0]["task"], "a-first");
     for sort in ["task", "slot"] {
         let leases = check(&cli(
             &repo,
             &["list", "--sort", sort, "--order", "desc", "--limit", "1"],
         ));
         assert_eq!(
-            leases["result"]["leases"][0]["task"],
+            leases["result"]["reservations"][0]["task"],
             if sort == "task" {
                 "z-last"
             } else {
@@ -1392,6 +1400,7 @@ fn pool_and_slot_views_sort_before_paging_and_preserve_capacity() {
         &[
             "--pool",
             "zzz",
+            "pool",
             "init",
             "--capacity",
             "1",
@@ -1401,18 +1410,18 @@ fn pool_and_slot_views_sort_before_paging_and_preserve_capacity() {
             "never",
         ],
     ));
-    assert_success(&cli(&repo, &["--pool", "zzz", "destroy"]));
+    assert_success(&cli(&repo, &["--pool", "zzz", "pool", "destroy"]));
     for (sort, first) in [("name", "default"), ("state", "zzz")] {
         let pools = check(&cli(
             &repo,
-            &["pools", "--all", "--sort", sort, "--limit", "1"],
+            &["pool", "list", "--all", "--sort", sort, "--limit", "1"],
         ));
         assert_eq!(pools["result"]["pools"][0]["name"], first);
         assert_eq!(pools["result"]["pagination"]["total"], 2);
         let reversed = check(&cli(
             &repo,
             &[
-                "pools", "--all", "--sort", sort, "--order", "desc", "--limit", "1",
+                "pool", "list", "--all", "--sort", sort, "--order", "desc", "--limit", "1",
             ],
         ));
         assert_eq!(
@@ -1420,4 +1429,85 @@ fn pool_and_slot_views_sort_before_paging_and_preserve_capacity() {
             if sort == "name" { "zzz" } else { "default" }
         );
     }
+}
+
+#[test]
+fn removed_spellings_and_unused_pool_selection_are_v2_usage_errors() {
+    let repo = Repo::new();
+    for arguments in [
+        vec!["init", "--capacity", "1"],
+        vec!["pools"],
+        vec!["destroy"],
+        vec!["show"],
+        vec!["config", "global", "show"],
+        vec!["acquire", "--request-key", "old"],
+        vec!["acquire", "--wait-ms", "0"],
+        vec![
+            "release",
+            "--lease-id",
+            "00000000-0000-4000-8000-000000000000",
+        ],
+        vec![
+            "pool",
+            "init",
+            "--capacity",
+            "1",
+            "--worktree-root",
+            "/tmp/unused",
+        ],
+        vec!["--git-timeout-ms", "1000", "list"],
+        vec!["snapshot", "save", "--max-file-bytes", "100"],
+        vec!["pool", "destroy", "--discard-changes"],
+        vec!["--pool", "unused", "snapshot", "list"],
+        vec!["--pool", "unused", "config", "path"],
+        vec!["--pool", "unused", "pool", "list"],
+        vec!["--pool", "unused", "completions", "bash"],
+    ] {
+        let output = cli(&repo, &arguments);
+        assert_eq!(output.status.code(), Some(2), "{arguments:?}");
+        let response = check(&output);
+        assert_eq!(response["api_version"], 2);
+        assert_eq!(response["error"]["code"], "INVALID_ARGUMENT");
+    }
+}
+
+#[test]
+fn path_only_and_plain_release_use_the_v2_presentation_contract() {
+    let repo = Repo::new();
+    assert_success(&cli(
+        &repo,
+        &[
+            "pool",
+            "init",
+            "--capacity",
+            "1",
+            "--ready-target",
+            "0",
+            "--idle-timeout",
+            "never",
+        ],
+    ));
+    let output = support::groove_human_in(&repo.path)
+        .args(["acquire", "--task", "path", "--path-only"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+        output.stdout,
+        format!("{}\n", repo.slot(1).display()).as_bytes()
+    );
+    let shown = check(&cli(&repo, &["show", "--task", "path"]));
+    let reservation = &shown["result"]["reservation"];
+    assert!(reservation["reservation_id"].is_string());
+    assert!(reservation["workspace_path"].is_string());
+    assert!(reservation.get("lease_id").is_none());
+    let released = check(&cli(&repo, &["release", "--task", "path"]));
+    assert!(released["result"]["release"]["reservation_id"].is_string());
+    assert_eq!(released["result"]["snapshot"], Value::Null);
+    assert!(released["result"].get("snapshot").is_some());
+    let disk: Value =
+        serde_json::from_slice(&std::fs::read(repo.state().join("slots/wt-0001.json")).unwrap())
+            .unwrap();
+    assert!(disk["lease"].get("lease_id").is_some(), "{disk}");
+    assert!(disk["lease"].get("reservation_id").is_none());
 }

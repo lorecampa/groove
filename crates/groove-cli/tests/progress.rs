@@ -10,18 +10,18 @@ fn json_contract_guard_accepts_liveness_but_rejects_unrelated_or_malformed_stder
     use std::{os::unix::process::ExitStatusExt, process::Output};
     let output = |stderr: Vec<u8>| Output {
         status: std::process::ExitStatus::from_raw(0),
-        stdout: br#"{"api_version":1,"ok":true,"request_id":"contract","result":{}}"#.to_vec(),
+        stdout: br#"{"api_version":2,"ok":true,"request_id":"contract","result":{}}"#.to_vec(),
         stderr,
     };
     json_progress::assert_only(&output(Vec::new()), "config");
     let valid = serde_json::json!({
-        "api_version": 1, "event": "progress", "command": "config",
+        "api_version": 2, "event": "progress", "command": "config",
         "request_id": "contract", "elapsed_ms": 1500
     });
     json_progress::assert_only(&output(serde_json::to_vec(&valid).unwrap()), "config");
     let mut rejected = vec![b"unexpected warning\n".to_vec(), b"{malformed}\n".to_vec()];
     for (key, value) in [
-        ("api_version", serde_json::json!(2)),
+        ("api_version", serde_json::json!(3)),
         ("command", serde_json::json!("show")),
         ("request_id", serde_json::json!("another request")),
         ("elapsed_ms", serde_json::json!(500)),
@@ -41,7 +41,7 @@ fn long_waits_report_json_liveness_preserve_errors_and_respect_quiet() {
     let repo = Repo::new();
     assert_success(
         &support::groove_in(&repo.path)
-            .args(["init", "--capacity", "1"])
+            .args(["pool", "init", "--capacity", "1"])
             .output()
             .unwrap(),
     );
@@ -52,10 +52,10 @@ fn long_waits_report_json_liveness_preserve_errors_and_respect_quiet() {
             .unwrap(),
     );
     let schema: Value =
-        serde_json::from_str(include_str!("../schemas/progress-v1.schema.json")).unwrap();
+        serde_json::from_str(include_str!("../schemas/progress-v2.schema.json")).unwrap();
     let validator = jsonschema::validator_for(&schema).unwrap();
     let response_schema: Value =
-        serde_json::from_str(include_str!("../schemas/response-v1.schema.json")).unwrap();
+        serde_json::from_str(include_str!("../schemas/response-v2.schema.json")).unwrap();
     let response_validator = jsonschema::validator_for(&response_schema).unwrap();
     for json in [false, true] {
         for quiet in [false, true] {
@@ -65,8 +65,8 @@ fn long_waits_report_json_liveness_preserve_errors_and_respect_quiet() {
                     "acquire",
                     "--task",
                     "waiting",
-                    "--wait-ms",
-                    "1800",
+                    "--wait",
+                    "1800ms",
                     "--request-id",
                     "slow-acquire",
                 ])
@@ -117,8 +117,8 @@ fn long_waits_report_json_liveness_preserve_errors_and_respect_quiet() {
             .unwrap(),
     );
     assert_eq!(
-        current["result"]["lease"]["lease_id"],
-        lease["result"]["lease_id"]
+        current["result"]["reservation"]["reservation_id"],
+        lease["result"]["reservation_id"]
     );
     assert_success(
         &support::groove_in(&repo.path)

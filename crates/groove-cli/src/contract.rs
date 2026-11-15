@@ -5,7 +5,7 @@ use groove_core::ErrorCode;
 use serde_json::Value;
 use std::collections::{BTreeSet, VecDeque};
 
-const SCHEMA: &str = include_str!("../schemas/response-v1.schema.json");
+const SCHEMA: &str = include_str!("../schemas/response-v2.schema.json");
 
 fn schema() -> Value {
     // The bundled source is checked by JSON Schema and CLI conformance tests.
@@ -22,16 +22,15 @@ fn decorate(mut command: clap::Command, path: &str, schema: &Value) -> clap::Com
         .get_after_long_help()
         .map(ToString::to_string)
         .unwrap_or_else(|| concise_help(path).to_owned());
-    if path == "config global" {
-        text.push_str(include_str!("../help/config-global.txt"));
+    if path == "config" {
         text.push_str("\nPREFERENCE DEFAULTS (TOML, before environment overrides):\n");
         text.push_str(
             &toml::to_string_pretty(&preferences::Config::default())
                 .expect("built-in preferences must serialize as TOML"),
         );
     }
-    if path.starts_with("config global ") {
-        text.push_str("\nSee groove config global --help for preference keys and defaults.\n");
+    if path.starts_with("config ") {
+        text.push_str("\nSee groove config --help for preference keys and defaults.\n");
     }
     if path.is_empty() {
         text.push_str(include_str!("../help/json.txt"));
@@ -68,8 +67,17 @@ fn decorate(mut command: clap::Command, path: &str, schema: &Value) -> clap::Com
             .into_iter()
             .flatten()
         {
-            if let Ok(code) = serde_json::from_value::<ErrorCode>(value.clone()) {
-                text.push_str(&format!("  {}: {code}\n", output::error_status(code)));
+            let library_name = match value.as_str() {
+                Some("INVALID_RESERVATION") => Value::String("INVALID_LEASE".into()),
+                Some("RESERVATION_MISMATCH") => Value::String("LEASE_MISMATCH".into()),
+                _ => value.clone(),
+            };
+            if let Ok(code) = serde_json::from_value::<ErrorCode>(library_name) {
+                text.push_str(&format!(
+                    "  {}: {}\n",
+                    output::error_status(code),
+                    output::cli_error_code(code)
+                ));
             }
         }
         text.push_str("  7: stdout could not be written\n");
@@ -105,11 +113,14 @@ fn decorate(mut command: clap::Command, path: &str, schema: &Value) -> clap::Com
 fn concise_help(path: &str) -> &'static str {
     match path {
         "" => include_str!("../help/short/overview.txt"),
-        "init" => include_str!("../help/short/init.txt"),
+        "pool" => include_str!("../help/short/pool.txt"),
+        "pool init" => include_str!("../help/short/pool-init.txt"),
+        "pool show" => include_str!("../help/short/pool-show.txt"),
+        "pool set" => include_str!("../help/short/pool-set.txt"),
         "acquire" => include_str!("../help/short/acquire.txt"),
         "release" => include_str!("../help/short/release.txt"),
-        "destroy" => include_str!("../help/short/destroy.txt"),
-        "pools" => include_str!("../help/short/pools.txt"),
+        "pool destroy" => include_str!("../help/short/pool-destroy.txt"),
+        "pool list" => include_str!("../help/short/pool-list.txt"),
         "list" => include_str!("../help/short/list.txt"),
         "show" => include_str!("../help/short/show.txt"),
         "completions" => include_str!("../help/short/completions.txt"),
@@ -123,12 +134,9 @@ fn concise_help(path: &str) -> &'static str {
         "config" => include_str!("../help/short/config.txt"),
         "config show" => include_str!("../help/short/config-show.txt"),
         "config set" => include_str!("../help/short/config-set.txt"),
-        "config global" => include_str!("../help/short/config-global.txt"),
-        "config global show" => include_str!("../help/short/config-global-show.txt"),
-        "config global path" => include_str!("../help/short/config-global-path.txt"),
-        "config global edit" => include_str!("../help/short/config-global-edit.txt"),
-        "config global set" => include_str!("../help/short/config-global-set.txt"),
-        "config global unset" => include_str!("../help/short/config-global-unset.txt"),
+        "config path" => include_str!("../help/short/config-path.txt"),
+        "config edit" => include_str!("../help/short/config-edit.txt"),
+        "config unset" => include_str!("../help/short/config-unset.txt"),
         _ => "",
     }
 }

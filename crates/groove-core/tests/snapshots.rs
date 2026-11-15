@@ -1210,3 +1210,25 @@ fn unchanged_legacy_crlf_under_auto_text_does_not_block_other_edits() {
         b"edited\n"
     );
 }
+
+#[test]
+fn automatic_text_keeps_symlinks_without_an_eol_classification() {
+    let repo = Repo::new();
+    fs::write(repo.path.join(".gitattributes"), b"* text=auto\n").unwrap();
+    symlink("tracked.txt", repo.path.join("link.txt")).unwrap();
+    repo.git(&["add", "."]);
+    repo.git(&["commit", "-qm", "automatic text with symlink"]);
+    fs::write(repo.path.join("tracked.txt"), b"changed\n").unwrap();
+    let snapshots = service(&repo);
+    let saved = save(&snapshots);
+    let destination = repo.temp.path().join("recovered");
+    snapshots.restore(&saved.id, Some(&destination)).unwrap();
+    snapshots.restore(&saved.id, None).unwrap();
+    for root in [&repo.path, &destination] {
+        assert_eq!(
+            fs::read_link(root.join("link.txt")).unwrap(),
+            std::path::Path::new("tracked.txt")
+        );
+        assert_eq!(fs::read(root.join("tracked.txt")).unwrap(), b"changed\n");
+    }
+}

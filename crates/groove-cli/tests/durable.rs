@@ -9,7 +9,7 @@ fn cli(path: &std::path::Path, args: &[&str]) -> std::process::Output {
 fn checked(output: &std::process::Output) -> Value {
     let response: Value = serde_json::from_slice(&output.stdout).unwrap();
     let schema: Value =
-        serde_json::from_str(include_str!("../schemas/response-v1.schema.json")).unwrap();
+        serde_json::from_str(include_str!("../schemas/response-v2.schema.json")).unwrap();
     let validator = jsonschema::validator_for(&schema).unwrap();
     let errors: Vec<_> = validator
         .iter_errors(&response)
@@ -19,7 +19,11 @@ fn checked(output: &std::process::Output) -> Value {
     response
 }
 fn release_args(lease: &Value) -> Vec<&str> {
-    vec!["release", "--lease-id", lease["lease_id"].as_str().unwrap()]
+    vec![
+        "release",
+        "--reservation-id",
+        lease["reservation_id"].as_str().unwrap(),
+    ]
 }
 
 #[test]
@@ -28,16 +32,16 @@ fn shell_calls_retain_reservations_and_reuse_only_after_explicit_release() {
     // Discover from a subdirectory, without --repo.
     let subdir = repo.path.join("nested");
     fs::create_dir(&subdir).unwrap();
-    assert_success(&cli(&subdir, &["init", "--capacity", "1"]));
+    assert_success(&cli(&subdir, &["pool", "init", "--capacity", "1"]));
     let out = cli(&subdir, &["acquire"]);
     assert_success(&out);
     let first = checked(&out)["result"].clone();
     assert_eq!(first["ownership"], "durable");
-    let path = std::path::Path::new(first["worktree_path"].as_str().unwrap());
+    let path = std::path::Path::new(first["workspace_path"].as_str().unwrap());
     fs::write(path.join("tracked.txt"), "task work\n").unwrap();
     let listed = cli(&repo.path, &["list"]);
     assert_success(&listed);
-    assert_eq!(checked(&listed)["result"]["leases"][0], first);
+    assert_eq!(checked(&listed)["result"]["reservations"][0], first);
     let blocked = cli(&repo.path, &["acquire"]);
     assert!(!blocked.status.success());
     assert_eq!(checked(&blocked)["error"]["code"], "POOL_EXHAUSTED");
@@ -61,7 +65,7 @@ fn shell_calls_retain_reservations_and_reuse_only_after_explicit_release() {
     assert_eq!(rejected.status.code(), Some(2));
     assert_eq!(checked(&rejected)["error"]["code"], "INVALID_ARGUMENT");
     assert_eq!(
-        checked(&cli(&repo.path, &["list"]))["result"]["leases"][0],
+        checked(&cli(&repo.path, &["list"]))["result"]["reservations"][0],
         first
     );
     // Preserve the result on a branch before returning the workspace.
@@ -79,7 +83,7 @@ fn shell_calls_retain_reservations_and_reuse_only_after_explicit_release() {
     assert_success(&out);
     let second = checked(&out)["result"].clone();
     assert_eq!(first["slot_id"], second["slot_id"]);
-    assert_ne!(first["lease_id"], second["lease_id"]);
+    assert_ne!(first["reservation_id"], second["reservation_id"]);
     assert_eq!(
         fs::read_to_string(path.join("tracked.txt")).unwrap(),
         "baseline\n"
@@ -87,7 +91,7 @@ fn shell_calls_retain_reservations_and_reuse_only_after_explicit_release() {
     assert_eq!(repo.git(&["show", "task-result:tracked.txt"]), "task work");
     assert!(!cli(&repo.path, &release_args(&first)).status.success());
     assert_eq!(
-        checked(&cli(&repo.path, &["list"]))["result"]["leases"][0],
+        checked(&cli(&repo.path, &["list"]))["result"]["reservations"][0],
         second
     );
     assert_success(&cli(&repo.path, &release_args(&second)));
@@ -96,7 +100,7 @@ fn shell_calls_retain_reservations_and_reuse_only_after_explicit_release() {
 #[test]
 fn concurrent_shell_acquisitions_obey_capacity() {
     let repo = Repo::new();
-    assert_success(&cli(&repo.path, &["init", "--capacity", "1"]));
+    assert_success(&cli(&repo.path, &["pool", "init", "--capacity", "1"]));
     let mut children = Vec::new();
     for _ in 0..6 {
         children.push(support::TestChild::spawn(
@@ -117,14 +121,14 @@ fn concurrent_shell_acquisitions_obey_capacity() {
     let leases = checked(&cli(&repo.path, &["list"]));
     assert_success(&cli(
         &repo.path,
-        &release_args(&leases["result"]["leases"][0]),
+        &release_args(&leases["result"]["reservations"][0]),
     ));
 }
 
 #[test]
 fn lost_stdout_keeps_a_discoverable_reservation() {
     let repo = Repo::new();
-    assert_success(&cli(&repo.path, &["init", "--capacity", "1"]));
+    assert_success(&cli(&repo.path, &["pool", "init", "--capacity", "1"]));
     let status = support::groove_in(&repo.path)
         .current_dir(&repo.path)
         .arg("acquire")
@@ -133,18 +137,29 @@ fn lost_stdout_keeps_a_discoverable_reservation() {
         .unwrap();
     assert!(!status.success());
     let leases = checked(&cli(&repo.path, &["list"]));
-    assert_eq!(leases["result"]["leases"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        leases["result"]["reservations"].as_array().unwrap().len(),
+        1
+    );
     assert!(!cli(&repo.path, &["acquire"]).status.success());
     assert_success(&cli(
         &repo.path,
-        &release_args(&leases["result"]["leases"][0]),
+        &release_args(&leases["result"]["reservations"][0]),
     ));
 }
 
 #[test]
 fn protected_release_respects_live_owners_and_requires_protection() {
+    fn release_args(info: &Value) -> Vec<&str> {
+        // These are library values; only CLI responses translate their keys.
+        vec![
+            "release",
+            "--reservation-id",
+            info["lease_id"].as_str().unwrap(),
+        ]
+    }
     let repo = Repo::new();
-    assert_success(&cli(&repo.path, &["init", "--capacity", "1"]));
+    assert_success(&cli(&repo.path, &["pool", "init", "--capacity", "1"]));
     let pool = groove_core::Pool::open(&repo.path).unwrap();
     let lease = pool.acquire(Default::default()).unwrap();
     let info = serde_json::to_value(lease.info()).unwrap();

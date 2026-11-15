@@ -32,7 +32,7 @@ rules. Unchanged converting base paths use ordinary checkout. core.eol cannot
 rewrite saved LF bytes. Foreign refs without snapshot UUID names are omitted
 from listing; malformed snapshots with valid IDs still fail explicitly.
 Unused filter definitions, such as a global Git LFS installation, are harmless.
-Concurrent saves wait for the shared lock up to --git-timeout-ms (default 120000).
+Concurrent saves wait for the shared lock up to --git-timeout (default 2m).
 
 Unknown or deleted snapshot IDs return INVALID_ARGUMENT with "Snapshot not found".
 

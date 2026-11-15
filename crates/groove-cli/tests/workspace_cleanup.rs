@@ -15,6 +15,7 @@ fn initialize(repo: &Repo, policy: &str) {
     assert_success(&cli(
         repo,
         &[
+            "pool",
             "init",
             "--capacity",
             "1",
@@ -24,7 +25,7 @@ fn initialize(repo: &Repo, policy: &str) {
             policy,
             "--idle-timeout",
             "never",
-            "--worktree-root",
+            "--workspace-root",
             repo.temp.path().join("w").to_str().unwrap(),
         ],
     ));
@@ -46,18 +47,18 @@ fn special_files_are_unsaved_and_do_not_survive_reuse() {
             let repo = Repo::new();
             initialize(&repo, policy);
             let lease = assert_success(&cli(&repo, &["acquire"]));
-            let id = lease["result"]["lease_id"].as_str().unwrap();
+            let id = lease["result"]["reservation_id"].as_str().unwrap();
             let path = repo.slot(1).join(format!("leftover-{kind}"));
             make_special(&path, kind);
-            let refused = cli(&repo, &["release", "--lease-id", id]);
+            let refused = cli(&repo, &["release", "--reservation-id", id]);
             let error: Value = serde_json::from_slice(&refused.stdout).unwrap();
             assert_eq!(error["error"]["code"], "UNSAVED_CHANGES", "{error}");
             assert_eq!(error["error"]["details"]["path"], path.to_str().unwrap());
             assert!(path.exists());
-            let saved = cli(&repo, &["release", "--save", "--lease-id", id]);
+            let saved = cli(&repo, &["release", "--save", "--reservation-id", id]);
             assert!(!saved.status.success());
             assert!(path.exists());
-            assert_success(&cli(&repo, &["release", "--force", "--lease-id", id]));
+            assert_success(&cli(&repo, &["release", "--force", "--reservation-id", id]));
             assert_success(&cli(&repo, &["acquire"]));
             assert!(!path.exists(), "{policy} retained {kind}");
             assert_eq!(
@@ -75,7 +76,7 @@ fn read_only_directories_do_not_quarantine_reuse_or_block_destruction() {
         let repo = Repo::new();
         initialize(&repo, policy);
         let lease = assert_success(&cli(&repo, &["acquire"]));
-        let id = lease["result"]["lease_id"].as_str().unwrap();
+        let id = lease["result"]["reservation_id"].as_str().unwrap();
         let directory = repo.slot(1).join("build-output/nested");
         fs::create_dir_all(&directory).unwrap();
         fs::write(directory.join("result"), b"untracked output").unwrap();
@@ -85,15 +86,15 @@ fn read_only_directories_do_not_quarantine_reuse_or_block_destruction() {
             fs::Permissions::from_mode(0o555),
         )
         .unwrap();
-        assert_success(&cli(&repo, &["release", "--force", "--lease-id", id]));
+        assert_success(&cli(&repo, &["release", "--force", "--reservation-id", id]));
         let acquired = assert_success(&cli(&repo, &["acquire"]));
         assert!(!directory.exists());
-        let id = acquired["result"]["lease_id"].as_str().unwrap();
+        let id = acquired["result"]["reservation_id"].as_str().unwrap();
         fs::create_dir_all(&directory).unwrap();
         fs::write(directory.join("result"), b"disposable output").unwrap();
         fs::set_permissions(&directory, fs::Permissions::from_mode(0o555)).unwrap();
-        assert_success(&cli(&repo, &["release", "--force", "--lease-id", id]));
-        assert_success(&cli(&repo, &["destroy", "--discard-changes"]));
+        assert_success(&cli(&repo, &["release", "--force", "--reservation-id", id]));
+        assert_success(&cli(&repo, &["pool", "destroy", "--force"]));
         assert!(!repo.slot(1).exists());
     }
 }
@@ -110,6 +111,7 @@ fn acquisition_does_not_normalize_a_released_checkout_under_a_lingering_shell() 
         assert_success(&cli(
             &repo,
             &[
+                "pool",
                 "init",
                 "--capacity",
                 capacity,
@@ -117,19 +119,19 @@ fn acquisition_does_not_normalize_a_released_checkout_under_a_lingering_shell() 
                 "0",
                 "--idle-timeout",
                 "never",
-                "--worktree-root",
+                "--workspace-root",
                 repo.temp.path().join("w").to_str().unwrap(),
             ],
         ));
         let lease = assert_success(&cli(&repo, &["acquire"]));
-        let id = lease["result"]["lease_id"].as_str().unwrap();
-        let slot = Path::new(lease["result"]["worktree_path"].as_str().unwrap());
+        let id = lease["result"]["reservation_id"].as_str().unwrap();
+        let slot = Path::new(lease["result"]["workspace_path"].as_str().unwrap());
         let before = fs::metadata(slot.join("tracked.txt")).unwrap();
         let ready = repo.temp.path().join("released-shell-ready");
         let response = repo.temp.path().join("shell-release.json");
         let mut command = support::command(slot, "bash");
         command.process_group(0).stdin(Stdio::piped())
-            .args(["-c", "\"$1\" --json release --lease-id \"$2\" > \"$3\" || exit; printf ready > \"$4\"; read -r _", "lingering-shell"])
+            .args(["-c", "\"$1\" --json release --reservation-id \"$2\" > \"$3\" || exit; printf ready > \"$4\"; read -r _", "lingering-shell"])
             .arg(support::groove_binary()).arg(id).arg(&response).arg(&ready);
         let mut shell = support::TestChild::spawn(&mut command);
         let deadline = Instant::now() + support::PROCESS_TIMEOUT;
@@ -157,7 +159,7 @@ fn acquisition_does_not_normalize_a_released_checkout_under_a_lingering_shell() 
         } else {
             assert_success(&output);
             assert_ne!(
-                result["result"]["worktree_path"].as_str().unwrap(),
+                result["result"]["workspace_path"].as_str().unwrap(),
                 slot.to_str().unwrap()
             );
         }
@@ -179,11 +181,11 @@ fn ignored_special_files_do_not_block_plain_or_saved_release() {
             let repo = Repo::new();
             initialize(&repo, "pristine");
             let lease = assert_success(&cli(&repo, &["acquire"]));
-            let id = lease["result"]["lease_id"].as_str().unwrap();
+            let id = lease["result"]["reservation_id"].as_str().unwrap();
             let ignored = repo.slot(1).join("ignored");
             fs::create_dir(&ignored).unwrap();
             make_special(&ignored.join("server"), kind);
-            let mut args = vec!["release", "--lease-id", id];
+            let mut args = vec!["release", "--reservation-id", id];
             if save {
                 args.push("--save");
             }

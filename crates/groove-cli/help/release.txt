@@ -1,7 +1,7 @@
 EXAMPLES:
   groove release --save --task fix-parser
-  groove release --save --lease-id UUID --description 'parser fix'
-  groove release --lease-id UUID             # work already preserved elsewhere
+  groove release --save --reservation-id UUID --description 'parser fix'
+  groove release --reservation-id UUID             # work already preserved elsewhere
   groove release --force --task fix-parser    # discard unsaved changes
 
 Returns the workspace to the pool. Background preparation or the next acquisition discards its contents
@@ -12,19 +12,20 @@ created in the checkout are free to use elsewhere; files remain until preparatio
 --save saves and pins a snapshot of staged, working and non-ignored untracked
 files before release. A snapshot failure keeps the reservation protected. Recover
 saved work with `groove snapshot restore ID --to PATH`. Nothing is pushed.
---description (default: 'workspace saved') and --max-file-bytes require --save;
---max-file-bytes defaults to 104857600 bytes, and 0 removes the limit.
+--description (default: 'workspace saved') and --max-file-size require --save;
+--max-file-size defaults to 104857600 bytes, and 0 removes the limit.
 Ignored files and empty directories are excluded. Special files (pipes, sockets,
 devices) outside ignored paths block normal release and snapshot capture; export
 or remove them first. Ignored special files are excluded like ignored regular files.
 Forced release without --save allows cleanup to discard them before reuse.
 Export required ignored artifacts separately before releasing.
 Detailed read-only inspections use shared descriptor admission; release waits for
-them up to --git-timeout-ms. WORKSPACE_IN_USE is retryable: stop all actual
-writers before retrying. Groove processes are not exempted
-from this advisory scan merely by their executable name.
-Parallel saves wait for snapshot access up to --git-timeout-ms (default 120000).
-A timeout keeps the reservation protected; retry with the same lease ID.
+them up to --git-timeout. WORKSPACE_IN_USE is retryable: stop all actual
+writers before retrying. On Linux, other commands running the same Groove
+executable are exempt from release's process scan; their Git children can still
+block release while using the workspace.
+Parallel saves wait for snapshot access up to --git-timeout (default 2m).
+A timeout keeps the reservation protected; retry with the same reservation ID.
 After a saved retry completes release, superseded checkpoints are unpinned but
 remain recoverable until deleted. Interrupted pin cleanup resumes on that retry.
 
@@ -51,14 +52,14 @@ release --save fail with RECOVERY_FAILED because nothing can be inspected or
 saved. release --force without --save discards the reservation; the next
 acquisition rebuilds it.
 
-Retry a lost response with the original --lease-id, --save setting and --pool
+Retry a lost response with the original --reservation-id, --save setting and --pool
 selection. With --save, a still-reserved checkout is saved again on retry; capture
 failure keeps its reservation protected. Completed releases reuse their snapshot
 even after slot reuse or pool deletion, but fail if it was deleted or is no longer
 pinned. Older checkpoints remain pinned until explicitly deleted. Without --save,
 retries can become stale after reassignment. Task labels
 can be reused after release; retrying by --task could select a newer reservation.
-Stale lease IDs can never release a later task's workspace.
+Stale reservation IDs can never release a later task's workspace.
 
 For pools with an automatic ready policy, release also triggers background spare
 preparation and excess idle eviction. Released contents can therefore disappear

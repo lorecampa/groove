@@ -167,7 +167,7 @@ fn call(runner: &Runner, binary: &Path, repo: &Path, args: &[&str]) -> Result<(V
     )
 }
 fn workspace(lease: &Value) -> Result<PathBuf> {
-    lease["worktree_path"]
+    lease["workspace_path"]
         .as_str()
         .map(PathBuf::from)
         .ok_or_else(|| Error::Invalid("Missing workspace".into()))
@@ -207,7 +207,14 @@ pub(crate) fn measure(
         binary,
         repo,
         None,
-        &["init", "--capacity", "1", "--cleanup", cleanup.name()],
+        &[
+            "pool",
+            "init",
+            "--capacity",
+            "1",
+            "--cleanup",
+            cleanup.name(),
+        ],
     )?;
     let mut evidence = Evidence::default();
     for operation in ["first_acquire", "warm_acquire"] {
@@ -279,7 +286,7 @@ pub(crate) fn measure(
     }
     let (list, _) = call(runner, binary, repo, &["list"])?;
     require(
-        list["leases"].as_array().is_some_and(Vec::is_empty),
+        list["reservations"].as_array().is_some_and(Vec::is_empty),
         "Monorepo workload left reservations",
     )?;
     require(

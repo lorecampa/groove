@@ -1,16 +1,16 @@
 EXAMPLES:
-  groove init --capacity 4
-  groove init --capacity 4 --worktree-root /absolute/empty/root
-  groove init --resume --capacity 4
-  groove --pool frontend init --capacity 3 --cleanup warm
-  groove config global set worktrees.root=/absolute/worktrees
+  groove pool init --capacity 4
+  groove pool init --capacity 4 --workspace-root /absolute/empty/root
+  groove pool init --resume --capacity 4
+  groove --pool frontend pool init --capacity 3 --cleanup warm
+  groove config set worktrees.root=/absolute/worktrees
 
 Creates slot metadata and permanent locks. Checkouts materialize on demand by
 default. --ready-target N enables background preparation of N spare checkouts.
 A first commit is required, even with --ready-target 0. Commit the initial files
 before init; standalone snapshot commands also work before the first commit.
 Running init on a ready pool fails with CONFIG_CONFLICT, even with
-identical settings: use `config show` or `config set` instead. An interrupted
+identical settings: use `pool show` or `pool set` instead. An interrupted
 init must be resumed with --resume and the original settings.
 
 Pristine cleanup is the default and removes ignored files on acquisition. Choose
@@ -22,12 +22,12 @@ defaults to $HOME/.worktrees/<project>-<repo-id>/<pool> on Linux and macOS.
 The project name is sanitized and the ID hashes the canonical common Git directory,
 so linked worktrees agree and separate clones of the same project stay separate.
 Set worktrees.root in global configuration to replace the ~/.worktrees parent.
---worktree-root overrides it with an exact pool root, without adding components.
+--workspace-root overrides it with an exact pool root, without adding components.
 Global TOML paths must be absolute and do not expand ~.
 Existing pools keep their recorded paths, including legacy roots beneath .git.
 The root stays fixed for that pool generation; after destroy, init can choose
 another root and settings. Interrupted init must resolve to its original root;
-if preferences changed, pass that exact root with --worktree-root when resuming.
+if preferences changed, pass that exact root with --workspace-root when resuming.
 A custom root must start empty, be owned by you and lie outside Git administration
 and every checkout (the exact legacy state/worktrees root remains accepted).
 Roots cannot overlap another pool's root, including pending
@@ -50,4 +50,4 @@ Defaults are copied into this pool, not inherited dynamically. Legacy pools reta
 lazy behavior until explicitly configured. Use one supporting Groove version across
 this repository: older writers reject enabled pools' new metadata.
 Disable automatic work with --ready-target 0 --idle-timeout never.
-Use `groove show` to inspect background progress and failures.
+Use `groove pool show` to inspect background progress and failures.
