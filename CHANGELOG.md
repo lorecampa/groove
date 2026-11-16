@@ -4,6 +4,9 @@
 
 ### Changed (breaking)
 
+- Draft stash capture checks `--git-timeout` after libgit2 returns; it cannot
+  currently interrupt an in-progress capture. Hard cancellation must be restored
+  before this replacement is ready to merge.
 - Infer the owning pool inside a registered managed workspace (including `--repo`)
   when `--pool` is omitted; explicit selection still wins and other paths use `default`.
 - Remember completed idempotency keys for seven days after release rather than
@@ -15,6 +18,12 @@
 
 - Add `config get KEY` and `pool get KEY`, with typed JSON values and plain human
   values. Unknown keys are rejected consistently with preference updates.
+
+### Changed
+
+- Capture snapshot file trees with git2's stash API in private administration,
+  preserving the user's stash list, HEAD, index and working files. Snapshot storage
+  and exact-state restoration remain compatible with existing snapshots.
 
 ### Fixed
 

@@ -192,6 +192,11 @@ criteria = "safe-to-run"
 version = "0.4.3"
 criteria = "safe-to-deploy"
 
+[[exemptions.git2]]
+version = "0.21.0"
+criteria = "safe-to-deploy"
+notes = "Draft stash adapter only; selected features and capture call path inspected, not a complete safety audit. Native/FFI audit evidence required before merge."
+
 [[exemptions.hashbrown]]
 version = "0.17.1"
 criteria = "safe-to-deploy"
@@ -256,6 +261,11 @@ criteria = "safe-to-deploy"
 version = "1.0.19"
 criteria = "safe-to-deploy"
 
+[[exemptions.jobserver]]
+version = "0.1.35"
+criteria = "safe-to-deploy"
+notes = "Draft adapter build-only dependency through cc parallel builds; exact-version review debt to resolve before merge."
+
 [[exemptions.js-sys]]
 version = "0.3.107"
 criteria = "safe-to-deploy"
@@ -271,6 +281,16 @@ criteria = "safe-to-deploy"
 [[exemptions.libc]]
 version = "0.2.191"
 criteria = "safe-to-deploy"
+
+[[exemptions.libgit2-sys]]
+version = "0.18.8+1.9.7"
+criteria = "safe-to-deploy"
+notes = "Draft stash adapter only, vendored without HTTPS/SSH. Build script and stash/ODB path inspected, not a complete audit. Review native parsers and FFI before merge."
+
+[[exemptions.libz-sys]]
+version = "1.1.33"
+criteria = "safe-to-deploy"
+notes = "Draft adapter compression dependency. Build script inspected; bundled native compression code needs audit evidence before merge."
 
 [[exemptions.linux-raw-sys]]
 version = "0.12.1"
@@ -339,6 +359,11 @@ criteria = "safe-to-run"
 [[exemptions.pin-project-lite]]
 version = "0.2.17"
 criteria = "safe-to-deploy"
+
+[[exemptions.pkg-config]]
+version = "0.3.34"
+criteria = "safe-to-deploy"
+notes = "Draft adapter native-library build discovery; exact-version review debt to resolve before merge."
 
 [[exemptions.potential_utf]]
 version = "0.1.6"
@@ -551,6 +576,11 @@ criteria = "safe-to-deploy"
 [[exemptions.uuid-simd]]
 version = "0.8.0"
 criteria = "safe-to-run"
+
+[[exemptions.vcpkg]]
+version = "0.2.15"
+criteria = "safe-to-deploy"
+notes = "Draft adapter build dependency through libz-sys (Windows discovery unused on supported hosts); review debt to resolve before merge."
 
 [[exemptions.version_check]]
 version = "0.9.5"

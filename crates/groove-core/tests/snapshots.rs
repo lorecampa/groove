@@ -17,6 +17,131 @@ fn save(s: &Snapshots) -> groove_core::snapshot::Snapshot {
     s.save(SaveOptions::default()).unwrap()
 }
 #[test]
+fn replacing_a_file_with_identical_bytes_can_still_be_snapshotted() {
+    if !support::in_subprocess("replacing_a_file_with_identical_bytes_can_still_be_snapshotted") {
+        return;
+    }
+    let repo = Repo::new();
+    let index = fs::read(repo.path.join(".git/index")).unwrap();
+    fs::rename(
+        repo.path.join("tracked.txt"),
+        repo.temp.path().join("old-file"),
+    )
+    .unwrap();
+    fs::write(repo.path.join("tracked.txt"), b"baseline\n").unwrap();
+    let saved = save(&service(&repo));
+    assert_eq!(saved.work_tree, repo.git(&["rev-parse", "HEAD^{tree}"]));
+    assert_eq!(fs::read(repo.path.join(".git/index")).unwrap(), index);
+    assert_eq!(repo.git(&["stash", "list"]), "");
+}
+
+#[test]
+fn reftable_capture_preserves_staged_and_working_bytes_without_user_stash() {
+    if !support::in_subprocess(
+        "reftable_capture_preserves_staged_and_working_bytes_without_user_stash",
+    ) {
+        return;
+    }
+    let repo = Repo::new();
+    let version = repo.git(&["--version"]);
+    let parts: Vec<_> = version
+        .trim_start_matches("git version ")
+        .split('.')
+        .take(2)
+        .map(|part| part.parse::<u32>().unwrap_or(0))
+        .collect();
+    if parts.as_slice() < [2, 45].as_slice() {
+        eprintln!("skipped: reftable requires Git 2.45");
+        return;
+    }
+    fs::remove_dir_all(&repo.path).unwrap();
+    fs::create_dir(&repo.path).unwrap();
+    repo.git(&[
+        "init",
+        "-q",
+        "--ref-format=reftable",
+        "--object-format=sha256",
+    ]);
+    repo.git(&["config", "user.name", "Snapshot test"]);
+    repo.git(&["config", "user.email", "test@example.invalid"]);
+    fs::write(repo.path.join("file"), b"baseline\n").unwrap();
+    repo.git(&["add", "."]);
+    repo.git(&["commit", "-qm", "baseline"]);
+    fs::write(repo.path.join("file"), b"staged\n").unwrap();
+    repo.git(&["add", "."]);
+    fs::write(repo.path.join("file"), b"working\n").unwrap();
+    fs::write(repo.path.join("new"), b"untracked\n").unwrap();
+    let snapshots = service(&repo);
+    let saved = save(&snapshots);
+    assert_eq!(repo.git(&["stash", "list"]), "");
+    let destination = repo.temp.path().join("recovery");
+    snapshots.restore(&saved.id, Some(&destination)).unwrap();
+    assert_eq!(fs::read(destination.join("file")).unwrap(), b"working\n");
+    assert_eq!(fs::read(destination.join("new")).unwrap(), b"untracked\n");
+    assert_eq!(support::git(&destination, &["show", ":file"]), "staged");
+}
+
+#[test]
+fn capture_from_linked_worktree_preserves_user_stashes_and_file_identity() {
+    if !support::in_subprocess(
+        "capture_from_linked_worktree_preserves_user_stashes_and_file_identity",
+    ) {
+        return;
+    }
+    use std::os::unix::fs::MetadataExt;
+    let repo = Repo::new();
+    fs::write(repo.path.join("tracked.txt"), b"user stash\n").unwrap();
+    repo.git(&["stash", "push", "-qm", "user checkpoint"]);
+    let stash = repo.git(&["rev-parse", "refs/stash"]);
+    let reflog = fs::read(repo.path.join(".git/logs/refs/stash")).unwrap();
+    let linked = repo.temp.path().join("linked");
+    repo.git(&["worktree", "add", "--detach", linked.to_str().unwrap()]);
+    let file = linked.join("tracked.txt");
+    fs::write(&file, b"staged\n").unwrap();
+    support::git(&linked, &["add", "tracked.txt"]);
+    fs::write(&file, b"working\n").unwrap();
+    fs::write(linked.join("new.bin"), [0, 255, 42]).unwrap();
+    let git_dir = support::git(&linked, &["rev-parse", "--absolute-git-dir"]);
+    let index = fs::read(std::path::Path::new(&git_dir).join("index")).unwrap();
+    let before = fs::metadata(&file).unwrap();
+    let snapshots = Snapshots::open(&linked, Duration::from_secs(30)).unwrap();
+    let saved = save(&snapshots);
+    let after = fs::metadata(&file).unwrap();
+    assert_eq!(
+        (after.ino(), after.mtime(), after.mtime_nsec()),
+        (before.ino(), before.mtime(), before.mtime_nsec())
+    );
+    assert_eq!(fs::read(&file).unwrap(), b"working\n");
+    assert_eq!(
+        fs::read(std::path::Path::new(&git_dir).join("index")).unwrap(),
+        index
+    );
+    assert_eq!(repo.git(&["rev-parse", "refs/stash"]), stash);
+    assert_eq!(
+        fs::read(repo.path.join(".git/logs/refs/stash")).unwrap(),
+        reflog
+    );
+    // Native Git independently checks the published format and reachability.
+    assert_eq!(
+        repo.git(&["show", &format!("{}:tracked.txt", saved.index_tree)]),
+        "staged"
+    );
+    assert_eq!(
+        repo.git(&["show", &format!("{}:tracked.txt", saved.work_tree)]),
+        "working"
+    );
+    repo.git(&["gc", "--prune=now"]);
+    let recovered = repo.temp.path().join("recovered");
+    snapshots.restore(&saved.id, Some(&recovered)).unwrap();
+    assert_eq!(fs::read(recovered.join("new.bin")).unwrap(), [0, 255, 42]);
+    assert_eq!(
+        fs::read(recovered.join("tracked.txt")).unwrap(),
+        b"working\n"
+    );
+    assert_eq!(repo.git(&["rev-parse", "refs/stash"]), stash);
+}
+
+#[test]
 fn recovery_rejects_destinations_inside_the_source_including_parent_aliases() {
     let repo = Repo::new();
     let snapshots = service(&repo);
@@ -773,6 +898,36 @@ fn sparse_checkout_preserves_outside_entries() {
     let dest = repo.temp.path().join("sparse-recovery");
     s.restore(&snap.id, Some(&dest)).unwrap();
     assert_eq!(fs::read(dest.join("inside/a")).unwrap(), b"changed");
+}
+
+#[test]
+fn sparse_index_capture_keeps_absent_files_and_the_real_index() {
+    if !support::in_subprocess("sparse_index_capture_keeps_absent_files_and_the_real_index") {
+        return;
+    }
+    let repo = Repo::new();
+    for directory in ["inside", "outside"] {
+        fs::create_dir(repo.path.join(directory)).unwrap();
+        fs::write(repo.path.join(directory).join("file"), directory).unwrap();
+    }
+    repo.git(&["add", "."]);
+    repo.git(&["commit", "-qm", "sparse fixture"]);
+    repo.git(&["sparse-checkout", "set", "--sparse-index", "inside"]);
+    // Keep Git's optional expansion advice separate from inventory warnings.
+    repo.git(&["config", "advice.sparseIndexExpanded", "false"]);
+    fs::write(repo.path.join("inside/file"), b"changed").unwrap();
+    let index = fs::read(repo.path.join(".git/index")).unwrap();
+    let snapshot = save(&service(&repo));
+    assert_eq!(fs::read(repo.path.join(".git/index")).unwrap(), index);
+    assert!(!repo.path.join("outside/file").exists());
+    assert_eq!(
+        repo.git(&["show", &format!("{}:outside/file", snapshot.work_tree)]),
+        "outside"
+    );
+    assert_eq!(
+        repo.git(&["show", &format!("{}:inside/file", snapshot.work_tree)]),
+        "changed"
+    );
 }
 #[test]
 fn malformed_manifest_and_conversion_attributes_fail_closed() {

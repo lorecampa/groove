@@ -26,6 +26,8 @@ executable are exempt from release's process scan; their Git children can still
 block release while using the workspace.
 Parallel saves wait for snapshot access up to --git-timeout (default 2m).
 A timeout keeps the reservation protected; retry with the same reservation ID.
+Draft capture limitation: --git-timeout rejects late capture results but cannot
+interrupt the in-progress stash call; the reservation stays protected meanwhile.
 After a saved retry completes release, superseded checkpoints are unpinned but
 remain recoverable until deleted. Interrupted pin cleanup resumes on that retry.
 

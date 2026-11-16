@@ -37,7 +37,25 @@ filenames. A description and optional `--session ID` associate work with a task.
 Snapshots preserve actual working-file bytes, executable bits and symlinks even
 when Git preferences enable line-ending conversion or ignore permissions/links.
 Groove overrides `core.autocrlf`, `core.eol`, `core.filemode` and `core.symlinks` only for its
-snapshot subprocesses; it does not change your Git configuration or real index.
+private capture configuration and snapshot subprocesses; it does not change your
+Git configuration or real index.
+
+Capture now uses libgit2's `KEEP_ALL` stash operation in a temporary repository
+with a copied index, detached baseline and shared object storage. Its private
+`refs/stash` and reflog disappear with the temporary repository; the user's stash
+list is never used. Groove combines the stash's tracked and untracked trees and
+publishes its existing snapshot format. Sparse entries absent from disk are
+retained from the validated index. An unborn checkout uses a private empty
+baseline while the published snapshot still records an unborn HEAD.
+Restore continues to reconstruct the exact saved state: stash application would
+merge changes and does not provide that contract.
+
+**Draft limitation:** libgit2's stash API has no cancellation callback. Groove
+rejects a result that exceeds `--git-timeout`, but cannot interrupt the capture
+while that call runs. Snapshot/admission locks remain held for that duration;
+process termination stops capture and the next lock owner removes scratch state.
+Hard cancellation is required before merging this replacement. Native Git
+subprocesses retain their existing bounded execution.
 
 Stop external writers before save/restore. Capture checks HEAD, index bytes,
 changed-path lists, untracked-path lists and changed-file metadata for concurrent

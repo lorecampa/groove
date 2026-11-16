@@ -20,6 +20,7 @@ use uuid::Uuid;
 
 const PREFIX: &str = "refs/groove/snapshots/";
 mod pins;
+mod stash;
 
 use pins::PINS;
 /// Tracked paths whose working files differ from the index.
@@ -909,17 +910,12 @@ impl Snapshots {
             Err(e) => Err(e.into()),
         }
     }
-    /// Stage every changed and untracked path into a scratch `index`, recording a
-    /// stamp per path so a concurrent writer can be detected afterwards.
-    fn stage_changes(
+    /// Record sizes and identities before capture, without changing the index.
+    fn observe_changes(
         &self,
-        index: &Path,
         selected: &BTreeSet<Vec<u8>>,
         options: &SaveOptions,
-        lock: &SnapshotLock,
     ) -> Result<Vec<(PathBuf, Option<Stamp>)>> {
-        let mut pathspec = Vec::new();
-        let mut removals = Vec::new();
         let mut stamps = Vec::new();
         for p in selected {
             let path = self.root.join(OsStr::from_bytes(p));
@@ -934,27 +930,7 @@ impl Snapshots {
                     return Err(unsupported("Nested repositories are not supported"));
                 }
             }
-            let remove = stamp.is_none() || fs::symlink_metadata(&path).is_ok_and(|m| m.is_dir());
             stamps.push((path, stamp));
-            let list = if remove { &mut removals } else { &mut pathspec };
-            list.extend_from_slice(p);
-            list.push(0);
-        }
-        if !removals.is_empty() {
-            self.run(
-                &["update-index", "--force-remove", "-z", "--stdin"],
-                Some(index),
-                Some(&removals),
-                Some(lock),
-            )?;
-        }
-        if !pathspec.is_empty() {
-            self.run(
-                &["update-index", "--add", "--remove", "-z", "--stdin"],
-                Some(index),
-                Some(&pathspec),
-                Some(lock),
-            )?;
         }
         Ok(stamps)
     }
@@ -1113,7 +1089,13 @@ impl Snapshots {
                 }
             }
         }
-        let stamps = self.stage_changes(&index, &selected, options, lock)?;
+        let stamps = self.observe_changes(&selected, options)?;
+        // A clean checkout already has the desired working tree in its index.
+        // Otherwise a stash reporting "nothing to save" is a disagreement, not
+        // permission to silently publish the staged state as the working state.
+        if !changed.is_empty() || !staged.is_empty() || !untracked.is_empty() {
+            self.capture_stash(&index, &index_tree, head.as_deref(), &untracked, lock)?;
+        }
         self.verify_staged_sizes(&index, &stamps, lock)?;
         let work_tree = text(self.run(&["write-tree"], Some(&index), None, Some(lock))?)?;
         crate::state::checkpoint("snapshot-captured");
