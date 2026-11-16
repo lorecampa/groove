@@ -362,3 +362,24 @@ but never bypass normal acquisition verification.
 Workers exit after immediate work. Expiration is checked on later pool operations,
 not by a timer or daemon. Failures are observable through pool show; repeated work
 uses bounded retry backoff, while changed policy permits an immediate retry.
+
+## Upgrading installations
+
+The core's `upgrade` module owns Cargo provenance inspection, HTTPS release
+selection, bounded installer processes and native skill-plugin adapters. It does
+not open repositories or migrate durable pool records. The CLI owns parsing,
+presentation and interactive notice gating. Compatibility-boundary notices are
+advisory; incompatible pool formats continue to fail through normal validation.
+
+Explicit upgrades serialize with a permanent descriptor lock in the user's
+Groove state directory. Installer children inherit that descriptor so interruption
+cannot admit another Groove upgrade while they still write. Cargo and native
+managers own their installation metadata and replacement rules; this lock does
+not replace their own locking or govern direct external installer invocations.
+The supervisor captures bounded output, kills its process group on completion or
+timeout, and reaps the leader. Per-component results survive partial failure.
+
+Daily notices use a separate permanent lock and an atomic, version-independent
+cache record. They run only during an eligible foreground command, never as a
+daemon; the request is cancelled when the command ends. Failures/cancellation are
+throttled and do not affect pool state, results or exit statuses.

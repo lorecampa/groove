@@ -391,4 +391,5 @@ fn isolate_home(command: &mut Command, path: &Path) {
         .env("XDG_CACHE_HOME", home.join("cache-home"))
         .env_remove("GROOVE_LOG_ENABLED")
         .env_remove("GROOVE_LOG_DIR");
+    command.env_remove("GROOVE_NO_UPDATE_NOTIFIER");
 }

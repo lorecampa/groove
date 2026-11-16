@@ -6,6 +6,7 @@ mod lease;
 mod pool;
 mod snapshot;
 mod snapshot_prune;
+mod upgrade;
 
 use crate::{
     args::{Command, LeaseSelector, PoolCommand},
@@ -53,6 +54,7 @@ fn select_id(pool: &Pool, selector: &LeaseSelector) -> Result<groove_core::Lease
 /// Run one parsed command.
 pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
     match command {
+        Command::Upgrade(options) => upgrade::run(options),
         Command::Pool(command) => match command {
             PoolCommand::Get { key } => pool::get(context, key),
             PoolCommand::List {

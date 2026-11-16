@@ -1,0 +1,72 @@
+
+EXAMPLES:
+  groove upgrade --check
+  groove upgrade --dry-run --with-plugins
+  groove upgrade
+  groove upgrade --with-plugins
+  groove upgrade --target-version 0.4.0 --timeout 45m
+  groove --json upgrade --check
+
+Upgrade works outside repositories. --repo is not used and --pool is rejected.
+Default: latest non-yanked stable groove-cli release from crates.io. An exact
+--target-version must also exist and not be yanked. Prereleases and downgrades
+are rejected. --check exits 0 on successful discovery, including when an update
+exists; inspect components[].update_available. --dry-run shows literal commands.
+Neither check nor preview installs, refreshes catalogs or changes Cargo records.
+
+AUTOMATIC CLI INSTALLATION:
+Requires Cargo and curl on PATH. HTTPS release discovery has a 10-second limit.
+Only the running executable's matching Cargo crates.io receipt is supported.
+Resolve symlinks to find its existing root; preserve recorded target, profile,
+features and default-feature settings. Git/path builds, manual archives and
+other registries/package managers receive manual guidance, with no source switch.
+Cargo builds before replacing its executable and owns its installation records.
+Failed builds leave the previous executable available. Interrupted installation
+or a failed final version check requires inspecting Cargo records and rerunning
+through the original installer. Never delete coordination locks to force a retry.
+Concurrent Groove upgrades are excluded by a permanent descriptor lock in
+$XDG_STATE_HOME/groove (or ~/.local/state/groove); installer descendants inherit it.
+External Cargo/native-manager invocations retain their own coordination rules.
+--timeout is a per-installer deadline, default 30m; subprocess groups are stopped
+on timeout. Installer output is captured; JSON stdout remains one response.
+
+COMPATIBILITY:
+A compatibility boundary (0.3 -> 0.4, or 1.x -> 2.x) shows a warning and release
+notes, without a confirmation prompt. A boundary means possible breaking changes,
+not proof of a migration. Upgrading never opens/migrates pool metadata, expires
+reservations or stops workspace writers. Existing processes keep their original
+executable; coordinate one Groove version per repository. After upgrading,
+regenerate installed shell completions. See release notes for migration steps.
+
+AGENT PLUGINS (--with-plugins):
+Only already-installed, enabled, user-scope groove@groove plugins from the official
+Git marketplace in Codex and Claude Code are updated. Each harness must be on
+PATH and support its native JSON plugin-list commands. No new plugins, harnesses,
+marketplaces or project policies are installed. Local/development copies, disabled
+plugins, other sources and project/managed scopes are skipped with guidance.
+Portable skill copies remain managed by their original installer.
+
+Use each harness's native marketplace refresh and plugin update commands. Before
+updating the plugin itself, the refreshed catalog version must match the selected
+CLI version. Mismatches fail with guidance; the plugin installation is left alone.
+Start a fresh agent session after an update. Personal instructions and agent
+settings are not edited. Native managers may require their own approval; Groove
+does not accept marketplace-declared commands on the user's behalf.
+
+Native managers lack a remote, read-only version check: --check discovers existing
+plugins and reports status=unchecked/update_available=null; --dry-run shows their
+planned commands. Neither claims the remote plugin is current. Normal upgrades
+verify installed versions afterwards. A failed CLI update skips plugin mutations.
+A plugin failure preserves a completed CLI update and continues other harnesses.
+Failures return a nonzero typed error with component results in details.upgrade;
+rerun --with-plugins to retry. Successful outcomes use result.components.
+
+UPDATE NOTICES:
+Interactive human pool commands opportunistically check crates.io at most once
+per 24 hours for verified Cargo installations. The check has a two-second budget
+and is cancelled when the command finishes; fast commands may show no notice.
+Cached notices are informational, printed to stderr at most daily. Checks never
+fail a pool command or change its exit status. No checks in CI, JSON, quiet mode,
+help/version, preferences or completions. Disable automatic checks with
+GROOVE_NO_UPDATE_NOTIFIER=1 or `groove config set updates.check=false`.
+Explicit `groove upgrade --check` works even when automatic checks are disabled.
