@@ -320,6 +320,13 @@ pub enum SnapshotCommand {
         #[command(flatten)]
         page: PageArgs,
     },
+    /// Report snapshot counts and repository-wide Git object storage.
+    #[command(after_long_help = help!("snapshot-storage"))]
+    Storage {
+        /// Scan saved trees for up to 1000 largest unique blobs; 0 skips scanning.
+        #[arg(long, value_name = "N", default_value_t = 0, value_parser = clap::value_parser!(u16).range(0..=1000))]
+        largest: u16,
+    },
     /// Show one snapshot's metadata.
     Show {
         /// Snapshot ID.

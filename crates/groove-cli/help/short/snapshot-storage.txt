@@ -1,0 +1,4 @@
+EXAMPLE:
+  groove snapshot storage --largest 10
+
+Whole-repository Git storage; optional unique logical blob sizes, not reclaimable bytes.
