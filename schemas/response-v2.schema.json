@@ -421,6 +421,10 @@
           "type": "string",
           "pattern": "^(never|[1-9][0-9]*[smhd])$"
         },
+        "ready_git_timeout": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*(ms|s|m|h)$"
+        },
         "ready_base": {
           "type": "string",
           "minLength": 1
@@ -907,6 +911,10 @@
         "idle_timeout": {
           "type": "string",
           "pattern": "^(never|[1-9][0-9]*[smhd])$"
+        },
+        "ready_git_timeout": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*(ms|s|m|h)$"
         },
         "ready_base": {
           "type": "string",

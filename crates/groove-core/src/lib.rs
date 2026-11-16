@@ -78,7 +78,7 @@ pub use lifecycle::Phase as PoolPhase;
 pub use namespace::PoolSummary;
 pub use pool::Pool;
 pub use quiescence::{ProcessUse, WorkspaceProcess};
-pub use ready::{IdleTimeout, ReadyReport, ReadySettings};
+pub use ready::{IdleTimeout, ReadyGitTimeout, ReadyReport, ReadySettings};
 pub use reservation::ReservationOptions;
 pub use storage::StorageUsage;
 pub use types::*;

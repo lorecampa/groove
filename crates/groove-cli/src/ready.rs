@@ -116,13 +116,18 @@ fn spawn(args: &Args, selected_pool: Option<&groove_core::PoolName>) -> Result<(
             inherited.push(fd);
         }
     }
+    let worker_timeout_ms = pool
+        .settings()?
+        .ready
+        .and_then(|r| r.ready_git_timeout)
+        .map_or(args.git_timeout_ms, |t| t.duration().as_millis() as u64);
     let mut command = Process::new(std::env::current_exe()?);
     command
         .arg("--internal-ready-worker")
         .arg(pool.common_git_dir())
         .arg(name.as_str())
         .arg(generation.to_string())
-        .arg(args.git_timeout_ms.to_string())
+        .arg(worker_timeout_ms.to_string())
         .env("GROOVE_INTERNAL_READY_WORKER", "1")
         // Foreground fault checkpoints do not also pause a detached successor.
         // Worker crash tests launch the internal entry point with their own hooks.

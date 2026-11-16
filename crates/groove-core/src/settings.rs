@@ -88,6 +88,7 @@ impl Pool {
         if update.ready_target.is_some()
             || update.idle_timeout.is_some()
             || update.ready_base.is_some()
+            || update.ready_git_timeout.is_some()
         {
             let candidate = ready.get_or_insert_with(crate::ReadySettings::default);
             if let Some(target) = update.ready_target {
@@ -98,6 +99,9 @@ impl Pool {
             }
             if let Some(base) = update.ready_base {
                 candidate.ready_base = base;
+            }
+            if let Some(timeout) = update.ready_git_timeout {
+                candidate.ready_git_timeout = Some(timeout);
             }
             candidate.validate(capacity)?;
             candidate.resolve_head(&self.repo, self.git_timeout)?;

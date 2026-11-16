@@ -362,3 +362,8 @@ never delete them to force reuse. Completed logs, history and artifacts remain o
 disk. This version provides no run-history or log-cleanup commands.
 
 Repository compatibility is listed under [requirements](#requirements).
+
+Background preparation has an optional pool-specific Git timeout. Persist the
+budget required by large-repository acquires with `pool set --ready-git-timeout
+45m`; otherwise each worker inherits the triggering command's `--git-timeout`.
+Preparation failures include the elapsed budget and the setting to adjust.

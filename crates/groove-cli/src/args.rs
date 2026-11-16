@@ -408,7 +408,7 @@ pub enum SnapshotCommand {
 
 #[derive(Subcommand)]
 pub enum PoolCommand {
-    /// Print one pool setting (capacity, cleanup, ready-target, idle-timeout, ready-base, workspace-root).
+    /// Print one pool setting (capacity, cleanup, ready-target, idle-timeout, ready-base, ready-git-timeout, workspace-root).
     #[command(after_long_help = help!("pool-get"))]
     Get {
         /// Setting to read; unknown keys are rejected.
@@ -454,6 +454,9 @@ pub enum PoolCommand {
         /// Local revision for spare preparation; defaults to the initializing checkout's HEAD branch or commit.
         #[arg(long)]
         ready_base: Option<String>,
+        /// Background Git timeout (positive ms/s/m/h); unset inherits --git-timeout.
+        #[arg(long, value_name = "DURATION")]
+        ready_git_timeout: Option<groove_core::ReadyGitTimeout>,
         /// Maximum simultaneous reservations (1..=4096); grow later with `pool set`.
         #[arg(long, value_parser = parse_capacity)]
         capacity: usize,
@@ -484,7 +487,7 @@ pub enum PoolCommand {
     },
     /// Grow capacity and/or change cleanup for future acquisitions.
     #[command(after_long_help = help!("pool-set"), group(clap::ArgGroup::new("settings").required(true).multiple(true)
-        .args(["capacity", "cleanup", "ready_target", "idle_timeout", "ready_base"])))]
+        .args(["capacity", "cleanup", "ready_target", "idle_timeout", "ready_base", "ready_git_timeout"])))]
     Set {
         /// Desired ready, unreserved checkouts; cannot exceed resulting capacity. Zero disables replenishment.
         #[arg(long)]
@@ -495,6 +498,9 @@ pub enum PoolCommand {
         /// Local revision for spare preparation; no implicit fetch or project commands.
         #[arg(long)]
         ready_base: Option<String>,
+        /// Background Git timeout (positive ms/s/m/h); unset inherits --git-timeout.
+        #[arg(long, value_name = "DURATION")]
+        ready_git_timeout: Option<groove_core::ReadyGitTimeout>,
         /// New capacity (1..=4096); shrinking is rejected.
         #[arg(long, value_parser = parse_capacity)]
         capacity: Option<usize>,
@@ -772,6 +778,7 @@ mod tests {
             ("--ready-target", "0"),
             ("--idle-timeout", "never"),
             ("--ready-base", "main"),
+            ("--ready-git-timeout", "10m"),
         ] {
             assert!(error.contains(flag), "{error}");
             assert!(Args::try_parse_from(["groove", "pool", "set", flag, value]).is_ok());
