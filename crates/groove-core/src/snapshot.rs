@@ -689,23 +689,43 @@ impl Snapshots {
             }
             Ok(())
         })?;
-        let changed = self.run(DIFF_FILES_ARGS, None, None, Some(lock))?;
-        let staged = self.run(
-            &[
-                "diff",
-                "--cached",
-                "--name-only",
-                "--no-renames",
-                "-z",
-                "--",
-            ],
-            None,
-            None,
-            Some(lock),
-        )?;
+        // These inventories read independent state. Join every child before
+        // propagating a failure so the snapshot descriptor outlives all readers.
+        let (changed, staged, untracked) = std::thread::scope(|scope| -> Result<_> {
+            let changed = std::thread::Builder::new()
+                .spawn_scoped(scope, || self.run(DIFF_FILES_ARGS, None, None, Some(lock)))?;
+            let staged = std::thread::Builder::new().spawn_scoped(scope, || {
+                self.run(
+                    &[
+                        "diff",
+                        "--cached",
+                        "--name-only",
+                        "--no-renames",
+                        "-z",
+                        "--",
+                    ],
+                    None,
+                    None,
+                    Some(lock),
+                )
+            })?;
+            let untracked = std::thread::Builder::new()
+                .spawn_scoped(scope, || self.run(UNTRACKED_ARGS, None, None, Some(lock)))?;
+            Ok((
+                changed
+                    .join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic)),
+                staged
+                    .join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic)),
+                untracked
+                    .join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic)),
+            ))
+        })?;
+        let (changed, staged, untracked) = (changed?, staged?, untracked?);
         let mut names = changed.clone();
         names.extend_from_slice(&staged);
-        let untracked = self.run(UNTRACKED_ARGS, None, None, Some(lock))?;
         names.extend_from_slice(&untracked);
         let strict = paths(&names).any(|name| {
             name.rsplit(|byte| *byte == b'/').next() == Some(b".gitattributes".as_slice())
@@ -1029,14 +1049,28 @@ impl Snapshots {
     }
 
     fn ensure_stable(&self, before: &Observation, lock: &SnapshotLock) -> Result<()> {
+        let (changed_paths, untracked) = std::thread::scope(|scope| -> Result<_> {
+            let changed = std::thread::Builder::new()
+                .spawn_scoped(scope, || self.run(DIFF_FILES_ARGS, None, None, Some(lock)))?;
+            let untracked = std::thread::Builder::new()
+                .spawn_scoped(scope, || self.run(UNTRACKED_ARGS, None, None, Some(lock)))?;
+            Ok((
+                changed
+                    .join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic)),
+                untracked
+                    .join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic)),
+            ))
+        })?;
         let changed = before.head != self.head()?
             || before.index != self.index_bytes()?
-            || before.changed != self.run(DIFF_FILES_ARGS, None, None, Some(lock))?
+            || before.changed != changed_paths?
             || before
                 .stamps
                 .iter()
                 .any(|(p, s)| stamp(p).ok().as_ref() != Some(s))
-            || before.untracked != self.run(UNTRACKED_ARGS, None, None, Some(lock))?;
+            || before.untracked != untracked?;
         if changed {
             return Err(invalid(
                 "Workspace changed during capture; stop writers and retry",

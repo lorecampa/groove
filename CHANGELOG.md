@@ -4,6 +4,9 @@
 
 ### Changed
 
+- Overlap independent snapshot path inventories during validation and stability
+  checks, retaining the attribute audit and full special-file walk.
+
 - Verify checkout cleanliness with one bounded status query, collapsing untracked
   and ignored directories when only their presence matters.
 

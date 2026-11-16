@@ -404,3 +404,8 @@ Checkout verification confirms the requested detached HEAD and uses one status
 inventory to reject staged, modified, untracked and (for pristine cleanup) ignored
 content. Collapsing directory entries reduces scanning without changing the clean
 baseline requirement; no untracked cache is enabled.
+
+Snapshot validation reads changed, staged and untracked path inventories
+concurrently; stability checks overlap their independent changed/untracked scans.
+All children finish before capture proceeds or returns an error. The attribute
+audit, full special-file walk and stopped-writer requirement remain in force.
