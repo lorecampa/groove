@@ -24,6 +24,8 @@ mod prune;
 pub use prune::{PruneOptions, PruneResult, PruneRetained, PruneRetentionReason};
 mod storage;
 pub use storage::{ObjectStorage, StorageBlob, StorageReport};
+mod timing;
+use timing::Phase;
 
 use pins::PINS;
 /// Tracked paths whose working files differ from the index.
@@ -1077,7 +1079,10 @@ impl Snapshots {
         options: &SaveOptions,
         lock: &SnapshotLock,
         publish: bool,
+        operation: &'static str,
     ) -> Result<Snapshot> {
+        let overall = Phase::new(operation, "capture");
+        let phase = Phase::new(operation, "validation");
         let head = self.head()?;
         let original = self.index_bytes()?;
         let CapturePaths {
@@ -1086,12 +1091,16 @@ impl Snapshots {
             untracked,
             text_paths,
         } = self.validate(lock)?;
+        phase.success();
+        let phase = Phase::new(operation, "special_file_scan");
         if let Some(path) = crate::workspace_files::first_special(&self.root, self.timeout)? {
             return Err(unsupported(
                 "Snapshots cannot preserve special files; export or remove the file before saving",
             )
             .with_details(|details| details.path = Some(path)));
         }
+        phase.success();
+        let phase = Phase::new(operation, "scratch_index_tree");
         let temp = tempfile::Builder::new()
             .prefix("scratch-")
             .tempdir_in(&self.state)?;
@@ -1102,6 +1111,8 @@ impl Snapshots {
             self.run(&["read-tree", "--empty"], Some(&index), None, Some(lock))?;
         }
         let index_tree = text(self.run(&["write-tree"], Some(&index), None, Some(lock))?)?;
+        phase.success();
+        let phase = Phase::new(operation, "staging");
         let selected: BTreeSet<Vec<u8>> = paths(&changed)
             .chain(paths(&untracked))
             .chain(paths(&staged))
@@ -1124,9 +1135,15 @@ impl Snapshots {
             }
         }
         let stamps = self.stage_changes(&index, &selected, options, lock)?;
+        phase.success();
+        let phase = Phase::new(operation, "staged_sizes");
         self.verify_staged_sizes(&index, &stamps, lock)?;
+        phase.success();
+        let phase = Phase::new(operation, "work_tree");
         let work_tree = text(self.run(&["write-tree"], Some(&index), None, Some(lock))?)?;
+        phase.success();
         crate::state::checkpoint("snapshot-captured");
+        let phase = Phase::new(operation, "stability");
         let observation = Observation {
             head,
             index: original,
@@ -1135,6 +1152,8 @@ impl Snapshots {
             stamps,
         };
         self.ensure_stable(&observation, lock)?;
+        phase.success();
+        let phase = Phase::new(operation, "manifest");
         let untracked_blob = text(self.run(
             &["hash-object", "-w", "--stdin"],
             None,
@@ -1159,9 +1178,12 @@ impl Snapshots {
             session: options.session.clone(),
             pinned: false,
         };
+        phase.success();
         if publish {
-            self.publish(&snapshot, lock)?;
+            Phase::new(operation, "publish").result(self.publish(&snapshot, lock))?;
         }
+        drop(temp);
+        overall.success();
         Ok(snapshot)
     }
     /// Capture without changing HEAD, working files or the real index.
@@ -1189,8 +1211,17 @@ impl Snapshots {
     /// and filesystem failures. Publication follows validation and the workspace
     /// stability checks; a lost response can still leave a published snapshot.
     pub fn save(&self, options: SaveOptions) -> Result<Snapshot> {
-        let lock = self.lock()?;
-        self.capture(&options, &lock, true)
+        self.save_operation(options, "save")
+    }
+
+    pub(crate) fn save_for_release(&self, options: SaveOptions) -> Result<Snapshot> {
+        self.save_operation(options, "release_save")
+    }
+
+    fn save_operation(&self, options: SaveOptions, operation: &'static str) -> Result<Snapshot> {
+        let overall = Phase::new(operation, "overall");
+        let lock = Phase::new(operation, "lock_wait").result(self.lock())?;
+        overall.result(self.capture(&options, &lock, true, operation))
     }
     /// Delete references only; pinned snapshots require explicit override.
     ///
@@ -1259,7 +1290,8 @@ impl Snapshots {
         other: Option<&str>,
         max_file_bytes: u64,
     ) -> Result<Vec<u8>> {
-        let lock = self.lock()?;
+        let overall = Phase::new("diff", "overall");
+        let lock = Phase::new("diff", "lock_wait").result(self.lock())?;
         let a = self.load(id, &lock)?;
         let b = match other {
             Some(id) => self.load(id, &lock)?.work_tree,
@@ -1272,6 +1304,7 @@ impl Snapshots {
                     },
                     &lock,
                     false,
+                    "diff_capture",
                 )?;
                 s.work_tree
             }
@@ -1279,7 +1312,7 @@ impl Snapshots {
         // Export an applicable patch independently of user display preferences.
         // Keep the trailing newlines: metadata's string helper would trim bytes
         // needed by git apply, including when the patch is delivered as JSON.
-        self.run(
+        overall.result(self.run(
             &[
                 "-c",
                 "core.quotePath=true",
@@ -1304,7 +1337,7 @@ impl Snapshots {
             None,
             None,
             Some(&lock),
-        )
+        ))
     }
 
     pub(crate) fn matches_saved_files(&self, id: &str) -> Result<bool> {
@@ -1313,7 +1346,7 @@ impl Snapshots {
         if !saved.pinned {
             return Ok(false);
         }
-        let current = self.capture(&SaveOptions::default(), &lock, false)?;
+        let current = self.capture(&SaveOptions::default(), &lock, false, "match_capture")?;
         Ok(saved.head == current.head
             && saved.index_tree == current.index_tree
             && saved.work_tree == current.work_tree
@@ -1347,6 +1380,8 @@ impl Snapshots {
         destination: Option<&Path>,
         max_file_bytes: u64,
     ) -> Result<RestoreResult> {
+        let overall = Phase::new("restore", "overall");
+        let phase = Phase::new("restore", "lock_wait");
         let mut lock = self.lock()?;
         // A main-checkout recovery must also exclude root/settings replacement
         // between checking its destination and finishing the new worktree. Pass
@@ -1355,6 +1390,8 @@ impl Snapshots {
         if destination.is_some() {
             lock.admin = Some(crate::namespace::admin(&self.repository, self.timeout)?);
         }
+        phase.success();
+        let preflight = Phase::new("restore", "preflight");
         let s = self.load(id, &lock)?;
         if let Some(destination) = destination {
             let destination = if destination.is_absolute() {
@@ -1381,6 +1418,8 @@ impl Snapshots {
             // destination. Its effective rules are checked by target.apply.
             self.validate_restore_attributes(&s, &lock, false)?;
             let destination_text = repository::utf8(&destination)?;
+            preflight.success();
+            let creation = Phase::new("restore", "recovery_creation");
             // Claim the absent destination ourselves, independently of the
             // caller's umask, before Git may populate it or cleanup may remove it.
             use std::os::unix::fs::DirBuilderExt;
@@ -1457,15 +1496,20 @@ impl Snapshots {
                 }
                 crate::state::checkpoint("snapshot-recovery-created");
                 let target = Self::open(&destination, self.timeout)?;
-                target.apply(&s, None, &lock)?;
+                creation.success();
+                Phase::new("restore", "apply").result(target.apply(&s, None, &lock))?;
                 Ok(RestoreResult {
                     path: destination.to_owned(),
                     snapshot_id: id.to_owned(),
                     safety_snapshot_id: None,
                 })
             })();
-            return restored.map_err(|error: Error| {
-                match self.remove_failed_recovery(&destination, s.head.is_some(), &lock) {
+            return overall.result(restored.map_err(
+                |error: Error| match self.remove_failed_recovery(
+                    &destination,
+                    s.head.is_some(),
+                    &lock,
+                ) {
                     Ok(()) => {
                         if let Err(cleanup) = remove_recovery_parents(&created_parents) {
                             return error.with_details(|details| {
@@ -1478,8 +1522,8 @@ impl Snapshots {
                         details.secondary_error = Some(cleanup.summary());
                         details.path = Some(destination.clone());
                     }),
-                }
-            });
+                },
+            ));
         }
         if self.head()? != s.head {
             return Err(invalid(
@@ -1488,6 +1532,7 @@ impl Snapshots {
         }
         self.validate_restore_attributes(&s, &lock, true)?;
         self.validate_restore_paths(&s, &lock)?;
+        preflight.success();
         // Capture first so every deletion during apply has a recovery object.
         let safety = self.capture(
             &SaveOptions {
@@ -1497,6 +1542,7 @@ impl Snapshots {
             },
             &lock,
             true,
+            "restore_safety",
         )?;
         if safety.head != s.head {
             return Err(
@@ -1504,13 +1550,17 @@ impl Snapshots {
                     .with_details(|d| d.safety_snapshot_id = Some(safety.id.clone())),
             );
         }
-        self.pin_inner(&safety.id, &lock)
+        Phase::new("restore", "safety_pin")
+            .result(self.pin_inner(&safety.id, &lock))
             .map_err(|e| e.with_details(|d| d.safety_snapshot_id = Some(safety.id.clone())))?;
         crate::state::checkpoint("snapshot-safety-pinned");
-        self.apply(&s, Some(&safety), &lock)
+        Phase::new("restore", "apply")
+            .result(self.apply(&s, Some(&safety), &lock))
             .map_err(|e| e.with_details(|d| d.safety_snapshot_id = Some(safety.id.clone())))?;
-        self.unpin_inner(&safety.id, &lock)
+        Phase::new("restore", "safety_unpin")
+            .result(self.unpin_inner(&safety.id, &lock))
             .map_err(|e| e.with_details(|d| d.safety_snapshot_id = Some(safety.id.clone())))?;
+        overall.success();
         Ok(RestoreResult {
             path: self.root.clone(),
             snapshot_id: id.to_owned(),

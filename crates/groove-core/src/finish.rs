@@ -165,7 +165,7 @@ impl Lease {
         // a crash during retry or cleanup cannot forget the pending retirement.
         crate::quiescence::missing_checkout(&self.info.worktree_path)?;
         let snapshots = Snapshots::open(&self.info.worktree_path, self.pool.git_timeout)?;
-        let mut snapshot = snapshots.save(options)?;
+        let mut snapshot = snapshots.save_for_release(options)?;
         snapshot.pinned = true;
         let mut receipt = FinishReceipt {
             schema_version: state::SCHEMA_VERSION,

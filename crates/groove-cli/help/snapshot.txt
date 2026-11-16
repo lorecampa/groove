@@ -34,6 +34,10 @@ rewrite saved LF bytes. Foreign refs without snapshot UUID names are omitted
 from listing; malformed snapshots with valid IDs still fail explicitly.
 Unused filter definitions, such as a global Git LFS installation, are harmless.
 Concurrent saves wait for the shared lock up to --git-timeout (default 2m).
+Use -vv for DEBUG capture/restore phase timings on stderr, including lock waits
+and success/error outcomes. Enabled DEBUG file logging retains structured
+snapshot_timing records with operation, phase, elapsed_us and outcome fields.
+These diagnostics leave --json stdout unchanged. See config show for settings.
 
 Unknown or deleted snapshot IDs return INVALID_ARGUMENT with "Snapshot not found".
 
