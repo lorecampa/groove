@@ -399,3 +399,8 @@ Checkout uses Git's detected CPU count for at least 100 eligible files, and stay
 serial below that threshold. These per-process settings require no repository
 configuration changes. Git's CPU detection is platform-specific; it does not
 necessarily match a container's CPU quota.
+
+Checkout verification confirms the requested detached HEAD and uses one status
+inventory to reject staged, modified, untracked and (for pristine cleanup) ignored
+content. Collapsing directory entries reduces scanning without changing the clean
+baseline requirement; no untracked cache is enabled.

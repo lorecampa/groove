@@ -4,6 +4,9 @@
 
 ### Changed
 
+- Verify checkout cleanliness with one bounded status query, collapsing untracked
+  and ignored directories when only their presence matters.
+
 - Use Git parallel checkout for large file sets while retaining serial checkout
   below 100 files; the subprocess configuration does not modify repository settings.
 
