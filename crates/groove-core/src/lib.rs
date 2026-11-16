@@ -65,6 +65,7 @@ mod storage;
 #[path = "../tests/support/mod.rs"]
 mod test_support;
 mod types;
+pub mod upgrade;
 mod workspace_files;
 
 pub use destruction::{DestroyOptions, DestroyResult};

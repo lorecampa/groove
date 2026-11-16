@@ -14,5 +14,8 @@
   "pool_defaults": {
     "ready_target": 0,
     "idle_timeout": "7d"
+  },
+  "updates": {
+    "check": true
   }
 }

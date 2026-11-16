@@ -101,6 +101,16 @@
           "default": "7d"
         }
       }
+    },
+    "updates": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "check": {
+          "type": "boolean",
+          "default": true
+        }
+      }
     }
   },
   "$comment": "No schema_version field is required or accepted in the user file. Missing fields use application defaults; JSON Schema default annotations do not insert values. The loader additionally requires max_file_mib <= max_total_mib and validates registered feature names. Null paths describe effective JSON; TOML users omit optional paths."

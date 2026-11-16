@@ -108,6 +108,9 @@ pub struct CapacityFailure {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct ErrorDetails {
+    /// Independent component outcomes when an upgrade failed after partial progress.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upgrade: Option<crate::upgrade::Report>,
     /// Filesystem path the failing operation was acting on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<PathBuf>,

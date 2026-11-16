@@ -18,8 +18,20 @@ pub struct Config {
     pub pool_defaults: PoolDefaults,
     pub logging: Logging,
     pub worktrees: Worktrees,
+    pub updates: Updates,
     #[serde(skip_serializing_if = "groove_core::experimental::ExperimentalConfig::is_empty")]
     pub experimental: groove_core::experimental::ExperimentalConfig,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Updates {
+    pub check: bool,
+}
+impl Default for Updates {
+    fn default() -> Self {
+        Self { check: true }
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -192,6 +204,9 @@ pub fn load() -> Result<Config> {
     if let Some(value) = std::env::var_os("GROOVE_LOG_DIR") {
         config.logging.directory = Some(value.into());
     }
+    if std::env::var_os("GROOVE_NO_UPDATE_NOTIFIER").is_some() {
+        config.updates.check = false;
+    }
     config.logging.validate()?;
     config.worktrees.validate()?;
     Ok(config)
@@ -213,6 +228,7 @@ fn setting_key(key: &str) -> Result<(&str, &str)> {
                 || (*section == "worktrees" && *field == "root")
                 || (*section == "pool_defaults" && ["ready_target", "idle_timeout"].contains(field))
                 || (*section == "experimental" && *field == "features")
+                || (*section == "updates" && *field == "check")
         })
         .ok_or_else(|| invalid(format!("Unknown setting: {key}")))
 }
@@ -233,7 +249,8 @@ pub fn show() -> Result<serde_json::Value> {
     Ok(
         serde_json::json!({"config_path": path, "config": load()?, "environment_overrides": {
             "logging.enabled": std::env::var_os("GROOVE_LOG_ENABLED").is_some(),
-            "logging.directory": std::env::var_os("GROOVE_LOG_DIR").is_some()
+            "logging.directory": std::env::var_os("GROOVE_LOG_DIR").is_some(),
+            "updates.check": std::env::var_os("GROOVE_NO_UPDATE_NOTIFIER").is_some()
         }}),
     )
 }

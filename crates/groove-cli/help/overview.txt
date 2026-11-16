@@ -50,3 +50,10 @@ DURATIONS AND SIZES:
   --max-file-size defaults to 100M. Bytes or K/M/G (powers of 1024) are accepted,
   including KB/KiB suffixes, case-insensitively. Zero means unlimited.
   Snapshot, config, pool list and completions commands reject --pool.
+
+UPGRADES:
+  groove upgrade --check            check stable CLI availability without installing
+  groove upgrade --with-plugins     update CLI and supported installed agent plugins
+Interactive pool commands can show a daily update notice on stderr. Disable with
+GROOVE_NO_UPDATE_NOTIFIER=1 or `groove config set updates.check=false`.
+Upgrade works outside repositories and rejects --pool; see upgrade --help.

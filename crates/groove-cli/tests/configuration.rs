@@ -95,7 +95,7 @@ fn historical_user_files_keep_their_effective_values_without_rewriting() {
         assert_eq!(
             result["environment_overrides"],
             serde_json::json!({
-                "logging.enabled": false, "logging.directory": false
+                "logging.enabled": false, "logging.directory": false, "updates.check": false
             })
         );
         assert_eq!(fs::read_to_string(path).unwrap(), input);

@@ -112,6 +112,9 @@ impl From<Cleanup> for groove_core::CleanupPolicy {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Upgrade the installed CLI, optionally including existing agent skill plugins.
+    #[command(after_long_help = help!("upgrade"))]
+    Upgrade(UpgradeArgs),
     /// Create, inspect, configure and delete repository pools.
     #[command(subcommand, after_long_help = help!("pool"))]
     Pool(PoolCommand),
@@ -204,6 +207,25 @@ pub enum Command {
     /// User preferences shared by every repository.
     #[command(subcommand, after_long_help = help!("config"))]
     Config(ConfigCommand),
+}
+
+#[derive(ClapArgs)]
+pub struct UpgradeArgs {
+    /// Check CLI availability and discover plugins without installing or refreshing catalogs.
+    #[arg(long, conflicts_with = "dry_run")]
+    pub check: bool,
+    /// Show source, destination and literal installer commands without executing them.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Also update installed, enabled user Groove plugins in Codex and Claude Code.
+    #[arg(long)]
+    pub with_plugins: bool,
+    /// Select an exact stable CLI release; downgrades and prereleases are rejected.
+    #[arg(long, value_name = "VERSION")]
+    pub target_version: Option<String>,
+    /// Deadline per installer process (positive duration, e.g. 30m); HTTP checks have separate short limits.
+    #[arg(long, default_value = "30m", value_parser = parse_duration)]
+    pub timeout: u64,
 }
 
 /// Ordering for timestamped collections.
@@ -513,6 +535,7 @@ impl Command {
     /// Stable command name for logs.
     pub fn name(&self) -> &'static str {
         match self {
+            Self::Upgrade(_) => "upgrade",
             Self::Pool(command) => match command {
                 PoolCommand::Get { .. } => "pool get",
                 PoolCommand::Init { .. } => "pool init",

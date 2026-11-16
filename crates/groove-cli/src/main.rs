@@ -9,6 +9,7 @@ mod preferences;
 mod progress;
 mod ready;
 mod terminal;
+mod updates;
 
 use args::{Args, Command};
 use clap::{error::ErrorKind, FromArgMatches};
@@ -159,6 +160,7 @@ fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {
             Command::Snapshot(_)
                 | Command::Config(_)
                 | Command::Completions { .. }
+                | Command::Upgrade(_)
                 | Command::Pool(args::PoolCommand::List { .. })
         )
     {
@@ -176,7 +178,7 @@ fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {
     // Configuration and completion commands work even with broken preferences.
     let logging = if matches!(
         args.command,
-        Command::Config(_) | Command::Completions { .. }
+        Command::Config(_) | Command::Completions { .. } | Command::Upgrade(_)
     ) {
         preferences::Logging::disabled()
     } else {
@@ -200,6 +202,7 @@ fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {
             args.command,
             Command::Config(_)
                 | Command::Completions { .. }
+                | Command::Upgrade(_)
                 | Command::Snapshot(_)
                 | Command::Pool(args::PoolCommand::List { .. })
         ) {
@@ -224,8 +227,10 @@ fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {
         git_timeout: Duration::from_millis(args.git_timeout_ms),
     };
     let elapsed_ms = || u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+    let update_check = updates::start(args);
     match commands::run(&context, &args.command) {
         Ok(result) => {
+            updates::finish(update_check, terminal);
             ready::trigger(args, selected_pool);
             tracing::info!(
                 event = "command.completed",
@@ -235,6 +240,7 @@ fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {
             output::emit_success(format, request_id, result, terminal)
         }
         Err(error) => {
+            updates::finish(update_check, terminal);
             if matches!(
                 args.command,
                 Command::Pool(args::PoolCommand::Destroy { dry_run: false, .. })

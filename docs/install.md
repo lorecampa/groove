@@ -272,3 +272,17 @@ CARGO_NET_GIT_FETCH_WITH_CLI=true cargo install --git ssh://git@github.com/lorec
 
 This installs the development revision using existing Git credentials. Keep
 credentials out of URLs and install the skill from the matching revision.
+
+## Upgrade an existing installation
+
+Run `groove upgrade --check` to check for a stable CLI release, or `groove upgrade`
+to update a verified Cargo crates.io installation in its existing location.
+Add `--with-plugins` to update supported existing native agent plugins too.
+Use `groove upgrade --help` for previews, exact versions, supported sources,
+compatibility boundaries, partial failures and manual-install guidance.
+
+Interactive pool commands can display an informational update notice for newer
+minor or major releases at most daily. Patch releases stay available through
+explicit checks and upgrades. Checks are best-effort and never fail a pool operation. Disable them with
+`groove config set updates.check=false` or `GROOVE_NO_UPDATE_NOTIFIER=1`.
+JSON, CI and quiet invocations do not perform automatic checks.

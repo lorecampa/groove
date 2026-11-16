@@ -72,3 +72,9 @@ These values are copied at init, with explicit init flags taking precedence.
 Changing defaults never changes an existing pool. Initialization rejects a target
 above that pool's capacity; pass --ready-target explicitly instead of clamping.
 ready_base is repository-specific and is configured through pool init/pool set.
+
+UPDATE PREFERENCES:
+updates.check defaults to true. Set updates.check=false to disable automatic
+interactive update checks; GROOVE_NO_UPDATE_NOTIFIER disables them for a process.
+Explicit `groove upgrade --check` remains available. See upgrade --help for
+network limits, caching, CI/JSON suppression and native plugin updates.
