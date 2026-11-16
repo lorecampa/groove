@@ -50,6 +50,32 @@ Changed files exceeding the capture limit fail before publication. See
 Large binary edits can consume substantial space: Git initially writes whole new
 blobs, with possible delta compression during subsequent packing.
 
+## Timing diagnostics
+
+Use `groove -vv snapshot save` or `groove -vv snapshot restore ID` to show DEBUG
+phase timings on stderr. Per-invocation JSONL logs also record these events when
+file logging is enabled at DEBUG or TRACE. `config show` reports the effective
+settings; `config set logging.level=debug` selects DEBUG file logging independently
+of terminal verbosity. Timing diagnostics leave `--json` stdout unchanged.
+
+Structured records use `event: "snapshot_timing"`. Their `fields` contain
+`operation`, `phase`, integer `elapsed_us`, and `outcome` (`success` or `error`).
+Operations distinguish `save`, `release_save`, `diff`, `diff_capture`, `restore`,
+`restore_safety`, and internal saved-file comparisons (`match_capture`). Save,
+release-save and diff report `lock_wait` and `overall`; these method timings
+exclude repository discovery and CLI rendering. A release-save total covers
+snapshot saving, not the remaining reservation release procedure.
+
+Restore reports `lock_wait`, `preflight`, `apply`, and `overall`, with
+`recovery_creation` for a new destination or `safety_pin` and `safety_unpin` for
+in-place recovery protection. Capture reports `validation`, `special_file_scan`,
+`scratch_index_tree`, `staging`, `staged_sizes`, `work_tree`, `stability`,
+`manifest`, and `publish` when publishing, plus an aggregate `capture` duration.
+Safety and diff captures reuse their caller's lock wait. Aggregate timings include
+their child phases and must not be summed with them. Failed operations record
+completed earlier phases and their active failed phase; unreached phases are
+absent. Diagnostics are best-effort and process death can interrupt them.
+
 ## Comparing changes
 
 Save a checkpoint before a task to use its current files as the baseline, including

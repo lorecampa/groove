@@ -20,6 +20,9 @@
 
 ### Added
 
+- DEBUG diagnostics report snapshot capture and restore phase durations and
+  success/error outcomes, including release saves, current-file diff captures
+  and restore safety checkpoints. Use `-vv` to show them on stderr.
 - Add explicit `snapshot prune --older-than DURATION`, previewing by default and
   requiring `--apply` for deletion. Retention preserves pins, protected sources,
   and the newest snapshots per originating workspace.
