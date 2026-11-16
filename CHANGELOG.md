@@ -18,6 +18,9 @@
 
 ### Added
 
+- Add `snapshot storage` for snapshot/pin counts and whole-repository Git storage,
+  with an opt-in `--largest N` scan of unique saved blobs by logical size.
+
 - Add `config get KEY` and `pool get KEY`, with typed JSON values and plain human
   values. Unknown keys are rejected consistently with preference updates.
 - The development benchmark lab adds `repository-small` (ripgrep, CPython) and

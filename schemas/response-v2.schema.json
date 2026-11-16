@@ -746,6 +746,7 @@
     },
     "snapshot_result": {
       "anyOf": [
+        { "$ref": "#/$defs/snapshot_storage_result" },
         {
           "$ref": "#/$defs/snapshot_one_result"
         },
@@ -933,6 +934,51 @@
       "properties": {
         "snapshot": {
           "$ref": "#/$defs/snapshot"
+        }
+      }
+    },
+    "snapshot_storage_result": {
+      "type": "object",
+      "required": ["storage"],
+      "properties": { "storage": { "$ref": "#/$defs/snapshot_storage" } }
+    },
+    "snapshot_storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["snapshots", "pinned", "oldest_created_at", "newest_created_at", "repository_objects", "largest_limit", "largest_blobs"],
+      "properties": {
+        "snapshots": { "type": "integer", "minimum": 0 },
+        "pinned": { "type": "integer", "minimum": 0 },
+        "oldest_created_at": { "type": ["integer", "null"], "minimum": 0 },
+        "newest_created_at": { "type": ["integer", "null"], "minimum": 0 },
+        "repository_objects": {
+          "type": "object",
+          "description": "Local repository-wide Git storage, excluding alternates. Rounded KiB measurements converted to bytes, not exact disk, snapshot-attributable or reclaimable bytes.",
+          "additionalProperties": false,
+          "required": ["loose_objects", "loose_bytes", "packed_objects", "packed_bytes", "packs"],
+          "properties": {
+            "loose_objects": { "type": "integer", "minimum": 0 },
+            "loose_bytes": { "type": "integer", "minimum": 0, "multipleOf": 1024 },
+            "packed_objects": { "type": "integer", "minimum": 0 },
+            "packed_bytes": { "type": "integer", "minimum": 0, "multipleOf": 1024 },
+            "packs": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "largest_limit": { "type": "integer", "minimum": 0, "maximum": 1000 },
+        "largest_blobs": {
+          "type": "array", "maxItems": 1000,
+          "description": "Unique blobs ordered by descending logical size then ascending OID; one deterministic representative occurrence, not exhaustive provenance.",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["oid", "logical_bytes", "snapshot_id", "tree", "path"],
+            "properties": {
+              "oid": { "type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$" },
+              "logical_bytes": { "type": "integer", "minimum": 0, "description": "Uncompressed blob length; not allocated or reclaimable bytes." },
+              "snapshot_id": { "$ref": "#/$defs/uuid" },
+              "tree": { "enum": ["index", "work"] },
+              "path": { "type": "string", "description": "Representative Git path, displayed with replacement for invalid UTF-8 bytes." }
+            }
+          }
         }
       }
     },
@@ -1398,6 +1444,7 @@
     "snapshot list": [
       "snapshots_result"
     ],
+    "snapshot storage": ["snapshot_storage_result"],
     "snapshot restore": [
       "snapshot_restore_result"
     ],

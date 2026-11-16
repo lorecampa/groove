@@ -210,6 +210,10 @@ fn command_output_types_used_by_help_validate_real_responses() {
     let snapshot = finish["result"]["snapshot"]["id"].as_str().unwrap();
     verify("snapshot show", &["snapshot", "show", snapshot]);
     verify("snapshot list", &["snapshot", "list"]);
+    verify(
+        "snapshot storage",
+        &["snapshot", "storage", "--largest", "10"],
+    );
     let destination = repo.temp.path().join("restored");
     verify(
         "snapshot restore",

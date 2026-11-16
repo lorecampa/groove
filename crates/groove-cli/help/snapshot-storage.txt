@@ -1,0 +1,24 @@
+EXAMPLES:
+  groove snapshot storage
+  groove --json snapshot storage --largest 10
+
+Reports all repository snapshots, pins and oldest/newest creation times (Unix
+seconds; null when no snapshots exist). No pool initialization is required.
+
+Repository object counts and loose/packed bytes come from git count-objects -v.
+Bytes are Git's rounded whole-repository KiB measurements multiplied by 1024, including
+ordinary history and shared objects. They are not exact snapshot attribution or
+reclaimable bytes. Ordinary Git maintenance can change these totals concurrently.
+Alternate object stores are not included in these local storage measurements.
+
+--largest accepts 0 through 1000 and defaults to 0, skipping saved-tree scans. A positive N scans every saved
+index and working tree using disk-backed inventories on the snapshot-state
+filesystem, retaining at most N unique blobs without reading blob contents.
+Logical blob sizes are uncompressed content lengths, not disk usage or expected
+space recovered by deleting snapshots. Unchanged base files are included.
+Blobs shared across paths, trees or snapshots appear once. Results sort by size
+descending, then object ID ascending. Each blob reports one representative:
+the first snapshot ID in lexical order, index before work, then Git tree path
+order. This is not exhaustive provenance. Paths preserve bytes during parsing;
+display/JSON replaces invalid UTF-8 sequences, so distinct paths may look alike.
+Nothing is deleted and no garbage collection is run.

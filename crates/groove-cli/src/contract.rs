@@ -128,6 +128,7 @@ fn concise_help(path: &str) -> &'static str {
         "snapshot save" => include_str!("../help/short/snapshot-save.txt"),
         "snapshot list" => include_str!("../help/short/snapshot-list.txt"),
         "snapshot show" => include_str!("../help/short/snapshot-show.txt"),
+        "snapshot storage" => include_str!("../help/short/snapshot-storage.txt"),
         "snapshot diff" => include_str!("../help/short/snapshot-diff.txt"),
         "snapshot restore" => include_str!("../help/short/snapshot-restore.txt"),
         "snapshot delete" => include_str!("../help/short/snapshot-delete.txt"),

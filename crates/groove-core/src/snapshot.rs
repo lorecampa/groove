@@ -20,6 +20,8 @@ use uuid::Uuid;
 
 const PREFIX: &str = "refs/groove/snapshots/";
 mod pins;
+mod storage;
+pub use storage::{ObjectStorage, StorageBlob, StorageReport};
 
 use pins::PINS;
 /// Tracked paths whose working files differ from the index.

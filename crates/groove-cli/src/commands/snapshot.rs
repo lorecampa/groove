@@ -81,6 +81,28 @@ pub fn run(context: &Context<'_>, command: &SnapshotCommand) -> Result<Output> {
             };
             Output::text(json!({ "snapshots": snapshots }), text)?.paginated(pagination)
         }
+        SnapshotCommand::Storage { largest } => {
+            let report = service.storage(usize::from(*largest))?;
+            let mut text = format!(
+                "Snapshots: {} (pinned: {})\nOldest/newest creation (Unix seconds): {} / {}\nWhole local repository Git object store (includes ordinary history; excludes alternates):\n  loose: {} objects, {} bytes\n  packed: {} objects, {} bytes in {} packs\nStorage uses Git's rounded KiB measurements converted to bytes; not exact disk, snapshot-attributable or reclaimable bytes.",
+                report.snapshots, report.pinned,
+                report.oldest_created_at.map_or_else(|| "none".into(), |t| t.to_string()),
+                report.newest_created_at.map_or_else(|| "none".into(), |t| t.to_string()),
+                report.repository_objects.loose_objects, report.repository_objects.loose_bytes,
+                report.repository_objects.packed_objects, report.repository_objects.packed_bytes,
+                report.repository_objects.packs,
+            );
+            if *largest > 0 {
+                text.push_str("\nLargest unique saved blobs (logical bytes; representative paths use lossy UTF-8):");
+                for blob in &report.largest_blobs {
+                    text.push_str(&format!(
+                        "\n  {} {} {} {} {:?}",
+                        blob.logical_bytes, blob.oid, blob.snapshot_id, blob.tree, blob.path
+                    ));
+                }
+            }
+            Output::text(json!({ "storage": report }), text)
+        }
         SnapshotCommand::Show { id } => snapshot_output(service.show(id)?),
         SnapshotCommand::Diff {
             id,

@@ -202,3 +202,23 @@ comparisons. Each invocation writes one self-contained JSON report; benchmark
 results are not checked in or published. For workload choices, hermetic builds,
 host requirements, native macOS limitations and scale regressions, use the
 [benchmark lab](../benchmarks/snapshots/README.md).
+
+## Storage reporting
+
+`groove snapshot storage` reports repository-wide snapshot and pin counts,
+oldest/newest creation times, and loose/packed Git object storage. Git's rounded KiB
+measurements are converted to bytes; they include ordinary history and shared
+objects, exclude alternate object stores, and do not measure exact snapshot
+attribution or reclaimable space. Concurrent Git maintenance can change totals.
+
+Use `groove snapshot storage --largest 10` to inspect the largest unique blobs
+in saved index and working trees, including unchanged base files. The CLI accepts at most 1000 entries. The default,
+`--largest 0`, skips tree enumeration. The optional scan streams inventories to
+temporary files on the snapshot-state filesystem, retaining only the requested
+largest blobs and never reading their contents. Logical sizes are uncompressed
+content lengths, independent of packing and compression. Shared objects appear
+once, sorted by descending size then ascending object ID, with one representative
+snapshot/path rather than exhaustive provenance. Representatives use lexical
+snapshot ID order, index before work, and Git tree path order. Non-UTF-8 paths
+are parsed byte-for-byte but displayed with replacement characters, which can
+make distinct paths look alike. See `groove snapshot storage --help` for details.
