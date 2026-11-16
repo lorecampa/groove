@@ -372,3 +372,7 @@ A Git preparation timeout leaves an available or released slot eligible for retr
 it is evidence of slowness rather than corruption. Inspect the failure in slot
 views or the ready report, increase the relevant budget, and retry. Successful
 acquisition clears the failure. Inconsistent or foreign checkouts still quarantine.
+
+Recovery hints carry the selected pool and repository. Inside a managed workspace,
+the inferred owning pool is retained in copied commands even when `--pool` was
+omitted, so saved-release advice applies to the original reservation.

@@ -251,3 +251,42 @@ fn foreground_timeout_keeps_the_slot_available_and_retry_clears_failure() {
     assert_eq!(cli(&repo.path, &["acquire"])["slot_id"], "wt-0001");
     assert!(cli(&repo.path, &["show", "--slot", "wt-0001"])["slot"]["failure"].is_null());
 }
+
+#[test]
+fn copied_release_advice_keeps_the_inferred_pool_selection() {
+    let repo = Repo::new();
+    init(&repo, "review", "1");
+    let acquired = cli(
+        &repo.path,
+        &["--pool", "review", "acquire", "--task", "edit"],
+    );
+    let slot = Path::new(acquired["workspace_path"].as_str().unwrap());
+    fs::write(slot.join("tracked.txt"), "saved by copied advice\n").unwrap();
+    let error = check(
+        support::groove_in(slot)
+            .arg("--repo")
+            .arg(slot)
+            .args(["release", "--task", "edit"])
+            .output()
+            .unwrap(),
+        5,
+    );
+    assert_eq!(error["error"]["code"], "UNSAVED_CHANGES");
+    let hint = error["error"]["hint"].as_str().unwrap();
+    assert!(hint.contains("--pool review"), "{hint}");
+    assert!(!hint.contains("--pool default"), "{hint}");
+    let command = hint
+        .split('`')
+        .find(|part| part.starts_with("groove release --save"))
+        .unwrap();
+    let words = shell_words::split(command).unwrap();
+    let saved = check(
+        support::groove_in(slot)
+            .args(&words[1..])
+            .args(["--task", "edit"])
+            .output()
+            .unwrap(),
+        0,
+    );
+    assert_eq!(saved["result"]["snapshot"]["pinned"], true);
+}

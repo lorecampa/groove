@@ -55,6 +55,8 @@
 
 ### Fixed
 
+- Verify copied saved-release advice retains a managed workspace's inferred pool.
+
 - Keep slow preparation slots available after Git timeouts; report background
   failures consistently in slot views and suggest the foreground timeout budget.
 
