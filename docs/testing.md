@@ -241,6 +241,12 @@ assert in-place reuse. Assert the reported `recovery` outcome and that untouched
 files keep their identity; a timing alone does not reveal a rebuild on a small
 fixture. Timing checks complement these observable contracts.
 
+Synthetic fixtures do not exercise real attribute files, symlinks or long packed
+history. After `cargo run -p groove-bench --locked -- fetch repository-small`, run
+`check repository-small --host` to exercise pinned public repositories with the
+same oracles; `repository-large` adds Kubernetes and Linux. Fetching is the only
+networked step, and runs never fall back to the network.
+
 ## Optional host tests and limits
 
 [The benchmark lab](../benchmarks/snapshots/README.md) owns performance profiles,

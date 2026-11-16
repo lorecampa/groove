@@ -211,6 +211,22 @@ fn launch(mode: Mode, args: &ExecuteArgs) -> Result<()> {
     let parent = output.parent().expect("absolute output parent");
     fs::create_dir_all(parent)?;
     fs::create_dir_all(&plan.temp_root)?;
+    // Fail before the image build when a pinned repository has not been fetched.
+    let pinned = crate::repository::required(&crate::profiles::select(&plan.profiles)?)?;
+    let cache = if pinned.is_empty() {
+        None
+    } else {
+        let cache = fs::canonicalize(plan.cache.path()).map_err(|_| {
+            crate::util::Error::Invalid(format!(
+                "Pinned repository cache {} is missing; run `cargo run -p groove-bench --locked -- fetch PROFILE`",
+                plan.cache.path().display()
+            ))
+        })?;
+        for repository in &pinned {
+            crate::repository::verify(&Runner::new(), &cache, repository)?;
+        }
+        Some(cache)
+    };
     let scratch = tempfile::Builder::new()
         .prefix("groove-bench-runtime-")
         .tempdir_in(&plan.temp_root)?;
@@ -276,6 +292,10 @@ fn launch(mode: Mode, args: &ExecuteArgs) -> Result<()> {
         "--mount".into(),
         mount(&parent.canonicalize()?, "/results", false)?,
     ]);
+    if let Some(cache) = &cache {
+        // Read-only: measured processes can clone from the cache but never alter it.
+        command.extend(["--mount".into(), mount(cache, "/fixtures", true)?]);
+    }
     let mut report_path = OsString::from("/results/");
     report_path.push(output.file_name().expect("output name"));
     command.extend([
@@ -289,6 +309,8 @@ fn launch(mode: Mode, args: &ExecuteArgs) -> Result<()> {
         "/scratch".into(),
         "--output".into(),
         report_path,
+        "--fixture-cache".into(),
+        "/fixtures".into(),
     ]);
     command.extend(plan.profiles.iter().map(OsString::from));
     if args.baseline_source.is_some() {

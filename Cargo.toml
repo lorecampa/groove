@@ -29,3 +29,8 @@ unsafe_op_in_unsafe_fn = "deny"
 
 [workspace.lints.clippy]
 undocumented_unsafe_blocks = "deny"
+
+# Benchmark fixture verification hashes multi-GiB pinned packs from debug
+# `cargo run`; an unoptimized digest makes that take many minutes.
+[profile.dev.package.sha2]
+opt-level = 3

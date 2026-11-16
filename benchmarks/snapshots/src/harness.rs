@@ -331,20 +331,69 @@ fn saved_trees(saved: &Value, index: &str, work: &str) -> Result<()> {
         "Saved trees differ from independent Git staging",
     )
 }
-fn blob_ids(runner: &Runner, repo: &Path) -> Result<std::collections::BTreeSet<String>> {
-    Ok(runner
-        .git_text(
+/// Loose object IDs and pack files. Fixture runners disable automatic gc, so
+/// objects are only ever added; comparing inventories finds every new object
+/// without listing all of history (Linux has ~10M objects, ~480 MB of IDs).
+struct Objects {
+    loose: std::collections::BTreeSet<String>,
+    packs: std::collections::BTreeSet<PathBuf>,
+}
+fn objects(repo: &Path) -> Result<Objects> {
+    let root = repo.join(".git/objects");
+    let mut inventory = Objects {
+        loose: Default::default(),
+        packs: Default::default(),
+    };
+    for entry in fs::read_dir(&root)? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.len() == 2 && name.bytes().all(|b| b.is_ascii_hexdigit()) {
+            for object in fs::read_dir(entry.path())? {
+                inventory
+                    .loose
+                    .insert(format!("{name}{}", object?.file_name().to_string_lossy()));
+            }
+        }
+    }
+    for entry in fs::read_dir(root.join("pack"))? {
+        let path = entry?.path();
+        if path.extension().is_some_and(|e| e == "idx") {
+            inventory.packs.insert(path);
+        }
+    }
+    Ok(inventory)
+}
+/// Blobs written since `before`: new loose objects plus objects in new packs.
+fn added_blobs(runner: &Runner, repo: &Path, before: &Objects) -> Result<Vec<String>> {
+    let after = objects(repo)?;
+    let mut blobs = Vec::new();
+    for id in after.loose.difference(&before.loose) {
+        if runner.git_text(repo, &["cat-file", "-t", id])? == "blob" {
+            blobs.push(id.clone());
+        }
+    }
+    for pack in after.packs.difference(&before.packs) {
+        let listing = runner.git(
             repo,
-            &[
-                "cat-file",
-                "--batch-all-objects",
-                "--batch-check=%(objecttype) %(objectname)",
+            [
+                OsStr::new("verify-pack"),
+                OsStr::new("-v"),
+                pack.as_os_str(),
             ],
-        )?
-        .lines()
-        .filter(|l| l.starts_with("blob "))
-        .map(str::to_owned)
-        .collect())
+        )?;
+        blobs.extend(
+            String::from_utf8_lossy(&listing)
+                .lines()
+                .filter_map(|line| {
+                    let mut fields = line.split_whitespace();
+                    match (fields.next(), fields.next()) {
+                        (Some(id), Some("blob")) => Some(id.to_owned()),
+                        _ => None,
+                    }
+                }),
+        );
+    }
+    Ok(blobs)
 }
 fn mutate(
     runner: &Runner,
@@ -399,7 +448,7 @@ fn mutate(
             "unstaged-{iteration}"
         )?;
         if iteration == 0 {
-            let deleted = PathBuf::from(case.path(case.files - 1));
+            let deleted = crate::repository::deleted(runner, repo, case)?;
             require(
                 !selected.contains(&deleted),
                 "Deletion must be independent of edited paths",
@@ -459,7 +508,7 @@ fn snapshot_save(
     }
     evidence.checked("checkout_preserved");
     evidence.checked("saved_trees");
-    let before_blobs = blob_ids(runner, repo)?;
+    let before_objects = objects(repo)?;
     let state = fingerprint(runner, repo, false)?;
     let (unchanged, time) = invoke(runner, binary, repo, &strings(&["save", "unchanged"]))?;
     saved_trees(&unchanged, &expected_index, &expected_work)?;
@@ -467,9 +516,10 @@ fn snapshot_save(
         fingerprint(runner, repo, false)? == state,
         "Unchanged save modified checkout/index",
     )?;
+    let added = added_blobs(runner, repo, &before_objects)?;
     require(
-        blob_ids(runner, repo)? == before_blobs,
-        "Unchanged save created duplicate blobs",
+        added.is_empty(),
+        format!("Unchanged save created duplicate blobs: {added:?}"),
     )?;
     evidence.record("unchanged_save", time)?;
     evidence.checked("unchanged_blob_reuse");
@@ -625,9 +675,19 @@ fn collect_case(
     if report["cases"].get(&key).is_none() {
         report["cases"][&key] = json!({"identity":null,"blocks":[]});
     }
-    // Expensive monorepo history is prepared once per case. Each side/block
-    // still gets independent objects and a freshly checked-out index/worktree.
-    let seed = if matches!(case.contents, crate::profiles::Contents::Monorepo { .. }) {
+    // Expensive monorepo history is prepared once per case, and pinned repositories
+    // come from the verified read-only cache. Each side/block still gets independent
+    // objects and a freshly checked-out index/worktree.
+    let pinned = if let crate::profiles::Contents::Repository { repository } = &case.contents {
+        let pinned = crate::repository::find(repository)?;
+        // run_inner verified this cache and its pack digests before measurement.
+        let cache = fs::canonicalize(args.plan.cache.path())?;
+        report["cases"][&key]["identity"] = json!(pinned.tip.commit);
+        Some((crate::repository::seed(&cache, &pinned), pinned))
+    } else {
+        None
+    };
+    let generated = if matches!(case.contents, crate::profiles::Contents::Monorepo { .. }) {
         report["progress"] = json!({"profile":profile.id,"case":case.id,"phase":"fixture"});
         write_json(&args.plan.output, report)?;
         eprintln!("Preparing {key} immutable history seed");
@@ -655,6 +715,10 @@ fn collect_case(
     } else {
         None
     };
+    let seed = pinned
+        .as_ref()
+        .map(|(path, _)| path.clone())
+        .or_else(|| generated.as_ref().map(|seed| seed.path().join("repo")));
     let (warmup, runs) = if args.mode == crate::Mode::Check {
         (0, 1)
     } else {
@@ -697,18 +761,22 @@ fn collect_case(
                 crate::report::preflight(&local, scratch.path(), bytes, inodes)?;
                 let repo = scratch.path().join("repo");
                 let selected = if let Some(seed) = &seed {
-                    crate::monorepo::clone_seed(&local, &seed.path().join("repo"), &repo)?;
-                    crate::monorepo::selected(case)
+                    crate::monorepo::clone_seed(&local, seed, &repo)?;
+                    if let Some((_, pinned)) = &pinned {
+                        crate::repository::prepare(&local, &repo, &pinned.id)?;
+                        crate::repository::targets(&local, &repo)?.0
+                    } else {
+                        crate::monorepo::selected(case)
+                    }
                 } else {
                     spec().create_workload(&local, &repo, case)?.1
                 };
                 crate::lifecycle::prepare(&local, &repo, case)?;
-                let revision =
-                    if matches!(case.contents, crate::profiles::Contents::Monorepo { .. }) {
-                        "HEAD" // Bind the whole deterministic history, not only the tip tree.
-                    } else {
-                        "HEAD^{tree}"
-                    };
+                let revision = if seed.is_some() {
+                    "HEAD" // Bind the whole history, not only the tip tree.
+                } else {
+                    "HEAD^{tree}"
+                };
                 let identity = local.git_text(&repo, &["rev-parse", revision])?;
                 let observation = execute_case(&local, binary, &repo, case, &selected)?;
                 Ok((identity, observation))
@@ -812,8 +880,36 @@ fn run_inner(mut args: RunArgs) -> Result<()> {
             json!({"sha256":profile.sha256()?,"definition":profile}),
         );
     }
-    let mut report = json!({"schema_version":4,"measurement_version":4,"status":"running","mode":args.mode,
+    // Pinned repositories are verified, including pack digests, before any
+    // measurement; the cache is only read from here on.
+    let pinned = crate::repository::required(&profiles)?;
+    let cache = if pinned.is_empty() {
+        None
+    } else {
+        Some(fs::canonicalize(args.plan.cache.path()).map_err(|_| {
+            Error::Invalid(format!(
+                "Pinned repository cache {} is missing; run `cargo run -p groove-bench --locked -- fetch PROFILE`",
+                args.plan.cache.path().display()
+            ))
+        })?)
+    };
+    let mut repositories = serde_json::Map::new();
+    for repository in &pinned {
+        let manifest = crate::repository::verify(
+            &runner,
+            cache
+                .as_deref()
+                .expect("cache resolved for pinned repositories"),
+            repository,
+        )?;
+        repositories.insert(
+            repository.id.clone(),
+            json!({"sha256":repository.sha256()?,"definition":repository,"manifest":manifest}),
+        );
+    }
+    let mut report = json!({"schema_version":5,"measurement_version":4,"status":"running","mode":args.mode,
         "fixture_version":spec().fixture_version,"fixture_sha256":hash(SPEC_BYTES),"catalog_sha256":hash(crate::profiles::CATALOG_BYTES),"environment_lock_sha256":hash(LOCK_BYTES),
+        "repositories_sha256":hash(crate::repository::CATALOG_BYTES),"repositories":repositories,
         "runner_sha256":digest(&std::env::current_exe()?)?,"source":source,"profiles":definitions,
         "methodology":{"sampling":"independent fixture blocks; AB/BA alternation; paired block bootstrap, 4000 resamples, pointwise 95% intervals","practical_change_fraction":0.05,"minimum_verdict_blocks":6,
         "cache_policy":"no host cache eviction; profile-owned warmup blocks; Git oracles warm filesystem caches; first save is application-cold, not OS-cold",
@@ -896,6 +992,37 @@ fn run_inner(mut args: RunArgs) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn object_growth_oracle_finds_new_loose_and_packed_blobs_only() {
+        let temp = tempfile::tempdir().unwrap();
+        let runner = Runner::new().isolated(temp.path()).unwrap();
+        let repo = temp.path().join("repo");
+        spec().create(&runner, &repo, 3).unwrap();
+        runner.git(&repo, ["repack", "-adq"]).unwrap();
+        let before = objects(&repo).unwrap();
+        assert!(added_blobs(&runner, &repo, &before).unwrap().is_empty());
+        // Rewriting an existing blob adds nothing.
+        fs::write(repo.join("existing"), spec().content(0)).unwrap();
+        runner
+            .git(&repo, ["hash-object", "-w", "existing"])
+            .unwrap();
+        assert!(added_blobs(&runner, &repo, &before).unwrap().is_empty());
+        // A new blob is found; the new tree and commit objects are not blobs.
+        fs::write(repo.join("new-a"), "new loose blob\n").unwrap();
+        runner.git(&repo, ["add", "new-a"]).unwrap();
+        runner.git(&repo, ["commit", "-qm", "new blob"]).unwrap();
+        let blob = runner
+            .git_text(&repo, &["rev-parse", "HEAD:new-a"])
+            .unwrap();
+        assert_eq!(objects(&repo).unwrap().loose.len(), 3);
+        let expected = vec![blob];
+        assert_eq!(added_blobs(&runner, &repo, &before).unwrap(), expected);
+        // Objects moved into a new pack are still found.
+        runner.git(&repo, ["repack", "-dq"]).unwrap();
+        assert!(objects(&repo).unwrap().loose.is_empty());
+        assert_eq!(added_blobs(&runner, &repo, &before).unwrap(), expected);
+    }
 
     #[test]
     fn recovery_oracle_detects_lost_edits_and_staging_without_changing_the_index() {

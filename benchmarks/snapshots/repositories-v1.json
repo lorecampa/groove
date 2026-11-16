@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "repositories": [
+    {
+      "id": "ripgrep", "url": "https://github.com/BurntSushi/ripgrep.git", "license": "Unlicense OR MIT",
+      "shape": "small Rust workspace: crates, tests, docs and CI configuration",
+      "tip": {"ref": "refs/tags/14.1.1", "commit": "4649aa9700619f94cf9c66876e9549d83420e16c", "tree": "d7a1d4d108598ad6e23d82a180c71541b221d32c"},
+      "base": {"ref": "refs/tags/14.1.0", "commit": "e50df40a1967708b9781486b1c017e48040bceb0", "tree": "c9769e053f27d782c79e667ffc8ebff319a6e14f"},
+      "tracked_paths": 213, "reachable_commits": 2045,
+      "budget": {"object_bytes": 16777216, "checkout_bytes": 8388608}
+    },
+    {
+      "id": "cpython", "url": "https://github.com/python/cpython.git", "license": "PSF-2.0",
+      "shape": "mixed C/Python project with real CRLF attributes; base is the previous release branch, not an ancestor",
+      "tip": {"ref": "refs/tags/v3.13.0", "commit": "60403a5409ff2c3f3b07dd2ca91a7a3e096839c7", "tree": "ed4b2f783624aede5e79a73a2375d2db521fbf72"},
+      "base": {"ref": "refs/tags/v3.12.0", "commit": "0fb18b02c8ad56299d6a2910be0bab8ad601ef24", "tree": "1411011f0595789947082ab9d8ea31a782be739f"},
+      "tracked_paths": 4882, "reachable_commits": 123983,
+      "budget": {"object_bytes": 805306368, "checkout_bytes": 201326592}
+    },
+    {
+      "id": "kubernetes", "url": "https://github.com/kubernetes/kubernetes.git", "license": "Apache-2.0",
+      "shape": "Go monorepo with tracked vendor/ and staging/ trees, many symlinks and executables",
+      "tip": {"ref": "refs/tags/v1.31.0", "commit": "9edcffcde5595e8a5b1a35f88c421764e575afce", "tree": "b9f3daf819cb70b053ac6ff9b01984041a3ce435"},
+      "base": {"ref": "refs/tags/v1.30.0", "commit": "7c48c2bd72b9bf5c44d21d7338cc7bea77d0ad2a", "tree": "b514bf33269920ddfa1d8fbb1ceb7b38f0e46d10"},
+      "tracked_paths": 26232, "reachable_commits": 124423,
+      "budget": {"object_bytes": 1610612736, "checkout_bytes": 402653184}
+    },
+    {
+      "id": "linux", "url": "https://github.com/torvalds/linux.git", "license": "GPL-2.0-only WITH Linux-syscall-note",
+      "shape": "large C tree: 87k paths, 1.4 GiB checkout and 1.3M commits of history",
+      "tip": {"ref": "refs/tags/v6.12", "commit": "adc218676eef25575469234709c2d87185ca223a", "tree": "ac4266ccaf1cf79e8fb22ad3e0d86deac358ffb9"},
+      "base": {"ref": "refs/tags/v6.11", "commit": "98f7e32f20d28ec452afb208f9cffc08448a2652", "tree": "2964fba837d48128eab8b57cfe1acd6b06584fec"},
+      "tracked_paths": 86680, "reachable_commits": 1311256,
+      "budget": {"object_bytes": 7516192768, "checkout_bytes": 2147483648}
+    }
+  ]
+}

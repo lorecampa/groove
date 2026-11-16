@@ -232,9 +232,17 @@ pub(crate) fn measure(
     let (lease, _) = call(runner, binary, repo, &["acquire", "--task", "dirty"])?;
     let root = workspace(&lease)?;
     // Exercise staged and unstaged tracked edits plus untracked/ignored output.
-    fs::write(root.join(case.path(0)), b"staged\n")?;
-    runner.git(&root, ["add", "--", &case.path(0)])?;
-    fs::write(root.join(case.path(0)), b"unstaged\n")?;
+    let edited = crate::repository::edited(runner, &root, case)?;
+    fs::write(root.join(&edited), b"staged\n")?;
+    runner.git(
+        &root,
+        [
+            std::ffi::OsStr::new("add"),
+            "--".as_ref(),
+            edited.as_os_str(),
+        ],
+    )?;
+    fs::write(root.join(&edited), b"unstaged\n")?;
     fs::write(root.join("untracked-build-output"), b"remove\n")?;
     fs::create_dir(root.join("ignored"))?;
     let residue = vec![0x5a; ignored_file_bytes];

@@ -8,6 +8,7 @@ mod lifecycle;
 mod monorepo;
 mod profiles;
 mod report;
+mod repository;
 mod statistics;
 mod util;
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -19,7 +20,7 @@ use util::{require, Result, Runner};
 #[command(
     about = "Run complete, versioned Groove benchmark scenarios",
     version,
-    after_help = "Examples:\n  cargo run -p groove-bench --locked -- profiles\n  cargo run -p groove-bench --locked -- benchmark snapshot-incremental\n  cargo run -p groove-bench --locked -- benchmark all\n  cargo run -p groove-bench --locked -- check snapshot-scale\n\nProfiles own all fixtures, operations and sampling. Docker builds release binaries offline.\nOne report is atomically replaced per invocation; generated repositories are disposable."
+    after_help = "Examples:\n  cargo run -p groove-bench --locked -- profiles\n  cargo run -p groove-bench --locked -- benchmark snapshot-incremental\n  cargo run -p groove-bench --locked -- benchmark all\n  cargo run -p groove-bench --locked -- check snapshot-scale\n  cargo run -p groove-bench --locked -- fetch repository-small\n  cargo run -p groove-bench --locked -- check repository-small\n\nProfiles own all fixtures, operations and sampling. Docker builds release binaries offline.\nOne report is atomically replaced per invocation; generated repositories are disposable.\nPinned real repositories are downloaded only by 'fetch'; runs verify the cache offline."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -33,6 +34,20 @@ enum Action {
     Benchmark(ExecuteArgs),
     /// Verify each selected profile case once, without repeated performance sampling.
     Check(ExecuteArgs),
+    /// Download and verify the pinned public repositories that selected profiles use.
+    ///
+    /// The only networked command. It fetches the complete history reachable from
+    /// each pinned tag, requires the pinned commit/tree IDs, path and commit counts,
+    /// and records pack digests. Interrupted downloads resume from `<ID>.partial.git`;
+    /// verified caches are reused without network access. Profiles without pinned
+    /// repositories need no fetch.
+    Fetch {
+        /// Complete scenario names, or 'all'.
+        #[arg(value_name = "PROFILE", required = true, num_args = 1..)]
+        profiles: Vec<String>,
+        #[command(flatten)]
+        cache: FixtureCache,
+    },
     /// Validate a report and recompute its summary; never creates another report.
     Inspect {
         #[arg(default_value = "benchmarks/snapshots/results/report.json")]
@@ -46,6 +61,20 @@ enum Action {
     Run(RunArgs),
 }
 #[derive(Clone, Args)]
+pub(crate) struct FixtureCache {
+    /// Verified pinned-repository cache on local disk [default: $XDG_CACHE_HOME/groove-bench/repositories].
+    /// A storage location only: every pin is re-verified before use, so it cannot change a workload.
+    #[arg(long, value_name = "DIR")]
+    fixture_cache: Option<PathBuf>,
+}
+impl FixtureCache {
+    pub(crate) fn path(&self) -> PathBuf {
+        self.fixture_cache
+            .clone()
+            .unwrap_or_else(repository::default_cache)
+    }
+}
+#[derive(Clone, Args)]
 pub(crate) struct Plan {
     /// Complete scenario names, or 'all'. Run 'profiles' to see definitions and cost.
     #[arg(value_name="PROFILE",required=true,num_args=1..)]
@@ -56,6 +85,8 @@ pub(crate) struct Plan {
     /// Single report artifact, atomically replacing this path, including operational failures.
     #[arg(long, default_value = "benchmarks/snapshots/results/report.json")]
     output: PathBuf,
+    #[command(flatten)]
+    cache: FixtureCache,
 }
 #[derive(Args)]
 pub(crate) struct ExecuteArgs {
@@ -131,6 +162,24 @@ fn execute() -> Result<()> {
     util::install_signals()?;
     match Cli::parse().command {
         Action::Profiles { profile } => profiles::display(profile.as_deref()),
+        Action::Fetch { profiles, cache } => {
+            let cache = std::path::absolute(cache.path())?;
+            let pinned = repository::required(&profiles::select(&profiles)?)?;
+            if pinned.is_empty() {
+                eprintln!("Selected profiles use generated fixtures only; nothing to fetch");
+            }
+            for repository in &pinned {
+                repository::fetch(&cache, repository)?;
+            }
+            if !pinned.is_empty() {
+                eprintln!(
+                    "Verified {} pinned repositories in {}",
+                    pinned.len(),
+                    cache.display()
+                );
+            }
+            Ok(())
+        }
         Action::Benchmark(args) => execute_profiles(Mode::Benchmark, args),
         Action::Check(args) => execute_profiles(Mode::Check, args),
         Action::Build => {

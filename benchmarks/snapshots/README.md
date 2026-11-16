@@ -22,6 +22,9 @@ cargo run -p groove-bench --locked -- check workspace-concurrency
 cargo run -p groove-bench --locked -- check workspace-multi-pool workspace-deletion
 cargo run -p groove-bench --locked -- check all
 
+# Download and verify pinned real repositories once; the only networked command.
+cargo run -p groove-bench --locked -- fetch repository-small
+
 # Validate the report and recompute its summary from raw evidence.
 cargo run -p groove-bench --locked -- inspect
 ```
@@ -67,7 +70,8 @@ normalized, and all sides must produce the same fixture identity. The primitive
 path generator retains its independent golden smoke tree in `workloads-v1.json`.
 No developer checkout is used as a benchmark fixture. Arbitrary repositories or
 bundles cannot override a profile from the command line; a new dataset requires
-an explicit, versioned profile definition.
+an explicit, versioned profile definition. Real repositories enter only as
+pinned catalog entries (see [pinned real repositories](#pinned-real-repositories)).
 
 Pool profiles assert `recovery: sanitized` after released-checkout reuse, including dirty
 cleanup and monorepo base switches. A fast timing alone cannot establish reuse.
@@ -172,6 +176,64 @@ cargo run -p groove-bench --locked -- benchmark monorepo-reuse \
   --baseline-source /absolute/baseline-checkout
 cargo run -p groove-bench --locked -- check monorepo-snapshots
 ```
+
+### Pinned real repositories
+
+Synthetic fixtures isolate one variable at a time; they cannot reproduce real
+tree shapes, attribute files, symlinks and executables, or years of packed history.
+`repository-small` (ripgrep, CPython) and `repository-large` (Kubernetes, Linux)
+run the same reuse, commit-switch, mixed-snapshot and restore workloads, with
+the same full-tree oracles, against public repositories pinned in
+[`repositories-v1.json`](repositories-v1.json). Each pin names a tag, its peeled
+commit and tree, the tip's tracked path count, the commits reachable from both
+pins, and admission budgets. Pins and profiles share one hash: changing a pin
+changes the profile hash, and needs a profile version increment.
+
+| Repository | Tip / switch base | Paths | Reachable commits | Pack |
+|---|---|---|---|---|
+| ripgrep | 14.1.1 / 14.1.0 | 213 | 2,045 | 5 MiB |
+| CPython | v3.13.0 / v3.12.0 (separate release branches) | 4,882 | 123,983 | 0.5 GiB |
+| Kubernetes | v1.31.0 / v1.30.0 | 26,232 | 124,423 | 1.0 GiB |
+| Linux | v6.12 / v6.11 | 86,680 | 1,311,256 | 5.0 GiB |
+
+Pinned repositories must be workloads Groove supports: no submodules (Groove rejects
+them, so git/git and rust-lang/rust do not qualify), no Git LFS, and no tracked
+top-level names the workloads create (`ignored`, `untracked-*`, `history`).
+
+`fetch` is the only networked command. It downloads the complete history
+reachable from both pinned tags (no shallow clone, no other tags or branches),
+requires every pin and count, and records `count-objects` totals and the SHA-256
+of each pack file. Downloads go to `<ID>.partial.git` and resume there after an
+interruption; only a verified cache is renamed to `<ID>.git`. A verified cache is
+reused without network access. Pack layout comes from the server, so the pack
+digests in each report identify the exact object storage that was measured; compare
+paired binaries on the same cache.
+
+```sh
+cargo run -p groove-bench --locked -- fetch repository-small     # about 0.5 GiB
+cargo run -p groove-bench --locked -- fetch repository-large     # about 6 GiB
+cargo run -p groove-bench --locked -- check repository-small
+cargo run -p groove-bench --locked -- benchmark repository-large \
+  --baseline-source /absolute/baseline-checkout
+```
+
+The cache defaults to `$XDG_CACHE_HOME/groove-bench/repositories` (or
+`~/.cache/...`), outside `target/` so `cargo clean` keeps multi-GiB downloads.
+`--fixture-cache DIR` relocates it; it is a storage location, never a workload
+override, because every run re-verifies pins and pack digests before measuring.
+A missing or stale cache fails before any fixture work and names the `fetch`
+step. Canonical runs bind it read-only at `/fixtures` with networking disabled.
+
+Each block clones the cache with independent objects (`--no-hardlinks`, no
+alternates), checks out the pinned tip, and requires a clean status. The
+workloads' `ignored/` output is ignored through the clone's `info/exclude`,
+leaving tracked files untouched; residue names must not be ignored by the
+repository's own rules. Edit and deletion targets are spread deterministically
+over regular, non-executable tracked files, so real attribute rules (CPython's
+CRLF `.bat` files, for example) apply as they would for a task. Commit switches
+move between real releases. History and checkout copies are outside timings.
+These profiles do not model Git LFS, submodules, sparse checkout or cold OS
+caches, and `all` requires fetching every pinned repository.
 
 ## Correctness evidence and timing
 
@@ -283,7 +345,10 @@ cargo test -p groove-bench --locked small_monorepo_reuse -- --ignored
 
 Normal Cargo runs cover catalog/API/evidence/harness regressions and small core
 scale correctness. Opt-in release-CLI regressions exercise routine profiles and a
-complete paired profile without weakening sampling. The real Docker regression
+complete paired profile without weakening sampling. The `--test cli -- --ignored`
+set includes a pinned real-repository check, which needs `fetch repository-small`
+first; fetch and cache verification are otherwise tested offline with local
+`file://` upstreams. The real Docker regression
 checks interruption at a canonical profile boundary. Large core `snapshot_scale`
 tests remain opt-in, separately from explicit `check snapshot-scale` / `benchmark
 snapshot-scale`; selecting a profile always executes all its declared cases.
