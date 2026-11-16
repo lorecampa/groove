@@ -15,6 +15,13 @@
 
 - Add `config get KEY` and `pool get KEY`, with typed JSON values and plain human
   values. Unknown keys are rejected consistently with preference updates.
+- The development benchmark lab adds `repository-small` (ripgrep, CPython) and
+  `repository-large` (Kubernetes, Linux) profiles over real public repositories
+  pinned by tag, commit, tree, tracked path count and reachable commit count.
+  `groove-bench fetch` is the only networked step: it downloads full history
+  resumably into a verified cache outside `target/`, and runs re-verify pack
+  digests, then clone the cache read-only and offline. Benchmark reports move to
+  schema version 5, recording pinned definitions and fetched pack manifests.
 
 ### Fixed
 

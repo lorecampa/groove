@@ -38,9 +38,14 @@ fn profiles_are_discoverable_and_workload_overrides_are_rejected() {
         "workspace-concurrency",
         "workspace-multi-pool",
         "workspace-deletion",
+        "repository-small",
+        "repository-large",
     ] {
         assert!(listing.contains(name));
     }
+    // Pinned real repositories are discoverable with their exact upstream pins.
+    assert!(listing.contains("https://github.com/torvalds/linux.git"));
+    assert!(listing.contains("pinned cpython v3.13.0 (60403a5409ff)"));
     for flag in [
         "--workload",
         "--lifecycle",
@@ -181,6 +186,112 @@ fn build_profile_verifies_outputs_and_rejects_forged_raw_evidence() {
 }
 
 #[test]
+fn pinned_repository_runs_never_download_and_name_the_fetch_step() {
+    let temp = tempfile::tempdir().unwrap();
+    let report = temp.path().join("report.json");
+    let empty = temp.path().join("empty-cache");
+    std::fs::create_dir(&empty).unwrap();
+    // A missing cache fails before any fixture work; runs never fall back to the network.
+    let output = bench()
+        .args([
+            "check",
+            "repository-small",
+            "--host",
+            "--binary",
+            "/usr/bin/false",
+        ])
+        .arg("--fixture-cache")
+        .arg(&empty)
+        .arg("--temp-root")
+        .arg(temp.path().join("scratch"))
+        .arg("--output")
+        .arg(&report)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let value: Value = serde_json::from_slice(&fs::read(&report).unwrap()).unwrap();
+    assert_eq!(value["status"], "failed");
+    let error = value["error"].as_str().unwrap();
+    assert!(
+        error.contains("missing or stale") && error.contains("fetch"),
+        "{error}"
+    );
+    assert_eq!(fs::read_dir(&empty).unwrap().count(), 0);
+    // Generated profiles need no download, so fetch succeeds without network access.
+    let output = bench()
+        .args(["fetch", "workspace-reuse", "--fixture-cache"])
+        .arg(&empty)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("nothing to fetch"));
+    assert_eq!(fs::read_dir(&empty).unwrap().count(), 0);
+    let help = bench().args(["fetch", "--help"]).output().unwrap();
+    assert!(String::from_utf8_lossy(&help.stdout).contains("only networked command"));
+}
+
+#[test]
+#[ignore = "opt-in release CLI and pinned cache: run `fetch repository-small` first; checks real repositories once"]
+fn pinned_small_repositories_verify_real_trees_and_provenance() {
+    let temp = tempfile::tempdir().unwrap();
+    let report = temp.path().join("report.json");
+    let scratch = temp.path().join("scratch");
+    let output = bench()
+        .args(["check", "repository-small", "--host", "--binary"])
+        .arg(release_cli())
+        .arg("--temp-root")
+        .arg(&scratch)
+        .arg("--output")
+        .arg(&report)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&fs::read(&report).unwrap()).unwrap();
+    assert_eq!(value["status"], "passed");
+    assert_eq!(value["cases"].as_object().unwrap().len(), 6);
+    assert_eq!(
+        value["cases"]["repository-small/cpython-restore"]["identity"],
+        "60403a5409ff2c3f3b07dd2ca91a7a3e096839c7"
+    );
+    for id in ["ripgrep", "cpython"] {
+        let packs = value["repositories"][id]["manifest"]["packs"]
+            .as_array()
+            .unwrap();
+        assert!(!packs.is_empty() && packs.iter().all(|p| p["sha256"].is_string()));
+    }
+    assert_eq!(fs::read_dir(&scratch).unwrap().count(), 0);
+    let inspected = bench().arg("inspect").arg(&report).output().unwrap();
+    assert!(inspected.status.success());
+    // A report claiming another measured commit is rejected against raw evidence.
+    let mut forged = value.clone();
+    forged["cases"]["repository-small/ripgrep-warm"]["identity"] =
+        "e50df40a1967708b9781486b1c017e48040bceb0".into();
+    let path = temp.path().join("forged.json");
+    fs::write(&path, serde_json::to_vec(&forged).unwrap()).unwrap();
+    assert!(!bench()
+        .arg("inspect")
+        .arg(&path)
+        .output()
+        .unwrap()
+        .status
+        .success());
+    let mut forged = value;
+    forged["repositories"]["cpython"]["definition"]["reachable_commits"] = 1.into();
+    fs::write(&path, serde_json::to_vec(&forged).unwrap()).unwrap();
+    assert!(!bench()
+        .arg("inspect")
+        .arg(&path)
+        .output()
+        .unwrap()
+        .status
+        .success());
+}
+
+#[test]
 #[ignore = "opt-in release CLI: checks every routine scenario once, including binary and concurrent workers"]
 fn routine_profiles_verify_raw_evidence_and_preserve_host_configuration() {
     let temp = tempfile::tempdir().unwrap();
@@ -225,7 +336,7 @@ fn routine_profiles_verify_raw_evidence_and_preserve_host_configuration() {
         String::from_utf8_lossy(&output.stderr)
     );
     let value: Value = serde_json::from_slice(&fs::read(&report).unwrap()).unwrap();
-    assert_eq!(value["schema_version"], 4);
+    assert_eq!(value["schema_version"], 5);
     assert_eq!(value["status"], "passed");
     assert_eq!(value["environment"]["canonical"], false);
     assert_eq!(value["cases"].as_object().unwrap().len(), 21);

@@ -237,6 +237,8 @@ pub(crate) fn validate_contract(contract: &Value) -> Result<()> {
         require(
             match mount["Destination"].as_str() {
                 Some("/scratch" | "/results") => mount["Type"] == "bind" && mount["RW"] == true,
+                // The pinned repository cache is optional and must be read-only.
+                Some("/fixtures") => mount["Type"] == "bind" && mount["RW"] == false,
                 Some("/tmp") => mount["Type"] == "tmpfs",
                 _ => false,
             },
@@ -248,7 +250,7 @@ pub(crate) fn validate_contract(contract: &Value) -> Result<()> {
 
 pub(crate) fn summarize(report: &mut Value) -> Result<()> {
     require(
-        report["schema_version"] == 4 && report["measurement_version"] == 4,
+        report["schema_version"] == 5 && report["measurement_version"] == 4,
         "Unsupported benchmark report version",
     )?;
     require(
@@ -260,6 +262,7 @@ pub(crate) fn summarize(report: &mut Value) -> Result<()> {
         "fixture_sha256",
         "catalog_sha256",
         "environment_lock_sha256",
+        "repositories_sha256",
         "runner_sha256",
     ] {
         require(
@@ -303,14 +306,35 @@ pub(crate) fn summarize(report: &mut Value) -> Result<()> {
     let cases = report["cases"]
         .as_object()
         .ok_or_else(|| Error::Invalid("Missing cases".into()))?;
+    let recorded: std::collections::BTreeMap<String, RepositoryRecord> =
+        serde_json::from_value(report["repositories"].clone())?;
+    for (id, record) in &recorded {
+        require(
+            record.definition.id == *id
+                && record.definition.sha256()? == record.sha256
+                && record.manifest["definition_sha256"] == record.sha256.as_str(),
+            "Pinned repository record contradicts its definition",
+        )?;
+    }
+    let mut referenced = std::collections::BTreeSet::new();
     let mut expected = std::collections::BTreeSet::new();
     let mut summary = Map::new();
     for (id, value) in definitions {
         let selected: SelectedProfile = serde_json::from_value(value.clone())?;
         let profile = selected.definition;
         crate::profiles::validate(&profile)?;
+        let mut pinned = std::collections::BTreeMap::new();
+        for case in &profile.cases {
+            if let crate::profiles::Contents::Repository { repository } = &case.contents {
+                let record = recorded.get(repository).ok_or_else(|| {
+                    Error::Invalid(format!("Missing pinned repository record: {repository}"))
+                })?;
+                referenced.insert(repository.clone());
+                pinned.insert(repository.clone(), record.definition.clone());
+            }
+        }
         require(
-            profile.id == *id && profile.sha256()? == selected.sha256,
+            profile.id == *id && profile.sha256_with(&pinned)? == selected.sha256,
             "Profile identity/hash contradicts embedded definition",
         )?;
         if profile.sampling.balanced_cases {
@@ -340,6 +364,12 @@ pub(crate) fn summarize(report: &mut Value) -> Result<()> {
                     .clone(),
             )?;
             require(!result.identity.is_empty(), "Missing fixture identity")?;
+            if let crate::profiles::Contents::Repository { repository } = &case.contents {
+                require(
+                    result.identity == recorded[repository].definition.tip.commit,
+                    "Pinned repository case measured a different commit",
+                )?;
+            }
             let count = if mode == crate::Mode::Check {
                 1
             } else {
@@ -387,6 +417,10 @@ pub(crate) fn summarize(report: &mut Value) -> Result<()> {
         expected.iter().eq(cases.keys()),
         "Unexpected report cases outside selected profiles",
     )?;
+    require(
+        referenced.iter().eq(recorded.keys()),
+        "Unexpected pinned repository records outside selected profiles",
+    )?;
     report["summary"] = summary.into();
     Ok(())
 }
@@ -395,6 +429,13 @@ pub(crate) fn summarize(report: &mut Value) -> Result<()> {
 struct SelectedProfile {
     sha256: String,
     definition: crate::profiles::Profile,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RepositoryRecord {
+    sha256: String,
+    definition: crate::repository::Repository,
+    manifest: Value,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -422,7 +463,7 @@ mod tests {
     use super::*;
     #[test]
     fn unsupported_reports_and_incomplete_runtime_provenance_are_rejected() {
-        let mut report = json!({"schema_version":4,"measurement_version":999,"status":"passed"});
+        let mut report = json!({"schema_version":5,"measurement_version":999,"status":"passed"});
         assert!(summarize(&mut report).is_err());
         assert!(validate_contract(&json!({})).is_err());
     }

@@ -48,6 +48,36 @@
       ]
     },
     {
+      "id": "repository-small", "version": 1,
+      "purpose": "Real public repositories pinned by commit/tree: a small Rust workspace and CPython with real attributes and a cross-branch release switch. Reuse, commit switches, mixed snapshots and restore with full-tree oracles.",
+      "environment": "cli-linux-amd64-v5",
+      "sampling": {"blocks": 6, "warmup_blocks": 1},
+      "estimated_minutes": [5, 25],
+      "cases": [
+        {"id": "ripgrep-warm", "files": 213, "contents": {"kind": "repository", "repository": "ripgrep"}, "workload": {"kind": "monorepo-reuse", "cleanup": "warm", "ignored_files": 256, "ignored_file_bytes": 16384}},
+        {"id": "ripgrep-mixed", "files": 213, "contents": {"kind": "repository", "repository": "ripgrep"}, "workload": {"kind": "snapshot-save", "history_depth": 3, "mutation": "mixed"}},
+        {"id": "cpython-warm", "files": 4882, "contents": {"kind": "repository", "repository": "cpython"}, "workload": {"kind": "monorepo-reuse", "cleanup": "warm", "ignored_files": 256, "ignored_file_bytes": 16384}},
+        {"id": "cpython-pristine", "files": 4882, "contents": {"kind": "repository", "repository": "cpython"}, "workload": {"kind": "monorepo-reuse", "cleanup": "pristine", "ignored_files": 256, "ignored_file_bytes": 16384}},
+        {"id": "cpython-mixed", "files": 4882, "contents": {"kind": "repository", "repository": "cpython"}, "workload": {"kind": "snapshot-save", "history_depth": 3, "mutation": "mixed"}},
+        {"id": "cpython-restore", "files": 4882, "contents": {"kind": "repository", "repository": "cpython"}, "workload": {"kind": "snapshot-restore"}}
+      ]
+    },
+    {
+      "id": "repository-large", "version": 1,
+      "purpose": "Real large repositories pinned by commit/tree: Kubernetes (vendored Go monorepo, symlinks) and Linux (87k paths, 1.3M commits). Reuse, release-to-release switches, mixed snapshots and restore with full-tree oracles.",
+      "environment": "cli-linux-amd64-v5",
+      "sampling": {"blocks": 6, "warmup_blocks": 1},
+      "estimated_minutes": [45, 180],
+      "cases": [
+        {"id": "kubernetes-warm", "files": 26232, "contents": {"kind": "repository", "repository": "kubernetes"}, "workload": {"kind": "monorepo-reuse", "cleanup": "warm", "ignored_files": 1024, "ignored_file_bytes": 65536}},
+        {"id": "kubernetes-mixed", "files": 26232, "contents": {"kind": "repository", "repository": "kubernetes"}, "workload": {"kind": "snapshot-save", "history_depth": 3, "mutation": "mixed"}},
+        {"id": "linux-warm", "files": 86680, "contents": {"kind": "repository", "repository": "linux"}, "workload": {"kind": "monorepo-reuse", "cleanup": "warm", "ignored_files": 1024, "ignored_file_bytes": 65536}},
+        {"id": "linux-pristine", "files": 86680, "contents": {"kind": "repository", "repository": "linux"}, "workload": {"kind": "monorepo-reuse", "cleanup": "pristine", "ignored_files": 1024, "ignored_file_bytes": 65536}},
+        {"id": "linux-mixed", "files": 86680, "contents": {"kind": "repository", "repository": "linux"}, "workload": {"kind": "snapshot-save", "history_depth": 3, "mutation": "mixed"}},
+        {"id": "linux-restore", "files": 86680, "contents": {"kind": "repository", "repository": "linux"}, "workload": {"kind": "snapshot-restore"}}
+      ]
+    },
+    {
       "id": "workspace-multi-pool", "version": 3,
       "purpose": "First registration and warm acquire/release throughput across named pools sharing Git administration, with independent repeated task labels/keys and catalog verification. Pools disable automatic preparation and idle eviction.",
       "environment": "cli-linux-amd64-v5",

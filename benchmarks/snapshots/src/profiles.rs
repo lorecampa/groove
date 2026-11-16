@@ -47,8 +47,17 @@ pub(crate) enum Contents {
     Paths,
     Unique,
     ConvertedText,
-    Binary { bytes: usize },
-    Monorepo { history_commits: usize },
+    Binary {
+        bytes: usize,
+    },
+    Monorepo {
+        history_commits: usize,
+    },
+    /// A real public repository pinned in `repositories-v1.json`; `files` must equal
+    /// its pinned tracked path count.
+    Repository {
+        repository: String,
+    },
 }
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
@@ -116,8 +125,22 @@ impl Cleanup {
     }
 }
 impl Profile {
+    /// Profile identity. Pinned repository definitions are part of a profile's
+    /// semantics, so they are hashed with it; generated profiles keep their
+    /// original definition-only hash.
+    pub(crate) fn sha256_with(
+        &self,
+        repositories: &std::collections::BTreeMap<String, crate::repository::Repository>,
+    ) -> Result<String> {
+        if repositories.is_empty() {
+            return Ok(hash(&serde_json::to_vec(self)?));
+        }
+        Ok(hash(&serde_json::to_vec(
+            &serde_json::json!({"profile":self,"repositories":repositories}),
+        )?))
+    }
     pub(crate) fn sha256(&self) -> Result<String> {
-        Ok(hash(&serde_json::to_vec(self)?))
+        self.sha256_with(&crate::repository::definitions(self)?)
     }
 }
 impl Case {
@@ -138,6 +161,21 @@ impl Case {
                 "heterogeneous text/binary, {:.2} GiB tracked, {history_commits} history commits",
                 crate::monorepo::content_bytes(self.files) as f64 / 1073741824.0
             ),
+            Contents::Repository { ref repository } => match crate::repository::find(repository) {
+                Ok(pinned) => format!(
+                    "pinned {repository} {} ({}), {} reachable commits, switch base {}",
+                    pinned.tip.reference.trim_start_matches("refs/tags/"),
+                    &pinned.tip.commit[..12],
+                    pinned.reachable_commits,
+                    pinned.base.reference.trim_start_matches("refs/tags/"),
+                ),
+                Err(error) => error.to_string(),
+            },
+        };
+        let source = if matches!(self.contents, Contents::Repository { .. }) {
+            "tracked paths"
+        } else {
+            "generated source paths"
         };
         let operations = match self.workload {
             Workload::WorkspaceBuild { strategy, units } => format!(
@@ -168,10 +206,7 @@ impl Case {
                 if materialized { "materialized" } else { "lazy" }, if dirty { "dirty" } else { "clean" }, if external { "external" } else { "default" }
             ),
         };
-        format!(
-            "{} generated source paths ({contents}); {operations}",
-            self.files
-        )
+        format!("{} {source} ({contents}); {operations}", self.files)
     }
     pub(crate) fn capacity(&self) -> usize {
         match self.workload {
@@ -191,6 +226,30 @@ impl Case {
             Workload::WorkspaceDeletion { .. } => self.capacity() + 3,
             _ => self.capacity() + 1,
         } as u64;
+        if let Contents::Repository { repository } = &self.contents {
+            let Ok(pinned) = crate::repository::find(repository) else {
+                return (u64::MAX, u64::MAX);
+            };
+            let ignored = match self.workload {
+                Workload::MonorepoReuse {
+                    ignored_files,
+                    ignored_file_bytes,
+                    ..
+                } => (ignored_files * ignored_file_bytes) as u64,
+                _ => 0,
+            };
+            // The read-only seed lives in the fixture cache. Each block holds an
+            // independent object copy, the source checkout, `copies` further
+            // checkouts/recoveries, oracle indexes and per-path allocation slack.
+            return (
+                pinned.budget.object_bytes * 2
+                    + pinned.budget.checkout_bytes * (copies + 1)
+                    + self.files as u64 * (copies + 1) * 8192
+                    + ignored * 2
+                    + 512 * 1024 * 1024,
+                self.files as u64 * (copies + 1) * 3 + 20000,
+            );
+        }
         if let Contents::Monorepo { history_commits } = self.contents {
             let ignored = match self.workload {
                 Workload::MonorepoReuse {
@@ -315,8 +374,11 @@ pub(crate) fn validate(profile: &Profile) -> Result<()> {
                 ..
             } => {
                 require(
-                    matches!(case.contents, Contents::Monorepo { .. }),
-                    "Monorepo workload needs monorepo contents",
+                    matches!(
+                        case.contents,
+                        Contents::Monorepo { .. } | Contents::Repository { .. }
+                    ),
+                    "Monorepo workload needs monorepo or pinned repository contents",
                 )?;
                 require(
                     (1..=10000).contains(ignored_files)
@@ -389,6 +451,25 @@ pub(crate) fn validate(profile: &Profile) -> Result<()> {
                 "Unsupported monorepo workload",
             )?;
         }
+        if let Contents::Repository { repository } = &case.contents {
+            let pinned = crate::repository::find(repository)?;
+            require(
+                case.files == pinned.tracked_paths,
+                format!(
+                    "Case {} declares {} paths; {repository} pins {}",
+                    case.id, case.files, pinned.tracked_paths
+                ),
+            )?;
+            require(
+                matches!(
+                    case.workload,
+                    Workload::MonorepoReuse { .. }
+                        | Workload::SnapshotSave { .. }
+                        | Workload::SnapshotRestore
+                ),
+                "Unsupported pinned repository workload",
+            )?;
+        }
     }
     Ok(())
 }
@@ -453,6 +534,19 @@ pub(crate) fn display(name: Option<&str>) -> Result<()> {
             .max()
             .unwrap_or(0);
         println!("{} (v{})\n  {}\n  {} cases; {} measured repetitions + {} discarded warmup per case and binary\n  Each repetition runs the complete case on a fresh disposable repository.\n  Estimated {}–{} min, at least {:.1} GiB scratch and {} free inodes (unpaired; host dependent)",profile.id,profile.version,profile.purpose,profile.cases.len(),profile.sampling.blocks,profile.sampling.warmup_blocks,profile.estimated_minutes[0],profile.estimated_minutes[1],bytes as f64/1073741824.0,inodes);
+        let pinned = crate::repository::required(std::slice::from_ref(&profile))?;
+        if !pinned.is_empty() {
+            println!(
+                "  Pinned repositories (run `fetch {}` once; up to {:.1} GiB cached): {}",
+                profile.id,
+                pinned.iter().map(|r| r.budget.object_bytes).sum::<u64>() as f64 / 1073741824.0,
+                pinned
+                    .iter()
+                    .map(|r| format!("{} {}", r.id, r.url))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
         for case in &profile.cases {
             println!("  {}: {}", case.id, case.description());
         }
