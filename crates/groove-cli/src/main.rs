@@ -88,6 +88,7 @@ fn main() -> ExitCode {
                 &error,
                 &terminal,
                 None,
+                None,
             ))
         }
     }
@@ -136,7 +137,7 @@ fn reject(raw: &[std::ffi::OsString], error: &clap::Error) -> u8 {
         ErrorCode::InvalidArgument,
         rendered.strip_prefix("error: ").unwrap_or(&rendered),
     );
-    output::emit_error(partial.format, request_id, &error, &terminal, None)
+    output::emit_error(partial.format, request_id, &error, &terminal, None, None)
 }
 
 fn run(args: &Args) -> u8 {
@@ -173,6 +174,7 @@ fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {
             ),
             terminal,
             Some(args),
+            None,
         );
     }
     // Configuration and completion commands work even with broken preferences.
@@ -185,7 +187,7 @@ fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {
         match preferences::load() {
             Ok(settings) => settings.logging,
             Err(error) => {
-                return output::emit_error(format, request_id, &error, terminal, Some(args))
+                return output::emit_error(format, request_id, &error, terminal, Some(args), None)
             }
         }
     };
@@ -213,7 +215,7 @@ fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {
                 tracing::error!(event = "command.failed", file_only = true, code = %error.code,
                     elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
                     "Command failed");
-                return output::emit_error(format, request_id, &error, terminal, Some(args));
+                return output::emit_error(format, request_id, &error, terminal, Some(args), None);
             }
         }
     } else {
@@ -248,7 +250,14 @@ fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {
                 ready::restart(args, selected_pool);
             }
             tracing::error!(event = "command.failed", file_only = true, code = %error.code, elapsed_ms = elapsed_ms(), "Command failed");
-            output::emit_error(format, request_id, &error, terminal, Some(args))
+            output::emit_error(
+                format,
+                request_id,
+                &error,
+                terminal,
+                Some(args),
+                selected_pool,
+            )
         }
     }
 }

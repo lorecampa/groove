@@ -408,3 +408,46 @@ fn workspace_aliases_resolve_the_registered_reservation_and_broken_backlinks_ref
         current.lease_id.to_string()
     );
 }
+
+#[test]
+fn release_retry_guidance_keeps_the_inferred_named_pool() {
+    if !support::in_subprocess("release_retry_guidance_keeps_the_inferred_named_pool") {
+        return;
+    }
+    let repo = Repo::new();
+    let default = pool(&repo, "default");
+    let frontend = pool(&repo, "frontend");
+    let other = reserve(&default, Some("other"));
+    let current = reserve(&frontend, Some("current"));
+    fs::write(
+        current.worktree_path.join("tracked.txt"),
+        "keep named-pool changes\n",
+    )
+    .unwrap();
+    let error = failure(
+        &run(&current.worktree_path, &["release"]),
+        5,
+        "UNSAVED_CHANGES",
+    );
+    assert_eq!(
+        error["details"]["reservation_id"],
+        current.lease_id.to_string()
+    );
+    let hint = error["hint"].as_str().unwrap();
+    assert!(hint.contains("--pool frontend"), "{hint}");
+    assert!(!hint.contains("--pool default"), "{hint}");
+    protected(&default, &other);
+    protected(&frontend, &current);
+    success(&run(
+        &repo.path,
+        &[
+            "--pool",
+            "frontend",
+            "release",
+            "--save",
+            "--reservation-id",
+            &current.lease_id.to_string(),
+        ],
+    ));
+    protected(&default, &other);
+}

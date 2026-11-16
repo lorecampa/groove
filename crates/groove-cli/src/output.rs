@@ -204,8 +204,9 @@ pub fn emit_error(
     error: &Error,
     terminal: &crate::terminal::Terminal,
     args: Option<&crate::args::Args>,
+    selected_pool: Option<&groove_core::PoolName>,
 ) -> u8 {
-    let hint = error_hint(error, args);
+    let hint = error_hint(error, args, selected_pool);
     let (summary, body) = error
         .message
         .split_once('\n')
@@ -246,7 +247,11 @@ pub fn emit_error(
 }
 
 /// Advisory recovery text selected from typed failures, never message matching.
-fn error_hint(error: &Error, args: Option<&crate::args::Args>) -> Option<String> {
+fn error_hint(
+    error: &Error,
+    args: Option<&crate::args::Args>,
+    selected_pool: Option<&groove_core::PoolName>,
+) -> Option<String> {
     let hint = match error.code {
         ErrorCode::UnsavedChanges if args.is_some_and(|args| matches!(args.command, crate::args::Command::Pool(crate::args::PoolCommand::Destroy { .. }))) => Some(
             "Export any wanted residual files from the reported path before deletion, including ignored caches (snapshots exclude them). Then preview `groove pool destroy --force --dry-run` and repeat without --dry-run to acknowledge their loss. Released tasks cannot save new files through a release retry.",
@@ -285,7 +290,10 @@ fn error_hint(error: &Error, args: Option<&crate::args::Args>) -> Option<String>
     let Some(args) = args else {
         return Some(hint.to_owned());
     };
-    let pool = args.pool.clone().unwrap_or_default();
+    let pool = selected_pool
+        .or(args.pool.as_ref())
+        .cloned()
+        .unwrap_or_default();
     let selection = format!(
         " --pool {} --repo {}",
         pool.as_str(),
