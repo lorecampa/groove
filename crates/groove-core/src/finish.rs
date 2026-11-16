@@ -31,10 +31,11 @@ pub struct FinishResult {
 }
 
 fn receipt_path(pool: &Pool, id: LeaseId) -> PathBuf {
-    pool.repo
-        .root
-        .join("slots")
-        .join(format!("finish-{id}.json"))
+    receipt_path_in(&pool.repo, id)
+}
+
+fn receipt_path_in(repo: &crate::repository::Repository, id: LeaseId) -> PathBuf {
+    repo.root.join("slots").join(format!("finish-{id}.json"))
 }
 
 /// Called under exclusive lifecycle admission after durable deletion. Permanent
@@ -105,7 +106,16 @@ fn retire_superseded(pool: &Pool, receipt: &mut FinishReceipt) -> Result<()> {
 }
 
 pub(crate) fn released_files_saved(pool: &Pool, lease: &crate::LeaseInfo) -> Result<bool> {
-    let path = receipt_path(pool, lease.lease_id);
+    released_files_saved_in(&pool.repo, pool.git_timeout, lease, false)
+}
+
+pub(crate) fn released_files_saved_in(
+    repo: &crate::repository::Repository,
+    timeout: std::time::Duration,
+    lease: &crate::LeaseInfo,
+    admitted: bool,
+) -> Result<bool> {
+    let path = receipt_path_in(repo, lease.lease_id);
     if !path.try_exists()? {
         return Ok(false);
     }
@@ -119,8 +129,12 @@ pub(crate) fn released_files_saved(pool: &Pool, lease: &crate::LeaseInfo) -> Res
             "Invalid saved release receipt",
         ));
     }
-    Snapshots::open(&lease.worktree_path, pool.git_timeout)?
-        .matches_saved_files(&receipt.snapshot.id)
+    let snapshots = if admitted {
+        Snapshots::open_admitted(&lease.worktree_path, timeout)?
+    } else {
+        Snapshots::open(&lease.worktree_path, timeout)?
+    };
+    snapshots.matches_saved_files(&receipt.snapshot.id)
 }
 
 impl Lease {

@@ -290,3 +290,77 @@ fn copied_release_advice_keeps_the_inferred_pool_selection() {
     );
     assert_eq!(saved["result"]["snapshot"]["pinned"], true);
 }
+
+#[test]
+fn destruction_accepts_saved_release_files_but_refuses_later_edits_and_ignored_files() {
+    let repo = Repo::new();
+    init(&repo, "default", "1");
+    let acquired = cli(&repo.path, &["acquire", "--task", "work"]);
+    let slot = Path::new(acquired["workspace_path"].as_str().unwrap());
+    fs::write(slot.join("tracked.txt"), "saved edit\n").unwrap();
+    fs::write(slot.join("new.txt"), "saved staged file\n").unwrap();
+    support::git(slot, &["add", "new.txt"]);
+    let saved = cli(&repo.path, &["release", "--save", "--task", "work"]);
+    assert_eq!(saved["snapshot"]["pinned"], true);
+    cli(&repo.path, &["pool", "destroy", "--dry-run"]);
+    fs::write(slot.join("tracked.txt"), "later edit\n").unwrap();
+    let error = check(
+        support::groove_in(&repo.path)
+            .args(["pool", "destroy", "--dry-run"])
+            .output()
+            .unwrap(),
+        5,
+    );
+    assert_eq!(error["error"]["code"], "UNSAVED_CHANGES");
+    assert_eq!(
+        fs::read_to_string(slot.join("tracked.txt")).unwrap(),
+        "later edit\n"
+    );
+    fs::write(slot.join("tracked.txt"), "saved edit\n").unwrap();
+    fs::create_dir(slot.join("ignored")).unwrap();
+    fs::write(slot.join("ignored/cache"), "excluded\n").unwrap();
+    let error = check(
+        support::groove_in(&repo.path)
+            .args(["pool", "destroy", "--dry-run"])
+            .output()
+            .unwrap(),
+        5,
+    );
+    assert_eq!(error["error"]["code"], "UNSAVED_CHANGES");
+    assert!(error["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("ignored"));
+    assert_eq!(
+        fs::read_to_string(slot.join("ignored/cache")).unwrap(),
+        "excluded\n"
+    );
+    fs::remove_dir_all(slot.join("ignored")).unwrap();
+    assert_eq!(
+        cli(&repo.path, &["pool", "destroy"])["destruction"]["deleted"],
+        true
+    );
+    assert!(!slot.exists());
+    let recovered = repo.temp.path().join("recovered");
+    check(
+        support::groove_in(&repo.path)
+            .args([
+                "snapshot",
+                "restore",
+                saved["snapshot"]["id"].as_str().unwrap(),
+                "--to",
+            ])
+            .arg(&recovered)
+            .output()
+            .unwrap(),
+        0,
+    );
+    assert_eq!(
+        fs::read_to_string(recovered.join("tracked.txt")).unwrap(),
+        "saved edit\n"
+    );
+    assert_eq!(
+        fs::read_to_string(recovered.join("new.txt")).unwrap(),
+        "saved staged file\n"
+    );
+}

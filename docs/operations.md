@@ -376,3 +376,7 @@ acquisition clears the failure. Inconsistent or foreign checkouts still quaranti
 Recovery hints carry the selected pool and repository. Inside a managed workspace,
 the inferred owning pool is retained in copied commands even when `--pool` was
 omitted, so saved-release advice applies to the original reservation.
+
+Pool destruction accepts residual files when they still match the pinned snapshot
+from `release --save`. Later edits and ignored files still refuse deletion without
+an explicit loss acknowledgement. Saved snapshots remain recoverable after deletion.

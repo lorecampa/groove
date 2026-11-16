@@ -55,6 +55,9 @@
 
 ### Fixed
 
+- Allow pool destruction when residual files match a pinned saved release, while
+  continuing to refuse later edits, special files and ignored caches.
+
 - Verify copied saved-release advice retains a managed workspace's inferred pool.
 
 - Keep slow preparation slots available after Git timeouts; report background

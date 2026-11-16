@@ -150,7 +150,12 @@ fn artifacts(repo: &Repository) -> Result<Vec<PathBuf>> {
     Ok(paths)
 }
 
-fn require_saved(repo: &Repository, path: &Path, timeout: Duration) -> Result<()> {
+fn require_saved(
+    repo: &Repository,
+    path: &Path,
+    lease: Option<&crate::LeaseInfo>,
+    timeout: Duration,
+) -> Result<()> {
     crate::recovery::registration(repo, path)?;
     if crate::recovery::interrupted(repo, path)? {
         return Err(Error::new(
@@ -185,8 +190,21 @@ fn require_saved(repo: &Repository, path: &Path, timeout: Duration) -> Result<()
         },
     )?;
     if !status.is_empty() {
-        return Err(Error::new(ErrorCode::UnsavedChanges, "Workspace contains residual files or edits; save them or acknowledge loss with --force")
-            .with_details(|d| d.path = Some(path.into())));
+        if status
+            .split(|byte| *byte == 0)
+            .any(|entry| entry.starts_with(b"!! "))
+        {
+            return Err(Error::new(ErrorCode::UnsavedChanges,
+                "Workspace retains ignored files that snapshots exclude; export them or acknowledge loss with --force")
+                .with_details(|d| d.path = Some(path.into())));
+        }
+        if !match lease {
+            Some(lease) => crate::finish::released_files_saved_in(repo, timeout, lease, true)?,
+            None => false,
+        } {
+            return Err(Error::new(ErrorCode::UnsavedChanges, "Workspace contains residual files or edits; save them or acknowledge loss with --force")
+                .with_details(|d| d.path = Some(path.into())));
+        }
     }
     if let Some(special) = crate::workspace_files::first_special(path, timeout)? {
         return Err(Error::new(
@@ -492,13 +510,18 @@ impl Pool {
             repository::no_symlinks(&path)?;
             crate::recovery::validate_disposal(&repo, &path)?;
             let record_path = repo.record_path(slot);
+            let mut last_lease = None;
             if exists(&record_path)? {
                 let record: SlotRecord = state::read(&record_path)?;
                 if record.schema_version != state::SCHEMA_VERSION
-                    || record.lease.as_ref().is_some_and(|l| l.slot_id != *slot)
+                    || record
+                        .lease
+                        .as_ref()
+                        .is_some_and(|l| l.slot_id != *slot || l.worktree_path != path)
                 {
                     return Err(conflict("Invalid slot metadata", &record_path));
                 }
+                last_lease = record.lease;
             } else if !initializing {
                 return Err(conflict("Missing slot metadata", &record_path));
             }
@@ -521,7 +544,7 @@ impl Pool {
                 validate_tree(&path, fs::metadata(root)?.dev())?;
                 stopped(&path)?;
                 if !options.discard_changes && !result.resumed {
-                    require_saved(&repo, &path, options.git_timeout)?;
+                    require_saved(&repo, &path, last_lease.as_ref(), options.git_timeout)?;
                 }
             }
         }
