@@ -23,6 +23,8 @@
 - Infer the active reservation for `release` inside an acquired Groove workspace,
   including subdirectories and `--repo` paths. Explicit task/ID selectors still
   take precedence; failed releases report the selected reservation ID for retries.
+- Add `scripts/install-cli.sh` to build and install the current checkout's CLI,
+  forwarding Cargo options and replacing an existing binary at the same version.
 - DEBUG diagnostics report snapshot capture and restore phase durations and
   success/error outcomes, including release saves, current-file diff captures
   and restore safety checkpoints. Use `-vv` to show them on stderr.
