@@ -63,6 +63,7 @@ impl Progress {
                 "event": "progress",
                 "request_id": self.request_id,
                 "command": self.command,
+                "phase": groove_core::current_phase(),
                 "elapsed_ms": u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX),
             });
             writeln!(writer, "{event}")?;
@@ -70,8 +71,11 @@ impl Progress {
             let frame = ["|", "/", "-", "\\"][self.frame % 4];
             write!(
                 writer,
-                "\r\x1b[2K{frame} Running groove {}… ({}s)",
+                "\r\x1b[2K{frame} Running groove {}{}… ({}s)",
                 self.command,
+                groove_core::current_phase()
+                    .map(|phase| format!(": {phase}"))
+                    .unwrap_or_default(),
                 elapsed.as_secs()
             )?;
             self.frame = self.frame.wrapping_add(1);

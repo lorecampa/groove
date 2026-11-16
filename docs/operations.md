@@ -389,3 +389,8 @@ key, value and Git configuration origin. `extensions.worktreeConfig=true` is
 allowed only when the main checkout's `config.worktree` contains no rejected key
 and no other `core.*` or `extensions.*` setting except `core.bare`, `core.filemode`
 and `core.repositoryformatversion`. Groove does not rewrite repository settings.
+
+Long commands report their current operation phase in JSON progress events and
+interactive spinners. Debug Git completion events identify the subcommand and
+working-directory basename without recording full arguments or checkout paths.
+Phases are advisory process-wide observations, not completion percentages.

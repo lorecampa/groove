@@ -10,8 +10,10 @@ JSON OUTPUT CONTRACT (--json):
   Commands still running after 1 second show a spinner on interactive stderr
   (except TERM=dumb). Redirected human output has no animation. With --json,
   progress is a newline-delimited stderr object instead, at most every 5 seconds:
-  {"api_version":2,"event":"progress","request_id":null,"command":"show","elapsed_ms":1000}
+  {"api_version":2,"event":"progress","request_id":null,"command":"show","elapsed_ms":1000,"phase":"verifying"}
   command is the full pool command path (such as "pool init") or command name; elapsed_ms is time since command start.
+  phase is the latest operation phase, or null before a phase is available.
+  Concurrent work can replace it; it is advisory rather than a completion measure.
   These best-effort liveness events have no completion percentage or final event;
   the stdout response is authoritative. Events wait for a diagnostic line boundary.
   Stderr also carries diagnostics: it is not a JSON-only stream.

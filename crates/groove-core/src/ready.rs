@@ -788,6 +788,7 @@ impl Pool {
         }
         record.idle_since_unix_ms.get_or_insert(now);
         if evicting || (retained >= policy.ready_target && expired && path.try_exists()?) {
+            crate::progress::set_phase("evicting");
             let _admin = self.ready_admin()?;
             crate::recovery::validate_disposal(&self.repo, &path)?;
             state::write(
@@ -843,6 +844,7 @@ impl Pool {
                 oid: oid.clone(),
             },
         )?;
+        crate::progress::set_phase("preparing spare");
         state::checkpoint("ready-before-preparation");
         crate::recovery::prepare(&self.repo, &self.config, slot, guard, oid, self.git_timeout)?;
         state::write(

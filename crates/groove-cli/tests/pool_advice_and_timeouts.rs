@@ -448,3 +448,65 @@ fn configured_filters_name_their_origin_and_remain_rejected_after_init() {
     );
     assert!(!repo.slot(1).exists());
 }
+
+#[test]
+fn slow_checkout_progress_reports_the_current_phase() {
+    let repo = Repo::new();
+    init(&repo, "default", "1");
+    let output = slow_git(&repo).arg("acquire").output().unwrap();
+    let schema: Value =
+        serde_json::from_str(include_str!("../../../schemas/progress-v2.schema.json")).unwrap();
+    let validator = jsonschema::validator_for(&schema).unwrap();
+    let events: Vec<Value> = std::str::from_utf8(&output.stderr)
+        .unwrap()
+        .lines()
+        .map(|line| {
+            let event: Value = serde_json::from_str(line).unwrap();
+            validator.validate(&event).unwrap();
+            event
+        })
+        .collect();
+    check(output, 0);
+    assert!(
+        events
+            .iter()
+            .any(|event| event["event"] == "progress" && event["phase"] == "checking out"),
+        "{events:?}"
+    );
+}
+
+#[test]
+fn detailed_inspection_traces_the_git_program_and_only_the_directory_basename() {
+    let repo = Repo::new();
+    init(&repo, "default", "1");
+    cli(&repo.path, &["acquire"]);
+    cli(&repo.path, &["config", "set", "logging.level=trace"]);
+    let logs = repo.temp.path().join("trace-logs");
+    check(
+        support::groove_in(&repo.path)
+            .env("GROOVE_LOG_ENABLED", "true")
+            .env("GROOVE_LOG_DIR", &logs)
+            .args(["list", "--details"])
+            .output()
+            .unwrap(),
+        0,
+    );
+    let events: Vec<Value> = fs::read_dir(logs)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "jsonl"))
+        .flat_map(|path| {
+            fs::read_to_string(path)
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect::<Vec<Value>>()
+        })
+        .collect();
+    assert!(
+        events.iter().any(|event| event["event"] == "git.completed"
+            && event["fields"]["program"] == "status"
+            && event["fields"]["cwd"] == "wt-0001"),
+        "{events:?}"
+    );
+}

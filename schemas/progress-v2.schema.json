@@ -30,6 +30,10 @@
     "elapsed_ms": {
       "type": "integer",
       "minimum": 0
+    },
+    "phase": {
+      "type": ["string", "null"],
+      "description": "Most recently observed operation phase; advisory, with no completion guarantee."
     }
   },
   "additionalProperties": true,

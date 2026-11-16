@@ -346,8 +346,10 @@ pub(crate) fn prepare(
     // expose a still-mutating registration or slot to another cooperating process.
     let fds = [fd, admin.file.as_raw_fd()];
     validate_slot_path(repo, config, slot)?;
+    crate::progress::set_phase("removing checkout");
     remove_owned(repo, &path)?;
     state::checkpoint("old-worktree-removed");
+    crate::progress::set_phase("registering worktree");
     register(&git, repo, &path, oid, &fds)?;
     state::checkpoint("worktree-created");
     // Registration is complete and natively locked. Only this slot's
@@ -480,11 +482,13 @@ pub(crate) fn normalize(
             }
         }
     }
+    crate::progress::set_phase("checking out");
     git.run(
         path,
         &["checkout", "--detach", "--force", oid.as_str(), "--"],
         fds,
     )?;
+    crate::progress::set_phase("cleaning");
     git.run(
         path,
         &[
@@ -577,6 +581,7 @@ fn conversion_context(git: &Git, path: &Path) -> Result<Vec<u8>> {
 }
 
 fn mark_verified(git: &Git, path: &Path) -> Result<()> {
+    crate::progress::set_phase("recording inventory");
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
     let admin = registration_from_file(path)?;
@@ -744,6 +749,7 @@ pub(crate) fn verify(
     oid: &crate::CommitOid,
     policy: CleanupPolicy,
 ) -> Result<()> {
+    crate::progress::set_phase("verifying");
     registration(repo, path)?;
     if interrupted(repo, path)? {
         return Err(Error::new(

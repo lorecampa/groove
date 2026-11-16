@@ -20,6 +20,9 @@
 
 ### Added
 
+- Report operation phases in progress heartbeats and spinners; Git tracing names
+  the subcommand and working-directory basename without exposing full arguments.
+
 - Persist background preparation budgets with `pool init/set --ready-git-timeout`;
   timeout diagnostics identify the budget and recovery setting.
 
