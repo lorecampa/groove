@@ -55,6 +55,9 @@
 
 ### Fixed
 
+- Keep slow preparation slots available after Git timeouts; report background
+  failures consistently in slot views and suggest the foreground timeout budget.
+
 - Keep the real index's cached stats after an in-place snapshot restore. The
   final index write discarded them, so the next save or restore treated every
   tracked path as changed. In repositories with committed text/eol rules (such

@@ -290,6 +290,14 @@ fn error_hint(
     let Some(args) = args else {
         return Some(hint.to_owned());
     };
+    let hint = if error.code == ErrorCode::PoolUnhealthy && error.is_git_timeout() {
+        let budget = format!("{}ms", args.git_timeout_ms)
+            .parse::<groove_core::ReadyGitTimeout>()
+            .expect("CLI Git timeout is a positive u64 millisecond duration");
+        format!("Git timed out after {budget}; large repositories may need `--git-timeout 10m` or more. {hint}")
+    } else {
+        hint.to_owned()
+    };
     let pool = selected_pool
         .or(args.pool.as_ref())
         .cloned()

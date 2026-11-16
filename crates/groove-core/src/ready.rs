@@ -637,6 +637,33 @@ impl Pool {
         else {
             return Ok(false);
         };
+        let result = self.ready_slot_locked(slot, oid, policy, retained, &guard);
+        if let Err(error) = &result {
+            self.note_slot_failure(slot, error);
+        }
+        result
+    }
+
+    fn note_slot_failure(&self, slot: &SlotId, error: &Error) {
+        if let Ok(mut record) = state::read::<SlotRecord>(&self.repo.record_path(slot)) {
+            if record.schema_version == state::SCHEMA_VERSION
+                && matches!(record.phase, SlotPhase::Available | SlotPhase::Released)
+            {
+                record.failure = Some(self.failure_text(error));
+                let _ = state::write(&self.repo.record_path(slot), &record);
+            }
+        }
+    }
+
+    fn ready_slot_locked(
+        &self,
+        slot: &SlotId,
+        oid: &crate::CommitOid,
+        policy: &ReadySettings,
+        retained: usize,
+        guard: &SlotGuard,
+    ) -> Result<bool> {
+        let protection = self.repo.protection_path(slot);
         if protection.try_exists()? {
             return Ok(false);
         }
@@ -799,8 +826,12 @@ impl Pool {
             )
             .is_ok()
         {
+            if record.failure.take().is_some() {
+                state::write(&self.repo.record_path(slot), &record)?;
+            }
             return Ok(true);
         }
+        record.failure = None;
         state::write(&self.repo.record_path(slot), &record)?;
         state::write(
             &work_path,
@@ -813,14 +844,7 @@ impl Pool {
             },
         )?;
         state::checkpoint("ready-before-preparation");
-        crate::recovery::prepare(
-            &self.repo,
-            &self.config,
-            slot,
-            &guard,
-            oid,
-            self.git_timeout,
-        )?;
+        crate::recovery::prepare(&self.repo, &self.config, slot, guard, oid, self.git_timeout)?;
         state::write(
             &work_path,
             &Work {

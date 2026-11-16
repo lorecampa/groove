@@ -204,7 +204,10 @@ impl Error {
         self.git_timeout |= timed_out;
         self
     }
-    pub(crate) fn is_git_timeout(&self) -> bool {
+    /// Whether a Git subprocess exceeded its budget, including a pool failure
+    /// retaining the original timeout cause.
+    #[must_use]
+    pub fn is_git_timeout(&self) -> bool {
         self.git_timeout
     }
     /// One-line diagnostic for per-slot failure summaries: the message plus the

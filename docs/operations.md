@@ -367,3 +367,8 @@ Background preparation has an optional pool-specific Git timeout. Persist the
 budget required by large-repository acquires with `pool set --ready-git-timeout
 45m`; otherwise each worker inherits the triggering command's `--git-timeout`.
 Preparation failures include the elapsed budget and the setting to adjust.
+
+A Git preparation timeout leaves an available or released slot eligible for retry;
+it is evidence of slowness rather than corruption. Inspect the failure in slot
+views or the ready report, increase the relevant budget, and retry. Successful
+acquisition clears the failure. Inconsistent or foreign checkouts still quarantine.

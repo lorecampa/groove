@@ -160,10 +160,94 @@ fn worker_uses_the_persisted_git_timeout_and_reports_the_budget() {
     };
     assert_eq!(ready["ready"], 0);
     assert!(!ready["failures"].as_object().unwrap().is_empty());
-    for failure in ready["failures"].as_object().unwrap().values() {
+    let list = cli(&repo.path, &["list", "--slots"]);
+    for (id, failure) in ready["failures"].as_object().unwrap() {
+        let shown = cli(&repo.path, &["show", "--slot", id]);
+        assert_eq!(shown["slot"]["status"], "available");
+        assert_eq!(shown["slot"]["failure"], *failure);
+        let slot = list["inspection"]["slots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|slot| slot["slot_id"] == *id)
+            .unwrap();
+        assert_eq!(slot["status"], "available");
+        assert_eq!(slot["failure"], *failure);
         let failure = failure.as_str().unwrap();
         for expected in ["timed out", "after 300ms", "--ready-git-timeout"] {
             assert!(failure.contains(expected), "{failure}");
         }
     }
+    cli(&repo.path, &["pool", "set", "--ready-target", "0"]);
+    let acquired = cli(&repo.path, &["acquire"]);
+    assert!(cli(
+        &repo.path,
+        &["show", "--slot", acquired["slot_id"].as_str().unwrap()]
+    )["slot"]["failure"]
+        .is_null());
+}
+
+#[test]
+fn a_prepared_spare_clears_a_transient_failure_after_successful_verification() {
+    let repo = Repo::new();
+    init(&repo, "default", "1");
+    let wait = |after| {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            let shown = cli(&repo.path, &["pool", "show"]);
+            if shown["ready"]["running"] == false
+                && shown["ready"]["attempted_at_unix_ms"].as_u64().unwrap() > after
+            {
+                break shown;
+            }
+            assert!(Instant::now() < deadline, "{shown}");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    };
+    cli(&repo.path, &["pool", "set", "--ready-target", "1"]);
+    let ready = wait(0);
+    assert_eq!(ready["ready"]["ready"], 1);
+    fs::write(repo.slot(1).join("tracked.txt"), "transient edit\n").unwrap();
+    cli(&repo.path, &["pool", "set", "--ready-git-timeout", "2m"]);
+    let failed = wait(ready["ready"]["attempted_at_unix_ms"].as_u64().unwrap());
+    assert!(!failed["ready"]["failures"].as_object().unwrap().is_empty());
+    assert!(failed["inspection"]["slots"][0]["failure"].is_string());
+    fs::write(repo.slot(1).join("tracked.txt"), "baseline\n").unwrap();
+    cli(&repo.path, &["pool", "set", "--ready-git-timeout", "3m"]);
+    let recovered = wait(failed["ready"]["attempted_at_unix_ms"].as_u64().unwrap());
+    assert_eq!(recovered["ready"]["ready"], 1);
+    assert!(recovered["ready"]["failures"]
+        .as_object()
+        .unwrap()
+        .is_empty());
+    assert!(recovered["inspection"]["slots"][0]["failure"].is_null());
+}
+
+#[test]
+fn foreground_timeout_keeps_the_slot_available_and_retry_clears_failure() {
+    let repo = Repo::new();
+    init(&repo, "default", "1");
+    let error = check(
+        slow_git(&repo)
+            .args(["--git-timeout", "300ms", "acquire"])
+            .output()
+            .unwrap(),
+        6,
+    );
+    assert_eq!(error["error"]["code"], "POOL_UNHEALTHY");
+    let hint = error["error"]["hint"].as_str().unwrap();
+    assert!(
+        hint.contains("--git-timeout") && hint.contains("300ms"),
+        "{hint}"
+    );
+    let list = cli(&repo.path, &["list", "--slots"]);
+    let slot = &list["inspection"]["slots"][0];
+    assert_eq!(slot["status"], "available");
+    assert!(slot["failure"].as_str().unwrap().contains("timed out"));
+    let record: Value =
+        serde_json::from_slice(&fs::read(repo.state().join("slots/wt-0001.json")).unwrap())
+            .unwrap();
+    assert_eq!(record["phase"], "available");
+    assert_eq!(cli(&repo.path, &["acquire"])["slot_id"], "wt-0001");
+    assert!(cli(&repo.path, &["show", "--slot", "wt-0001"])["slot"]["failure"].is_null());
 }
