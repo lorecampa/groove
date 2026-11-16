@@ -187,6 +187,15 @@ Git 2.40+, matching Groove's platform contract.
 See [testing](testing.md) for validation gates. Discover benchmark workloads with
 `cargo run -p groove-bench --locked -- profiles`.
 
+Snapshot storage is guarded deterministically by `groove-core`'s
+`snapshot_objects` tests, which run in every required check. For SHA-1 and SHA-256
+repositories they compare the complete object set before and after clean,
+unchanged, edited, reverted, deleted, staged, untracked and in-place-restore
+captures. Each save may write only new file contents, the trees on changed paths,
+its wrapper tree and one commit. Unchanged and reverted states write only the
+commit; ignored files and already-stored blobs are never written. Benchmark
+object-growth metrics characterize size on large repositories but do not gate.
+
 The lab uses complete versioned profiles with disposable deterministic repositories,
 independent Git oracles, repeated restore/save measurements and paired baseline
 comparisons. Each invocation writes one self-contained JSON report; benchmark
