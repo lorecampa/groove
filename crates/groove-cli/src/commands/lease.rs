@@ -6,7 +6,8 @@ use crate::{
     output::{fields, Output},
 };
 use groove_core::{
-    snapshot::SaveOptions, FinishResult, LeaseInfo, ReleaseResult, ReservationOptions, Result,
+    snapshot::SaveOptions, Error, ErrorCode, FinishResult, LeaseInfo, Pool, ReleaseResult,
+    ReservationOptions, Result,
 };
 use serde_json::{json, Value};
 use std::time::Duration;
@@ -68,19 +69,26 @@ fn release_saved(
     force: bool,
 ) -> Result<Output> {
     let pool = context.retained_pool()?;
-    let id = select_id(&pool, selector)?;
-    if !force {
-        // --save preserves changes; only other writers block it.
-        pool.ensure_quiescent(id, false, context.git_timeout)?;
-    }
-    let save = SaveOptions {
-        session: Some(id.to_string()),
-        ..save
+    let id = select_id(&pool, selector, context.repo)?;
+    let outcome = || {
+        if !force {
+            // --save preserves changes; only other writers block it.
+            pool.ensure_quiescent(id, false, context.git_timeout)?;
+        }
+        let save = SaveOptions {
+            session: Some(id.to_string()),
+            ..save
+        };
+        let result = pool.finish(id, save)?;
+        tracing::info!(event = "workspace.released", slot = %result.release.slot_id, lease_id = %id, "Workspace released");
+        let text = describe_finish(&result);
+        Output::text(result, text)
     };
-    let result = pool.finish(id, save)?;
-    tracing::info!(event = "workspace.released", slot = %result.release.slot_id, lease_id = %id, "Workspace released");
-    let text = describe_finish(&result);
-    Output::text(result, text)
+    outcome().map_err(|error: Error| {
+        error.with_details(|details| {
+            details.lease_id.get_or_insert(id);
+        })
+    })
 }
 
 fn describe_finish(result: &FinishResult) -> String {
@@ -96,21 +104,37 @@ pub fn release(
     save: Option<SaveOptions>,
     force: bool,
 ) -> Result<Output> {
+    if selector.lease_id.is_none()
+        && selector.task.is_none()
+        && Pool::owning_pool(context.repo, context.git_timeout)?.is_none()
+    {
+        return Err(Error::new(
+            ErrorCode::InvalidArgument,
+            "Outside an acquired Groove workspace, release requires --task or --reservation-id",
+        ));
+    }
     if let Some(save) = save {
         return release_saved(context, selector, save, force);
     }
     let pool = context.pool()?;
-    let id = select_id(&pool, selector)?;
-    if !force {
-        pool.ensure_quiescent(id, true, context.git_timeout)?;
-    }
-    let result: ReleaseResult = pool.release_lease(id)?;
-    tracing::info!(event = "workspace.released", slot = %result.slot_id, lease_id = %id, "Workspace released");
-    let text = format!(
+    let id = select_id(&pool, selector, context.repo)?;
+    let outcome = || {
+        if !force {
+            pool.ensure_quiescent(id, true, context.git_timeout)?;
+        }
+        let result: ReleaseResult = pool.release_lease(id)?;
+        tracing::info!(event = "workspace.released", slot = %result.slot_id, lease_id = %id, "Workspace released");
+        let text = format!(
         "Released {} (reservation {}). Background preparation or the next acquisition discards its contents.",
         result.slot_id, result.lease_id
     );
-    Output::text(json!({"release": result, "snapshot": null}), text)
+        Output::text(json!({"release": result, "snapshot": null}), text)
+    };
+    outcome().map_err(|error: Error| {
+        error.with_details(|details| {
+            details.lease_id.get_or_insert(id);
+        })
+    })
 }
 
 /// Human view of a lease plus any extra JSON context.

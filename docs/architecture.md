@@ -13,6 +13,14 @@ an old request cannot release the next task's workspace. CLI users normally refe
 to a reservation by its **task label** (`--task`); reservation IDs remain the
 unambiguous identifier underneath, and slot IDs are for inspection.
 
+Release can infer a reservation from the registered workspace containing the
+selected repository path. Core validates the pool root, native Git registration,
+active reuse protection and slot record before returning the observed generation.
+This lookup grants no descriptor ownership. Release/finish revalidate that ID
+under existing locks, so a successor acquired after lookup is never released.
+Outside an active workspace, selectors remain explicit; retries retain the original
+reservation ID instead of resolving a potentially reused path again.
+
 An exclusive `flock` owns a slot while a core operation or an in-process `Lease`
 holds it. Durable protection additionally prohibits reuse after that owner exits.
 Neither metadata, UUIDs, PIDs nor timestamps prove kernel ownership. No

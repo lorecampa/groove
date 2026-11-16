@@ -1,8 +1,21 @@
 EXAMPLES:
+  groove release --save                          # inside an acquired workspace
   groove release --save --task fix-parser
   groove release --save --reservation-id UUID --description 'parser fix'
   groove release --reservation-id UUID             # work already preserved elsewhere
   groove release --force --task fix-parser    # discard unsaved changes
+
+RESERVATION SELECTION:
+Inside a registered, acquired Groove workspace (including subdirectories), omit
+the selector to release that workspace's active reservation. The repository and
+owning pool are inferred; --repo can select a workspace path from elsewhere.
+Explicit --task or --reservation-id takes precedence. An explicit --pool must
+match the workspace when inferring a reservation; there is no cross-pool fallback.
+Outside an acquired workspace, supply --task or --reservation-id. Released slots,
+ordinary linked worktrees and copied/moved paths do not infer historical receipts.
+Errors after selection include details.reservation_id for an explicit retry.
+Retry using the original ID and --pool: bare release resolves the reservation
+active at invocation time and a slot can later be reused by a different task.
 
 Returns the workspace to the pool. Background preparation or the next acquisition discards its contents
 (ignored files too, under the default pristine cleanup). Stop ALL writers first:

@@ -358,6 +358,7 @@
       "type": "object"
     },
     "release_result": {
+      "description": "Release of an explicitly selected reservation, or the active reservation inferred from a registered workspace. Errors after selection include details.reservation_id for an explicit retry.",
       "type": "object",
       "required": [
         "release",
