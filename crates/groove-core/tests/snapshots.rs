@@ -224,6 +224,57 @@ fn saving_attributes_uses_strict_whole_tree_validation() {
 }
 
 #[test]
+fn in_place_restore_keeps_index_stats_so_later_saves_ignore_unchanged_crlf_rules() {
+    // Real repositories (for example CPython's `*.bat text eol=crlf`) commit
+    // converting rules for paths a task never edits. Restoring in place must not
+    // leave every index entry stat-dirty: a later capture would then treat the
+    // unchanged .gitattributes as saved and reject those rules in strict mode.
+    let repo = Repo::new();
+    fs::write(
+        repo.path.join(".gitattributes"),
+        b"*.bat text eol=crlf\n*.x text eol=lf\n",
+    )
+    .unwrap();
+    fs::write(repo.path.join("run.bat"), b"echo unchanged\n").unwrap();
+    fs::write(repo.path.join("edited.x"), b"base\n").unwrap();
+    repo.git(&["add", "."]);
+    repo.git(&["commit", "-qm", "converting rules"]);
+    // Materialize the committed rule's CRLF working bytes, as a clone would.
+    fs::remove_file(repo.path.join("run.bat")).unwrap();
+    repo.git(&["checkout", "--", "run.bat"]);
+    assert_eq!(
+        fs::read(repo.path.join("run.bat")).unwrap(),
+        b"echo unchanged\r\n"
+    );
+    let snapshots = service(&repo);
+    let clean = save(&snapshots);
+    fs::write(repo.path.join("edited.x"), b"task edit\n").unwrap();
+    let dirty = save(&snapshots);
+    snapshots.restore(&clean.id, None).unwrap();
+    // Without a refresh, only paths whose stat data the restore genuinely
+    // invalidated may appear; unchanged files keep their cached index stats.
+    let stale = repo.git(&["diff-files", "--name-only"]);
+    assert!(
+        !stale
+            .lines()
+            .any(|path| path == ".gitattributes" || path == "run.bat"),
+        "unchanged paths lost cached stats: {stale}"
+    );
+    assert_eq!(fs::read(repo.path.join("edited.x")).unwrap(), b"base\n");
+    // The safety capture and later restores succeed under the committed rules.
+    snapshots.restore(&dirty.id, None).unwrap();
+    assert_eq!(
+        fs::read(repo.path.join("edited.x")).unwrap(),
+        b"task edit\n"
+    );
+    assert_eq!(
+        fs::read(repo.path.join("run.bat")).unwrap(),
+        b"echo unchanged\r\n"
+    );
+    save(&snapshots);
+}
+
+#[test]
 fn unused_converting_paths_do_not_block_saving_other_paths() {
     let repo = Repo::new();
     fs::write(

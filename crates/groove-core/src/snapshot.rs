@@ -1633,7 +1633,16 @@ impl Snapshots {
             Some(lock),
         )?;
         crate::state::checkpoint("snapshot-restored-files");
-        self.run(&["read-tree", &s.index_tree], None, None, Some(lock))?;
+        // A single-tree merge keeps cached stats only where the existing entry has
+        // the same OID and mode; files rewritten above have new ctimes and are
+        // rechecked. A plain read-tree would leave every entry stat-dirty, making
+        // the next capture treat unchanged paths (including .gitattributes) as edits.
+        self.run(
+            &["read-tree", "-i", "-m", &s.index_tree],
+            None,
+            None,
+            Some(lock),
+        )?;
         // Verify working contents using the materialized work tree, without mutating the real index.
         self.run(&["diff-files", "--quiet"], Some(&index), None, Some(lock))?;
         if self.string(&["write-tree"])? != s.index_tree {

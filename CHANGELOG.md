@@ -18,6 +18,11 @@
 
 ### Fixed
 
+- Keep the real index's cached stats after an in-place snapshot restore. The
+  final index write discarded them, so the next save or restore treated every
+  tracked path as changed. In repositories with committed text/eol rules (such
+  as CPython's CRLF `.bat` files), that capture rejected the unchanged
+  `.gitattributes` with `UNSUPPORTED_CONFIGURATION`.
 - Preserve cached index stats during in-place snapshot restore and reuse validation
   results, keeping safety capture, delayed index replacement and final verification.
 - Enforce the default restore timeout and cold-acquisition timing ceiling in the
