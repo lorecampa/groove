@@ -20,6 +20,10 @@ from the target are removed. Rejected preflight checks leave no safety snapshot.
 If restoration fails after the safety snapshot is saved, the error includes its
 ID for recovery. Earlier failures may leave no safety snapshot. A failed restore
 can leave partial working-file changes.
+The safety snapshot is pinned before mutation. Errors or process death leave
+that pin for recovery; only successful apply and verification unpin it. Pruning
+never overrides pins. After preserving the recovered work, snapshot delete ID
+--force explicitly removes an unwanted recovery checkpoint.
 Use --max-file-size to raise the safety capture limit (default 100 MiB per
 changed file; 0 is unlimited). This limit is unused with --to.
 Recovery preserves saved bytes, executable bits and symlinks even if Git

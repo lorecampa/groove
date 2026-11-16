@@ -885,7 +885,7 @@ fn lexical(path: &Path) -> PathBuf {
 }
 /// Whether a registration's `gitdir` backlink (absolute, or relative to its
 /// administrative directory) names `path/.git`.
-fn backlink_matches(admin: &Path, raw: &[u8], path: &Path) -> bool {
+pub(crate) fn backlink_matches(admin: &Path, raw: &[u8], path: &Path) -> bool {
     use std::os::unix::ffi::OsStrExt;
     let expected = path.join(".git");
     let raw = OsStr::from_bytes(trim(raw));

@@ -211,6 +211,10 @@ fn command_output_types_used_by_help_validate_real_responses() {
     verify("snapshot show", &["snapshot", "show", snapshot]);
     verify("snapshot list", &["snapshot", "list"]);
     verify(
+        "snapshot prune",
+        &["snapshot", "prune", "--older-than", "30d"],
+    );
+    verify(
         "snapshot storage",
         &["snapshot", "storage", "--largest", "10"],
     );

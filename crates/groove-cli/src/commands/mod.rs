@@ -5,6 +5,7 @@ mod config;
 mod lease;
 mod pool;
 mod snapshot;
+mod snapshot_prune;
 
 use crate::{
     args::{Command, LeaseSelector, PoolCommand},
