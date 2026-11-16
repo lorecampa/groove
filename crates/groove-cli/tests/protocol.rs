@@ -1019,7 +1019,10 @@ fn selected_show_runs_git_status_only_in_the_selected_workspace() {
         check(&output);
         let mut expected = [first_path, second_path];
         expected.sort();
-        assert_eq!(calls.lines().collect::<Vec<_>>(), expected);
+        // Slots are inspected concurrently, so invocation order is not a contract.
+        let mut observed = calls.lines().collect::<Vec<_>>();
+        observed.sort();
+        assert_eq!(observed, expected);
     }
     let (output, calls) = run(&["show", "--slot", "wt-0003", "--details"]);
     assert_eq!(output.status.code(), Some(2));

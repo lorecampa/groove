@@ -265,8 +265,18 @@ impl Pool {
             ));
         }
         let mut inspection = self.inspect()?;
-        for slot in &mut inspection.slots {
-            self.add_git_status(slot, timeout);
+        let workers = std::thread::available_parallelism()
+            .map_or(1, usize::from)
+            .clamp(1, 8);
+        for chunk in inspection.slots.chunks_mut(workers) {
+            std::thread::scope(|scope| -> Result<()> {
+                for slot in chunk {
+                    std::thread::Builder::new().spawn_scoped(scope, move || {
+                        self.add_git_status(slot, timeout);
+                    })?;
+                }
+                Ok(())
+            })?;
         }
         Ok(inspection)
     }

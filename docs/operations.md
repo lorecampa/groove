@@ -409,3 +409,7 @@ Snapshot validation reads changed, staged and untracked path inventories
 concurrently; stability checks overlap their independent changed/untracked scans.
 All children finish before capture proceeds or returns an error. The attribute
 audit, full special-file walk and stopped-writer requirement remain in force.
+
+Detailed pool/list inspection checks slots concurrently in groups bounded by
+available CPUs and eight workers. Each slot retains its own shared execution
+lock and timeout; results keep their requested ordering and per-slot errors.

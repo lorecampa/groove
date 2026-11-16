@@ -4,6 +4,9 @@
 
 ### Changed
 
+- Collect detailed per-slot Git status concurrently, bounded by available CPUs
+  and eight workers while retaining each slot's execution lock.
+
 - Overlap independent snapshot path inventories during validation and stability
   checks, retaining the attribute audit and full special-file walk.
 
