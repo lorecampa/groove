@@ -20,6 +20,9 @@
 
 ### Added
 
+- Infer the active reservation for `release` inside an acquired Groove workspace,
+  including subdirectories and `--repo` paths. Explicit task/ID selectors still
+  take precedence; failed releases report the selected reservation ID for retries.
 - DEBUG diagnostics report snapshot capture and restore phase durations and
   success/error outcomes, including release saves, current-file diff captures
   and restore safety checkpoints. Use `-vv` to show them on stderr.

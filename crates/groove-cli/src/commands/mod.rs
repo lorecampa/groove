@@ -12,7 +12,7 @@ use crate::{
     args::{Command, LeaseSelector, PoolCommand},
     output::Output,
 };
-use groove_core::{LeaseInfo, Pool, Result};
+use groove_core::{Pool, Result};
 use std::{path::Path, time::Duration};
 
 /// Inputs shared by every handler.
@@ -33,21 +33,13 @@ impl Context<'_> {
     }
 }
 
-/// Resolve `--reservation-id` or `--task` to one reservation.
-fn select(pool: &Pool, selector: &LeaseSelector) -> Result<LeaseInfo> {
-    match (&selector.lease_id, &selector.task) {
-        (Some(id), _) => pool.lease_info(*id),
-        (None, Some(task)) => pool.lease_by_task(task),
-        (None, None) => unreachable!("clap requires --reservation-id or --task"),
-    }
-}
-
 /// Resolve the selector to a lease ID without validating an explicit ID, so
 /// core retry logic (e.g. saved-release receipts for superseded generations) still applies.
-fn select_id(pool: &Pool, selector: &LeaseSelector) -> Result<groove_core::LeaseId> {
+fn select_id(pool: &Pool, selector: &LeaseSelector, path: &Path) -> Result<groove_core::LeaseId> {
     match (&selector.lease_id, &selector.task) {
         (Some(id), _) => Ok(*id),
-        _ => select(pool, selector).map(|lease| lease.lease_id),
+        (None, None) => pool.lease_for_workspace(path).map(|lease| lease.lease_id),
+        (None, Some(task)) => pool.lease_by_task(task).map(|lease| lease.lease_id),
     }
 }
 

@@ -10,7 +10,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -475,6 +475,92 @@ impl Pool {
                 "Several active reservations share this task label; select one by reservation ID",
             )),
         }
+    }
+
+    /// Resolve the active durable reservation for the registered workspace containing `path`.
+    ///
+    /// Subdirectories and filesystem aliases resolve through Git to the workspace
+    /// root. The native registration, selected pool, protection and slot generation
+    /// must agree; directory names, task labels and historical receipts alone are
+    /// insufficient. This observation grants no descriptor ownership. Callers
+    /// must retain the returned ID and use ordinary release/finish operations,
+    /// which revalidate that generation under its kernel lock.
+    ///
+    /// # Errors
+    /// Returns [`ErrorCode::InvalidArgument`] outside an acquired workspace in
+    /// this pool, [`ErrorCode::LeaseMismatch`] for inconsistent generations, and
+    /// propagates discovery, registration, lifecycle and metadata errors.
+    ///
+    /// ```no_run
+    /// # fn main() -> groove_core::Result<()> {
+    /// let pool = groove_core::Pool::open(".")?;
+    /// let reservation = pool.lease_for_workspace(".")?;
+    /// // Stop all writers, then release using reservation.lease_id.
+    /// # let _ = reservation;
+    /// # Ok(()) }
+    /// ```
+    pub fn lease_for_workspace(&self, path: impl AsRef<Path>) -> Result<LeaseInfo> {
+        use std::os::unix::ffi::OsStrExt;
+        let _operation = self.operation()?;
+        let pool = self.refreshed()?;
+        let invalid = || {
+            Error::new(ErrorCode::InvalidArgument,
+            "No active reservation can be inferred in the selected pool; supply --task or --reservation-id")
+        };
+        let repo = repository::Repository::discover(path.as_ref(), self.git_timeout)?;
+        if repo.common != pool.repo.common {
+            return Err(invalid());
+        }
+        let top = crate::git::Git::new(self.git_timeout).run(
+            &repo.origin,
+            &["rev-parse", "--show-toplevel"],
+            &[],
+        )?;
+        let root = std::fs::canonicalize(Path::new(std::ffi::OsStr::from_bytes(
+            top.strip_suffix(b"\n").unwrap_or(&top),
+        )))?;
+        let slot = root
+            .file_name()
+            .and_then(|name| name.to_str())
+            .and_then(|name| name.parse::<SlotId>().ok())
+            .filter(|slot| {
+                root.parent() == Some(pool.config.worktree_root.as_path())
+                    && pool.config.slots.contains_key(slot)
+            })
+            .ok_or_else(invalid)?;
+        crate::recovery::registration(&pool.repo, &root)?;
+        let path = pool.repo.protection_path(&slot);
+        match std::fs::symlink_metadata(&path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Err(invalid()),
+            Err(error) => return Err(error.into()),
+            Ok(_) => (),
+        }
+        let protection: state::ReuseProtection = state::read(&path)?;
+        let record: SlotRecord = state::read(&pool.repo.record_path(&slot))?;
+        if protection.schema_version != state::SCHEMA_VERSION
+            || record.schema_version != state::SCHEMA_VERSION
+        {
+            return Err(Error::new(
+                ErrorCode::ProtocolError,
+                "Unsupported workspace reservation metadata",
+            ));
+        }
+        if protection.lease.slot_id != slot
+            || protection.lease.worktree_path != root
+            || record.phase != SlotPhase::Leased
+            || record
+                .lease
+                .as_ref()
+                .map(|lease| (lease.lease_id, &lease.slot_id, &lease.worktree_path))
+                != Some((protection.lease.lease_id, &slot, &root))
+        {
+            return Err(Error::new(ErrorCode::LeaseMismatch,
+                "Workspace reservation changed or release is already in progress; retry with the original reservation ID"));
+        }
+        // Read-only selection intentionally retains no slot lock. The release
+        // path must reject this ID if another generation wins the slot meanwhile.
+        state::checkpoint("workspace-reservation-selected");
+        Ok(protection.lease)
     }
 
     /// Release by reservation ID; the slot is resolved and rechecked while its lock is held.

@@ -67,9 +67,9 @@ pub struct Args {
     pub command: Command,
 }
 
-/// Selects one reservation by its lease ID or its unique task label.
+/// Selects a reservation explicitly, or infers it for release inside its workspace.
 #[derive(ClapArgs, Debug, Clone)]
-#[group(required = true, multiple = false)]
+#[group(multiple = false)]
 pub struct LeaseSelector {
     /// Reservation UUID returned by acquire.
     #[arg(long = "reservation-id", value_name = "ID")]
@@ -745,8 +745,9 @@ mod tests {
     }
 
     #[test]
-    fn lease_selector_requires_exactly_one() {
-        assert!(Args::try_parse_from(["groove", "release"]).is_err());
+    fn release_selector_allows_inference_or_one_explicit_reservation() {
+        assert!(Args::try_parse_from(["groove", "release"]).is_ok());
+        assert!(Args::try_parse_from(["groove", "release", "--save"]).is_ok());
         assert!(Args::try_parse_from(["groove", "release", "--task", "a"]).is_ok());
         let both = [
             "groove",
