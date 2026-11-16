@@ -260,8 +260,21 @@ and [OpenAI repository marketplaces](https://developers.openai.com/plugins/build
 For development, build from an existing checkout:
 
 ```sh
-cargo install --path /path/to/groove/crates/groove-cli --locked
+bash scripts/install-cli.sh
 ```
+
+Run the script from this repository, or invoke its absolute path from elsewhere.
+It builds the checked-out source, including uncommitted edits, using the pinned
+toolchain and lockfile. It replaces an existing CLI even when its package version
+is unchanged. It does not fetch or change branches; use a clean checkout at the
+desired commit when you need that exact revision.
+
+Run `bash scripts/install-cli.sh --help` for examples and Cargo options, including
+`--root` for an isolated installation. Verify with `groove --version`; for an
+alternate root, run that root's `bin/groove --version` explicitly.
+
+The equivalent direct command from the repository root is
+`cargo install --path crates/groove-cli --locked --force`.
 
 If Git authenticates but Cargo's built-in Git transport fails, use the configured
 Git transport for that invocation:
