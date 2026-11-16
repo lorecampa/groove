@@ -131,16 +131,16 @@ fn reused_checkout_matches_full_rewrite_for_configuration_and_path_contamination
                     ..Default::default()
                 },
             );
-            initialized.unwrap();
-            let p = Pool::open(&r.path).unwrap();
             if key.starts_with("filter.") {
                 assert_eq!(
-                    p.acquire(Default::default()).unwrap_err().code,
+                    initialized.unwrap_err().code,
                     groove_core::ErrorCode::UnsupportedConfiguration
                 );
                 assert_eq!(fs::read(r.path.join("tracked.txt")).unwrap(), b"baseline\n");
                 continue;
             }
+            initialized.unwrap();
+            let p = Pool::open(&r.path).unwrap();
             let lease = p.acquire(Default::default()).unwrap();
             let workspace = lease.info().worktree_path.clone();
             for root in [&workspace, &oracle] {

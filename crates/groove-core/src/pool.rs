@@ -97,6 +97,7 @@ impl Pool {
             ));
         }
         let repo = Repository::discover_named(repo.as_ref(), name, options.git_timeout)?;
+        recovery::validate_config(&Git::new(options.git_timeout), &repo)?;
         let resolved_ready = options
             .ready
             .clone()
@@ -586,7 +587,7 @@ impl Pool {
         let oid = oid.parse::<crate::CommitOid>().map_err(|e| {
             Error::new(crate::ErrorCode::GitError, "Git returned an invalid OID").with_source(e)
         })?;
-        recovery::validate_config(&git, &self.repo, &oid)?;
+        recovery::validate_checkout(&git, &self.repo, &oid)?;
         let scan_seed = Uuid::new_v4().as_u128();
         let start = Instant::now();
         let mut failed = BTreeMap::new();

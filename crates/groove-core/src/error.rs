@@ -108,6 +108,9 @@ pub struct CapacityFailure {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct ErrorDetails {
+    /// Repository setting rejected before checkout, including its source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setting: Option<ConfigurationSetting>,
     /// Independent component outcomes when an upgrade failed after partial progress.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub upgrade: Option<crate::upgrade::Report>,
@@ -144,6 +147,17 @@ pub struct ErrorDetails {
     /// A secondary failure encountered while handling the primary one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub secondary_error: Option<String>,
+}
+
+/// A rejected Git configuration entry, as reported by Git's origin inventory.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConfigurationSetting {
+    /// Canonical Git setting key.
+    pub key: String,
+    /// Configured value, empty for a valueless entry.
+    pub value: String,
+    /// Source reported by Git, such as `file:/repository/.git/config`.
+    pub origin: String,
 }
 
 /// An operation failure. Branch on [`ErrorCode`], not human-readable messages.

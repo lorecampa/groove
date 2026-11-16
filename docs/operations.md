@@ -380,3 +380,12 @@ omitted, so saved-release advice applies to the original reservation.
 Pool destruction accepts residual files when they still match the pinned snapshot
 from `release --save`. Later edits and ignored files still refuse deletion without
 an explicit loss acknowledgement. Saved snapshots remain recoverable after deletion.
+
+## Repository compatibility
+
+Pool initialization and acquisition reject configured `filter.*` programs,
+`core.worktree` redirection, and enabled `core.sparseCheckout*`. Errors name the
+key, value and Git configuration origin. `extensions.worktreeConfig=true` is
+allowed only when the main checkout's `config.worktree` contains no rejected key
+and no other `core.*` or `extensions.*` setting except `core.bare`, `core.filemode`
+and `core.repositoryformatversion`. Groove does not rewrite repository settings.

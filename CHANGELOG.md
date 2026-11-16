@@ -55,6 +55,9 @@
 
 ### Fixed
 
+- Explain incompatible repository settings with their key, value and origin at
+  initialization and acquisition; accept harmless main-checkout worktreeConfig.
+
 - Allow pool destruction when residual files match a pinned saved release, while
   continuing to refuse later edits, special files and ignored caches.
 

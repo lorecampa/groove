@@ -364,3 +364,87 @@ fn destruction_accepts_saved_release_files_but_refuses_later_edits_and_ignored_f
         "saved staged file\n"
     );
 }
+
+#[test]
+fn empty_worktree_configuration_is_compatible_with_init_and_acquire() {
+    let repo = Repo::new();
+    support::git(&repo.path, &["config", "extensions.worktreeConfig", "true"]);
+    fs::write(repo.path.join(".git/config.worktree"), "").unwrap();
+    init(&repo, "default", "1");
+    assert_eq!(cli(&repo.path, &["acquire"])["slot_id"], "wt-0001");
+}
+
+#[test]
+fn incompatible_worktree_configuration_names_its_key_and_origin_before_init() {
+    let repo = Repo::new();
+    support::git(&repo.path, &["config", "extensions.worktreeConfig", "true"]);
+    support::git(
+        &repo.path,
+        &["config", "--worktree", "core.sparseCheckout", "true"],
+    );
+    let error = check(
+        support::groove_in(&repo.path)
+            .args(["pool", "init", "--capacity", "1"])
+            .output()
+            .unwrap(),
+        2,
+    );
+    assert_eq!(error["error"]["code"], "UNSUPPORTED_CONFIGURATION");
+    assert_eq!(
+        error["error"]["details"]["setting"]["key"],
+        "core.sparsecheckout"
+    );
+    assert_eq!(error["error"]["details"]["setting"]["value"], "true");
+    assert!(error["error"]["details"]["setting"]["origin"]
+        .as_str()
+        .unwrap()
+        .ends_with("config.worktree"));
+    assert!(!repo.state().join("config.json").exists());
+}
+
+#[test]
+fn configured_filters_name_their_origin_and_remain_rejected_after_init() {
+    let repo = Repo::new();
+    support::git(
+        &repo.path,
+        &["config", "filter.lfs.clean", "untrusted-filter"],
+    );
+    let error = check(
+        support::groove_in(&repo.path)
+            .args(["pool", "init", "--capacity", "1"])
+            .output()
+            .unwrap(),
+        2,
+    );
+    assert_eq!(error["error"]["code"], "UNSUPPORTED_CONFIGURATION");
+    let setting = &error["error"]["details"]["setting"];
+    assert_eq!(setting["key"], "filter.lfs.clean");
+    assert_eq!(setting["value"], "untrusted-filter");
+    assert!(setting["origin"]
+        .as_str()
+        .unwrap()
+        .contains(repo.path.join(".git/config").to_str().unwrap()));
+    assert!(error["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains(setting["origin"].as_str().unwrap()));
+    assert!(!repo.state().join("config.json").exists());
+    support::git(&repo.path, &["config", "--unset", "filter.lfs.clean"]);
+    init(&repo, "default", "1");
+    support::git(
+        &repo.path,
+        &["config", "filter.lfs.clean", "untrusted-filter"],
+    );
+    let error = check(
+        support::groove_in(&repo.path)
+            .arg("acquire")
+            .output()
+            .unwrap(),
+        2,
+    );
+    assert_eq!(
+        error["error"]["details"]["setting"]["key"],
+        "filter.lfs.clean"
+    );
+    assert!(!repo.slot(1).exists());
+}

@@ -69,7 +69,9 @@ pub mod upgrade;
 mod workspace_files;
 
 pub use destruction::{DestroyOptions, DestroyResult};
-pub use error::{CapacityFailure, Error, ErrorCode, ErrorDetails, GitFailure, Result};
+pub use error::{
+    CapacityFailure, ConfigurationSetting, Error, ErrorCode, ErrorDetails, GitFailure, Result,
+};
 pub use finish::FinishResult;
 pub use identifiers::{CommitOid, LeaseId, PoolId, PoolName, SlotId};
 pub use inspection::{PoolInspection, SlotInspection, SlotStatus, WorkspaceGitStatus};

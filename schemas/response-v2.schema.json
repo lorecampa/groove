@@ -215,6 +215,16 @@
         "details": {
           "type": "object",
           "properties": {
+            "setting": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["key", "value", "origin"],
+              "properties": {
+                "key": {"type": "string"},
+                "value": {"type": "string"},
+                "origin": {"type": "string"}
+              }
+            },
             "path": {
               "type": "string"
             },

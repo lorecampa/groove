@@ -561,7 +561,7 @@ impl Pool {
             &[],
         )?;
         let oid: crate::CommitOid = String::from_utf8_lossy(&raw).trim().parse()?;
-        crate::recovery::validate_config(&git, &self.repo, &oid)?;
+        crate::recovery::validate_checkout(&git, &self.repo, &oid)?;
         // Retain prepared spares before considering newer releases. These hints
         // are revalidated under ownership, including the current lease identity.
         let mut slots = Vec::new();
