@@ -145,6 +145,13 @@ does not bound CPU, processes or storage.
 
 ## Deleting and recreating a pool
 
+Deletion processes slots and top-level checkout entries in bounded parallel groups,
+each limited to available CPUs and eight workers. Ownership, mount and writer checks
+still precede removal. A permission failure repairs the affected subtree before one
+retry; failed removal remains explicitly resumable. Git never runs against a tree
+being deleted, and exact native registrations are removed without trusting slot
+`.git` pointers.
+
 Release every task and stop all writers, then run from outside the pool:
 
 ```sh

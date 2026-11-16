@@ -4,6 +4,9 @@
 
 ### Changed
 
+- Remove pool checkouts and their top-level entries concurrently after ownership
+  preflight; repair read-only subtrees only when deletion encounters permissions.
+
 - Combine reuse metadata, touched-path and special-file inventories in a bounded
   parallel filesystem walk, retaining conservative full-rewrite fallbacks.
 

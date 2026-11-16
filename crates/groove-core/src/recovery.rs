@@ -993,11 +993,115 @@ pub(crate) fn interrupted(repo: &Repository, path: &Path) -> Result<bool> {
         .iter()
         .any(|name| fs::symlink_metadata(admin.join(name)).is_ok()))
 }
+/// Delete only after disposal preflight; no Git command may observe this tree.
+pub(crate) fn remove_tree_parallel(root: &Path) -> Result<()> {
+    use std::{os::unix::fs::MetadataExt, sync::Mutex};
+    let metadata = fs::symlink_metadata(root)?;
+    if !metadata.is_dir() {
+        return Err(disposal_refusal(root, "Removal root is not a directory"));
+    }
+    let device = metadata.dev();
+    // Linux preflight inventories mounts. Other platforms still need the
+    // recursive device check formerly supplied by the permission walk.
+    #[cfg(not(target_os = "linux"))]
+    crate::workspace_files::make_writable(root)?;
+    let entries = match fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            crate::workspace_files::make_directory_writable(root, &metadata)?;
+            fs::read_dir(root)?
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let queue = Mutex::new(
+        entries
+            .map(|entry| entry.map(|entry| entry.path()))
+            .collect::<std::io::Result<Vec<_>>>()?,
+    );
+    let failure = Mutex::new(None);
+    let workers = std::thread::available_parallelism()
+        .map_or(1, usize::from)
+        .clamp(1, 8);
+    std::thread::scope(|scope| -> Result<()> {
+        let mut handles = Vec::new();
+        for _ in 0..workers {
+            let queue = &queue;
+            let failure = &failure;
+            handles.push(std::thread::Builder::new().spawn_scoped(scope, move || {
+                loop {
+                    if failure
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .is_some()
+                    {
+                        break;
+                    }
+                    let Some(path) = queue
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .pop()
+                    else {
+                        break;
+                    };
+                    let remove = || -> Result<()> {
+                        let metadata = fs::symlink_metadata(&path)?;
+                        if metadata.dev() != device {
+                            return Err(disposal_refusal(&path, "Mounted entry in removal tree"));
+                        }
+                        let delete = || {
+                            if metadata.is_dir() {
+                                fs::remove_dir_all(&path)
+                            } else {
+                                fs::remove_file(&path)
+                            }
+                        };
+                        match delete() {
+                            Ok(()) => Ok(()),
+                            Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                                crate::workspace_files::make_directory_writable(
+                                    root,
+                                    &fs::symlink_metadata(root)?,
+                                )?;
+                                // Nested read-only directories can cause a partial deletion;
+                                // repair only this failed subtree before the single retry.
+                                if metadata.is_dir() {
+                                    crate::workspace_files::make_writable(&path)?;
+                                }
+                                delete()?;
+                                Ok(())
+                            }
+                            Err(error) => Err(error.into()),
+                        }
+                    };
+                    if let Err(error) = remove() {
+                        failure
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .get_or_insert(error);
+                        break;
+                    }
+                }
+            })?);
+        }
+        for handle in handles {
+            handle
+                .join()
+                .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+        }
+        Ok(())
+    })?;
+    if let Some(error) = failure
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+    {
+        return Err(error);
+    }
+    fs::remove_dir(root)?;
+    Ok(())
+}
+
 pub(crate) fn remove_owned(repo: &Repository, path: &Path) -> Result<()> {
     let registration = validate_disposal(repo, path)?;
-    if path.try_exists()? {
-        crate::workspace_files::make_writable(path)?;
-    }
     // Find registrations by their exact backlink, never via an untrusted .git pointer
     // and never with a repository-wide prune. Corrupt unrelated entries are left alone.
     if let Some(registration) = registration {
@@ -1007,7 +1111,7 @@ pub(crate) fn remove_owned(repo: &Repository, path: &Path) -> Result<()> {
     repository::no_symlinks(path)?;
     state::checkpoint("owned-registrations-removed");
     if path.exists() {
-        fs::remove_dir_all(path)?;
+        remove_tree_parallel(path)?;
     }
     if let Some(parent) = path.parent() {
         if parent.try_exists()? {
