@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Changed
+
+- Refresh the README demo with the current binary and the `pool init` and
+  `pool show` commands introduced in 0.4.0.
+
 ### Changed (breaking)
 
 - Infer the owning pool inside a registered managed workspace (including `--repo`)
