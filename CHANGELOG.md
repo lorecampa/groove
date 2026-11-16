@@ -4,6 +4,9 @@
 
 ### Changed
 
+- Use Git parallel checkout for large file sets while retaining serial checkout
+  below 100 files; the subprocess configuration does not modify repository settings.
+
 - Refresh the README demo with the current binary and the `pool init` and
   `pool show` commands introduced in 0.4.0.
 

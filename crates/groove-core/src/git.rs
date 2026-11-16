@@ -220,6 +220,12 @@ impl Git {
                 "maintenance.auto=false",
                 "-c",
                 "core.quotePath=false",
+                // Stock Git since 2.32: use its detected CPU count for large
+                // checkouts; the threshold keeps small checkouts serial.
+                "-c",
+                "checkout.workers=0",
+                "-c",
+                "checkout.thresholdForParallelism=100",
             ])
             .args(&args)
             .stdin(Stdio::null())
