@@ -261,6 +261,10 @@ change. Missing verification/index state, hidden-edit flags, attribute-rule
 changes or an oversized touched-path inventory force a complete rewrite.
 Reuse also requires that the checkout and marker share one recognized filesystem;
 cross-filesystem markers and override-only storage always use a full rewrite.
+Directory metadata, special-file cleanup and touched paths share a parallel
+inventory bounded by available CPUs and eight workers. Directory swaps still
+invalidate descendants; touched attribute rules and inventories over 32 MiB
+force a full rewrite. Mount boundaries are rejected and symlinks are not followed.
 Warm caches may therefore benefit timestamp-based builds, but retained outputs
 remain unverified. The example below uses ccache to validate content reuse.
 

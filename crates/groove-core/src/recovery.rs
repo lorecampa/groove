@@ -417,29 +417,54 @@ pub(crate) fn normalize(
     let verified_context = verified.as_ref().map(|_| fs::read(&marker)).transpose()?;
     let directories = admin.join(DIRECTORY_STATE_NAME);
     repository::no_symlinks(&directories)?;
-    if directories.try_exists()? {
-        let mut saved = SavedDirectories::open(&directories)?;
-        if !crate::workspace_files::directory_metadata_matches(path, &mut saved)? {
-            return Err(Error::new(
-                crate::ErrorCode::RecoveryFailed,
-                "Directory permissions or extended attributes changed; rebuilding the checkout",
-            ));
-        }
-    }
+    use std::os::unix::fs::MetadataExt;
+    let attributes = directories.try_exists()?;
+    // Marker precision must be comparable with checkout ctimes; an override
+    // does not establish those semantics for an unrecognized filesystem.
+    let reuse_possible = if let Some(marker) = verified.as_ref() {
+        index.try_exists()?
+            && marker.modified()? <= std::time::SystemTime::now()
+            && fs::metadata(path)?.dev() == marker.dev()
+            && crate::platform::fs::recognized_fs(path)?
+    } else {
+        false
+    };
     match fs::remove_file(&marker) {
         Ok(()) => crate::state::sync_dir(&admin)?,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
         Err(error) => return Err(error.into()),
     }
     state::checkpoint("reuse-marker-removed");
-    crate::workspace_files::remove_special(path)?;
+    let inventory = crate::walk::inventory(
+        path,
+        crate::walk::Options {
+            verified: verified
+                .as_ref()
+                .filter(|_| reuse_possible)
+                .map(|marker| (marker.mtime(), marker.mtime_nsec())),
+            attributes,
+            remove_specials: true,
+        },
+    )?;
+    if attributes {
+        let mut saved = SavedDirectories::open(&directories)?;
+        if !crate::workspace_files::directory_metadata_matches(&inventory.directories, &mut saved)?
+        {
+            return Err(Error::new(
+                crate::ErrorCode::RecoveryFailed,
+                "Directory permissions or extended attributes changed; rebuilding the checkout",
+            ));
+        }
+    }
     if !reuse_untouched(
         git,
         path,
         oid,
-        &index,
-        verified.as_ref(),
-        verified_context.as_deref(),
+        verified
+            .as_ref()
+            .zip(verified_context.as_deref())
+            .filter(|_| reuse_possible),
+        &inventory,
         fds,
     )? {
         // The full path discards flags and stat-cache assumptions and breaks every
@@ -608,25 +633,15 @@ fn reuse_untouched(
     git: &Git,
     path: &Path,
     oid: &crate::CommitOid,
-    index: &Path,
-    verified: Option<&fs::Metadata>,
-    verified_context: Option<&[u8]>,
+    verified: Option<(&fs::Metadata, &[u8])>,
+    inventory: &crate::walk::Inventory,
     fds: &[i32],
 ) -> Result<bool> {
-    use std::{
-        io::{Seek, Write},
-        os::unix::fs::MetadataExt,
-    };
-    let Some(verified) = verified else {
+    use std::io::{Seek, Write};
+    let Some((_, marker)) = verified else {
         return Ok(false);
     };
-    // Across filesystems, the marker's mtime may have finer precision than file
-    // ctimes. Override-only storage also has no established ctime semantics.
-    if !index.try_exists()?
-        || verified.modified()? > std::time::SystemTime::now()
-        || fs::metadata(path)?.dev() != verified.dev()
-        || !crate::platform::fs::recognized_fs(path)?
-    {
+    if !inventory.touched_complete {
         return Ok(false);
     }
     let audit = git.audit_index(
@@ -641,9 +656,6 @@ fn reuse_untouched(
     }
     // HEAD is task-controlled; the marker records the commit and external
     // conversion rules which actually produced the verified physical files.
-    let Some(marker) = verified_context else {
-        return Ok(false);
-    };
     let Some(newline) = marker.iter().position(|byte| *byte == b'\n') else {
         return Ok(false);
     };
@@ -675,16 +687,12 @@ fn reuse_untouched(
             Err(error) => return Err(error),
         }
     }
-    let verified_at = (verified.mtime(), verified.mtime_nsec());
-    let mut touched = Vec::new();
-    if !touched_paths(path, path, verified_at, false, &mut touched)? {
-        return Ok(false);
-    }
+    let touched = &inventory.touched;
     if touched.is_empty() {
         return Ok(true);
     }
     let mut input = tempfile::tempfile()?;
-    input.write_all(&touched)?;
+    input.write_all(touched)?;
     input.rewind()?;
     git.run_with(
         path,
@@ -700,48 +708,6 @@ fn reuse_untouched(
     Ok(true)
 }
 
-fn touched_paths(
-    root: &Path,
-    directory: &Path,
-    verified: (i64, i64),
-    ancestor_touched: bool,
-    touched: &mut Vec<u8>,
-) -> Result<bool> {
-    use std::os::unix::{ffi::OsStrExt, fs::MetadataExt};
-    for entry in fs::read_dir(directory)? {
-        let entry = entry?;
-        if directory == root && entry.file_name() == ".git" {
-            continue;
-        }
-        let path = entry.path();
-        let metadata = fs::symlink_metadata(&path)?;
-        let changed = ancestor_touched || (metadata.ctime(), metadata.ctime_nsec()) >= verified;
-        if metadata.is_dir() {
-            // A directory swap changes the directory's ctime, not every child's.
-            if !touched_paths(root, &path, verified, changed, touched)? {
-                return Ok(false);
-            }
-        } else if changed {
-            if entry.file_name() == ".gitattributes" {
-                return Ok(false);
-            }
-            let relative = path.strip_prefix(root).map_err(|error| {
-                Error::new(
-                    crate::ErrorCode::RecoveryFailed,
-                    "Touched path escaped its checkout",
-                )
-                .with_source(error)
-            })?;
-            let bytes = relative.as_os_str().as_bytes();
-            if touched.len().saturating_add(bytes.len() + 1) > 32 * 1024 * 1024 {
-                return Ok(false);
-            }
-            touched.extend_from_slice(bytes);
-            touched.push(0);
-        }
-    }
-    Ok(true)
-}
 pub(crate) fn verify(
     git: &Git,
     repo: &Repository,

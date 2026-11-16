@@ -4,6 +4,9 @@
 
 ### Changed
 
+- Combine reuse metadata, touched-path and special-file inventories in a bounded
+  parallel filesystem walk, retaining conservative full-rewrite fallbacks.
+
 - Collect detailed per-slot Git status concurrently, bounded by available CPUs
   and eight workers while retaining each slot's execution lock.
 
