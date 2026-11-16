@@ -300,6 +300,16 @@ roots remain supported; do not remove owner markers to transfer storage.
 
 ## Git subprocesses
 
+The draft stash capture adapter runs libgit2 in the lock-owning process, using
+private refs/configuration and an expanded copy of the real index. Only its
+object store is shared with the repository. Snapshot and lifecycle admission
+descriptors remain owned until capture, verification and native ref publication
+finish. Process death stops the library writer; the next snapshot lock owner
+removes abandoned scratch administration. Unpublished objects remain eligible for
+ordinary Git GC. Stash application is not used for restoration because it merges
+instead of reconstructing the exact saved state. The library has no stash-save
+cancellation callback; the current post-call deadline check is a draft limitation,
+not the bounded execution guarantee of the subprocess wrapper below.
 
 Git runs with argv arrays, a controlled repository-selection environment,
 disabled hooks/prompts/fsmonitor/automatic maintenance, bounded time and captured

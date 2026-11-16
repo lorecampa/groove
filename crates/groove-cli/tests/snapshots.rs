@@ -2,6 +2,135 @@ mod support;
 use serde_json::Value;
 use std::{fs, process::Stdio};
 use support::{assert_success, Repo};
+#[cfg(feature = "test-hooks")]
+fn interrupted_stash_capture(point: &str) {
+    use std::os::unix::net::UnixListener;
+    let repo = Repo::new();
+    fs::write(repo.path.join("tracked.txt"), b"user stash\n").unwrap();
+    support::git(&repo.path, &["stash", "push", "-qm", "user checkpoint"]);
+    let stash = support::git(&repo.path, &["rev-parse", "refs/stash"]);
+    let reflog = fs::read(repo.path.join(".git/logs/refs/stash")).unwrap();
+    fs::write(repo.path.join("tracked.txt"), b"staged\n").unwrap();
+    support::git(&repo.path, &["add", "tracked.txt"]);
+    fs::write(repo.path.join("tracked.txt"), b"working\n").unwrap();
+    let index = fs::read(repo.path.join(".git/index")).unwrap();
+    let socket = repo.temp.path().join("stash.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let mut command = support::groove_in(&repo.path);
+    command
+        .args(["snapshot", "save"])
+        .env("GROOVE_TEST_CHECKPOINT", point)
+        .env("GROOVE_TEST_SOCKET", &socket);
+    let mut child = support::TestChild::spawn(&mut command);
+    let stream = child
+        .checkpoint(&listener, point, support::PROCESS_TIMEOUT)
+        .unwrap();
+    child.kill().unwrap();
+    child.wait().unwrap();
+    drop(stream);
+    assert_eq!(
+        fs::read(repo.path.join("tracked.txt")).unwrap(),
+        b"working\n"
+    );
+    assert_eq!(fs::read(repo.path.join(".git/index")).unwrap(), index);
+    assert_eq!(
+        support::git(&repo.path, &["rev-parse", "refs/stash"]),
+        stash
+    );
+    assert_eq!(
+        fs::read(repo.path.join(".git/logs/refs/stash")).unwrap(),
+        reflog
+    );
+    assert!(checked(&repo, &["snapshot", "list"])["snapshots"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    checked(&repo, &["snapshot", "save"]);
+    assert!(!fs::read_dir(repo.path.join(".git/groove-snapshots"))
+        .unwrap()
+        .any(|entry| entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with("scratch-")));
+    assert_eq!(
+        support::git(&repo.path, &["rev-parse", "refs/stash"]),
+        stash
+    );
+}
+
+#[cfg(feature = "test-hooks")]
+#[test]
+fn interrupted_capture_before_stash_keeps_work_and_allows_retry() {
+    interrupted_stash_capture("snapshot-stash-before-save");
+}
+
+#[cfg(feature = "test-hooks")]
+#[test]
+fn interrupted_capture_after_stash_keeps_work_and_allows_retry() {
+    interrupted_stash_capture("snapshot-stash-saved");
+}
+
+#[cfg(feature = "test-hooks")]
+#[test]
+fn killed_saved_release_after_stash_retains_reservation_until_retry() {
+    use std::{os::unix::net::UnixListener, path::Path};
+    let repo = Repo::new();
+    checked(&repo, &["pool", "init", "--capacity", "1"]);
+    let reserved = checked(&repo, &["acquire", "--task", "capture"]);
+    let workspace = Path::new(reserved["workspace_path"].as_str().unwrap());
+    fs::write(workspace.join("result.txt"), b"valuable work\n").unwrap();
+    let socket = repo.temp.path().join("release-stash.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let mut child = support::TestChild::spawn(
+        support::groove_in(&repo.path)
+            .args(["release", "--save", "--task", "capture"])
+            .env("GROOVE_TEST_CHECKPOINT", "snapshot-stash-saved")
+            .env("GROOVE_TEST_SOCKET", &socket),
+    );
+    let stream = child
+        .checkpoint(&listener, "snapshot-stash-saved", support::PROCESS_TIMEOUT)
+        .unwrap();
+    child.kill().unwrap();
+    child.wait().unwrap();
+    drop(stream);
+    assert_eq!(
+        fs::read(workspace.join("result.txt")).unwrap(),
+        b"valuable work\n"
+    );
+    let still_reserved = checked(&repo, &["show", "--task", "capture"]);
+    assert_eq!(
+        still_reserved["reservation"]["reservation_id"]
+            .as_str()
+            .unwrap(),
+        reserved["reservation_id"].as_str().unwrap()
+    );
+    let blocked = cli(&repo, &["acquire", "--task", "competitor"]);
+    let error: Value = serde_json::from_slice(&blocked.stdout).unwrap();
+    assert_eq!(blocked.status.code(), Some(3), "{error}");
+    assert_eq!(error["error"]["code"], "POOL_EXHAUSTED");
+    let released = checked(&repo, &["release", "--save", "--task", "capture"]);
+    let destination = repo.temp.path().join("recovery");
+    checked(
+        &repo,
+        &[
+            "snapshot",
+            "restore",
+            released["snapshot"]["id"].as_str().unwrap(),
+            "--to",
+            destination.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(
+        fs::read(destination.join("result.txt")).unwrap(),
+        b"valuable work\n"
+    );
+    assert!(checked(&repo, &["list"])["reservations"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+}
+
 #[test]
 fn unknown_and_deleted_snapshot_ids_report_not_found_without_partial_recovery() {
     let repo = Repo::new();

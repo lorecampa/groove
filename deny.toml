@@ -21,9 +21,9 @@ exceptions = [
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
-# Maintenance uses the bounded Git CLI wrapper; don't silently add another Git
-# implementation or a native TLS/SSH stack to the product.
-deny = ["git2", "libgit2-sys", "openssl", "openssl-sys", "libssh2-sys"]
+# Snapshot capture uses vendored libgit2 without networking. Maintenance and
+# publication still use the bounded Git CLI wrapper; no native TLS/SSH stack.
+deny = ["openssl", "openssl-sys", "libssh2-sys"]
 
 [sources]
 unknown-registry = "deny"

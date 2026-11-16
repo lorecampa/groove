@@ -33,6 +33,8 @@ rewrite saved LF bytes. Foreign refs without snapshot UUID names are omitted
 from listing; malformed snapshots with valid IDs still fail explicitly.
 Unused filter definitions, such as a global Git LFS installation, are harmless.
 Concurrent saves wait for the shared lock up to --git-timeout (default 2m).
+Draft capture limitation: the timeout rejects late results but cannot interrupt
+an in-progress stash capture. This also affects diff and restore safety capture.
 
 Unknown or deleted snapshot IDs return INVALID_ARGUMENT with "Snapshot not found".
 

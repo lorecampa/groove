@@ -68,6 +68,13 @@ allowance is restricted to its unpublished development harness.
 Default tracing attribute and subscriber formatting/ANSI features are disabled:
 Groove uses tracing events and its own subscriber and renderer. Review features,
 build scripts, procedural macros and transitive changes on dependency updates.
+The draft snapshot adapter adds vendored libgit2 through `git2`, with networking
+features disabled and experimental SHA-256 support enabled. This moves repository
+parsing into the Groove process and adds native C build inputs. The adapter uses
+private configuration and refs; object writes request fsync before native Git
+publishes the snapshot ref. The six new exact-version Cargo Vet exemptions are
+explicit draft review debt, not completed audits; native/FFI review and capture
+cancellation remain prerequisites for merging the replacement.
 Compilation can execute dependency code; `--locked` fixes resolution but does
 not sandbox a build. Keep secrets out of dependency-review/build environments.
 
