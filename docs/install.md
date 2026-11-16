@@ -281,7 +281,8 @@ Add `--with-plugins` to update supported existing native agent plugins too.
 Use `groove upgrade --help` for previews, exact versions, supported sources,
 compatibility boundaries, partial failures and manual-install guidance.
 
-Interactive pool commands can display an informational update notice at most
-daily. Checks are best-effort and never fail a pool operation. Disable them with
+Interactive pool commands can display an informational update notice for newer
+minor or major releases at most daily. Patch releases stay available through
+explicit checks and upgrades. Checks are best-effort and never fail a pool operation. Disable them with
 `groove config set updates.check=false` or `GROOVE_NO_UPDATE_NOTIFIER=1`.
 JSON, CI and quiet invocations do not perform automatic checks.

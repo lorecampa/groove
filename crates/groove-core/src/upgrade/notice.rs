@@ -22,7 +22,7 @@ pub struct UpdateNotice {
     pub current_version: String,
     /// Most recent non-yanked stable crates.io version.
     pub latest_version: String,
-    /// Whether the target may contain breaking changes.
+    /// Whether the target crosses a SemVer compatibility boundary.
     pub breaking_change: bool,
     /// Release notes for the target.
     pub release_notes: String,
@@ -153,15 +153,47 @@ impl NoticeCheck {
         if self.cache.notified_at_ms <= now && now - self.cache.notified_at_ms < DAY_MS {
             return Ok(None);
         }
-        if latest > current {
+        let available = notice_available(&current, &latest);
+        if available {
             self.cache.notified_at_ms = now;
             state::write(&self.directory.join("update.json"), &self.cache)?;
         }
-        Ok((latest > current).then(|| UpdateNotice {
+        Ok(available.then(|| UpdateNotice {
             current_version: current.to_string(),
             latest_version: latest.to_string(),
             breaking_change: super::compatibility_boundary(&current, &latest),
             release_notes: release_notes(&latest),
         }))
+    }
+}
+
+fn notice_available(current: &Version, target: &Version) -> bool {
+    target > current && (target.major, target.minor) != (current.major, current.minor)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn automatic_notices_include_minor_and_major_releases_but_skip_patch_releases() {
+        for (current, target, expected) in [
+            ("0.4.0", "0.4.1", false),
+            ("0.0.1", "0.0.2", false),
+            ("0.4.0", "0.5.0", true),
+            ("1.4.0", "1.5.0", true),
+            ("1.4.0", "2.0.0", true),
+            ("1.4.0", "1.4.0", false),
+            ("1.4.0", "1.3.9", false),
+        ] {
+            assert_eq!(
+                notice_available(
+                    &Version::parse(current).unwrap(),
+                    &Version::parse(target).unwrap()
+                ),
+                expected,
+                "{current} -> {target}"
+            );
+        }
     }
 }

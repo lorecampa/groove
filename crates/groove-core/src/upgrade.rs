@@ -187,9 +187,6 @@ pub fn run(options: &Options) -> Result<Report> {
             if !options.check && !options.dry_run {
                 let applied = if let Some(installation) = installation.as_ref() {
                     if component.status == Status::Planned {
-                        if report.breaking_change {
-                            tracing::warn!("Upgrading Groove across a compatibility boundary may contain breaking changes. Review {}. Pool formats are not migrated; use one Groove version per repository.", report.release_notes.as_deref().unwrap_or_default());
-                        }
                         cargo::apply(
                             installation,
                             &mut component,

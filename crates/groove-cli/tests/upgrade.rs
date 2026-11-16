@@ -666,7 +666,7 @@ fn cached_notices_use_interactive_stderr_and_are_displayed_at_most_daily() {
             "{text}"
         );
         if expected {
-            assert!(text.contains("breaking changes"));
+            assert!(!text.contains("breaking changes"));
             assert!(text.contains("groove upgrade"));
         }
     }
@@ -806,4 +806,58 @@ exit 1
     let (output, _) = terminal_run(enable_notices(&mut fixture.human_command(&args)));
     assert!(output.status.success());
     assert_eq!(fs::read(cache_path).unwrap(), before);
+}
+
+#[test]
+fn patch_releases_stay_quiet_but_remain_available_for_explicit_checks_and_upgrades() {
+    if !support::in_subprocess(
+        "patch_releases_stay_quiet_but_remain_available_for_explicit_checks_and_upgrades",
+    ) {
+        return;
+    }
+    let fixture = Fixture::new();
+    let repo = initialize_notice_pool(&fixture);
+    let patch = format!(
+        "{}.{}.{}",
+        env!("CARGO_PKG_VERSION_MAJOR"),
+        env!("CARGO_PKG_VERSION_MINOR"),
+        env!("CARGO_PKG_VERSION_PATCH").parse::<u64>().unwrap() + 1
+    );
+    let cache = seed_notice(&fixture);
+    let mut cached: Value = serde_json::from_slice(&fs::read(&cache).unwrap()).unwrap();
+    cached["latest"] = json!(patch);
+    fs::write(&cache, serde_json::to_vec(&cached).unwrap()).unwrap();
+    let before = fs::read(&cache).unwrap();
+    let (output, text) = terminal_run(enable_notices(&mut fixture.human_command(&[
+        "--repo",
+        repo.path.to_str().unwrap(),
+        "list",
+    ])));
+    assert!(output.status.success(), "{output:?} {text}");
+    assert!(!text.contains("is available"), "{text}");
+    assert_eq!(
+        fs::read(cache).unwrap(),
+        before,
+        "a suppressed notice must not consume the daily display allowance"
+    );
+    fs::write(
+        fixture.root.join("index"),
+        format!("{}\n", json!({"vers":patch,"yanked":false})),
+    )
+    .unwrap();
+    let output = fixture.run(&["upgrade", "--check"]);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        response(&output)["result"]["components"][0]["update_available"],
+        true
+    );
+    let output =
+        support::TestChild::spawn(fixture.command(&["upgrade"]).env("FIXTURE_TARGET", &patch))
+            .wait_with_output()
+            .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let result = response(&output)["result"].clone();
+    assert_eq!(result["components"][0]["target_version"], patch);
+    assert_eq!(result["components"][0]["status"], "upgraded");
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("breaking changes"));
 }

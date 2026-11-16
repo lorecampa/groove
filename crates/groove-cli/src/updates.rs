@@ -41,9 +41,9 @@ pub fn start(args: &Args) -> Option<NoticeCheck> {
 }
 pub fn finish(check: Option<NoticeCheck>, terminal: &Terminal) {
     if let Some(notice) = check.and_then(|check| check.finish().ok().flatten()) {
-        let message = format!("Groove {} is available; you have {}.{}\nRelease notes: {}\nRun `groove upgrade` to update (add --with-plugins for installed agent plugins).\n",
+        let message = format!("Groove {} is available; you have {}.\nRelease notes: {}\nRun `groove upgrade` to update (add --with-plugins for installed agent plugins).\n",
             notice.latest_version, notice.current_version,
-            if notice.breaking_change { " This release may contain breaking changes." } else { "" }, notice.release_notes);
+            notice.release_notes);
         tracing::info!(event = "update.available", file_only = true, version = %notice.latest_version, "Groove update available");
         terminal.write(message.as_bytes());
     }

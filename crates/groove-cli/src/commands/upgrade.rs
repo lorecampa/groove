@@ -40,11 +40,6 @@ pub fn run(args: &UpgradeArgs) -> Result<Output> {
             }
         }
     }
-    if report.breaking_change {
-        text.push_str(
-            "This CLI update crosses a compatibility boundary and may contain breaking changes.\n",
-        );
-    }
     if let Some(notes) = &report.release_notes {
         text.push_str(&format!("Release notes: {notes}\n"));
     }

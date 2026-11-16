@@ -368,8 +368,10 @@ uses bounded retry backoff, while changed policy permits an immediate retry.
 The core's `upgrade` module owns Cargo provenance inspection, HTTPS release
 selection, bounded installer processes and native skill-plugin adapters. It does
 not open repositories or migrate durable pool records. The CLI owns parsing,
-presentation and interactive notice gating. Compatibility-boundary notices are
-advisory; incompatible pool formats continue to fail through normal validation.
+presentation and interactive notice gating. Notices announce minor/major releases
+with release-note links; patch releases are found through explicit checks/upgrades.
+Version numbers do not produce speculative warnings. Incompatible pool formats
+continue to fail through normal validation.
 
 Explicit upgrades serialize with a permanent descriptor lock in the user's
 Groove state directory. Installer children inherit that descriptor so interruption

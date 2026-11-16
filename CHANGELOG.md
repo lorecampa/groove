@@ -28,12 +28,12 @@
   and the newest snapshots per originating workspace.
 - Add `snapshot storage` for snapshot/pin counts and whole-repository Git storage,
   with an opt-in `--largest N` scan of unique saved blobs by logical size.
-
 - Add `groove upgrade` for verified Cargo crates.io installations, with stable
   release checks, previews, exact versions and optional native skill-plugin updates
   through `--with-plugins`. Preserve component outcomes on partial failure and
-  explain possible breaking changes at compatibility boundaries. Interactive
-  pool commands can show a daily, nonblocking update notice; disable it with
+  link to release notes. Interactive pool commands can show a daily, nonblocking
+  update notice for newer minor or major releases; patch releases stay available
+  through explicit checks and upgrades. Disable automatic notices with
   `updates.check=false` or `GROOVE_NO_UPDATE_NOTIFIER`.
 - Add `config get KEY` and `pool get KEY`, with typed JSON values and plain human
   values. Unknown keys are rejected consistently with preference updates.

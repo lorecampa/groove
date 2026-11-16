@@ -31,9 +31,10 @@ External Cargo/native-manager invocations retain their own coordination rules.
 on timeout. Installer output is captured; JSON stdout remains one response.
 
 COMPATIBILITY:
-A compatibility boundary (0.3 -> 0.4, or 1.x -> 2.x) shows a warning and release
-notes, without a confirmation prompt. A boundary means possible breaking changes,
-not proof of a migration. Upgrading never opens/migrates pool metadata, expires
+Results link to release notes without a confirmation prompt or a speculative
+warning based on version numbers. The JSON breaking_change field describes a
+SemVer compatibility boundary (0.3 -> 0.4, or 1.x -> 2.x); consult release notes
+for actual compatibility changes. Upgrading never opens/migrates pool metadata, expires
 reservations or stops workspace writers. Existing processes keep their original
 executable; coordinate one Groove version per repository. After upgrading,
 regenerate installed shell completions. See release notes for migration steps.
@@ -65,6 +66,9 @@ UPDATE NOTICES:
 Interactive human pool commands opportunistically check crates.io at most once
 per 24 hours for verified Cargo installations. The check has a two-second budget
 and is cancelled when the command finishes; fast commands may show no notice.
+Automatic notices only announce newer minor or major releases; patch releases
+remain available through `groove upgrade` and `groove upgrade --check`.
+Notices show the available/current versions, release notes and upgrade command.
 Cached notices are informational, printed to stderr at most daily. Checks never
 fail a pool command or change its exit status. No checks in CI, JSON, quiet mode,
 help/version, preferences or completions. Disable automatic checks with
