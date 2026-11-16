@@ -1,0 +1,33 @@
+EXAMPLES:
+  groove snapshot prune --older-than 30d
+  groove snapshot prune --older-than 30d --keep-last 20 --apply
+  groove snapshot prune --older-than 7d --keep-last 0 --dry-run
+
+Preview is the default; --dry-run makes it explicit. --apply recomputes the policy
+and deletes eligible snapshot references. A prior preview is informational, not
+a frozen deletion plan. --older-than is required and accepts integer durations
+in ms, s, m, h or d. 0s selects any snapshot older than the evaluation time.
+
+Snapshots must be strictly older than the cutoff AND outside the newest
+--keep-last snapshots per originating workspace (default 20). The workspace is
+the saved Git directory, across all pools; a reused slot remains the same
+workspace even when its task changes. Pinned snapshots count in the newest
+window and are also retained independently. Future timestamps are retained.
+
+Pins are always preserved; there is no --force override. Snapshots from durably
+protected workspaces are conservatively retained to protect saved releases
+between capture and pinning. Failed or interrupted in-place restores leave their
+safety snapshots pinned; recover that work before explicitly deleting a pin with
+snapshot delete --force. Corrupt protection or pin records fail closed.
+Historical sources whose registrations are missing are also retained while any
+durable reservation exists, because their ownership cannot be established safely.
+
+The response names selected and deleted snapshots and gives a reason for each
+retained snapshot. Selection and deletion hold the repository snapshot lock;
+native Git transactions recheck snapshot identity and pin absence. A failure can
+leave an already-deleted prefix; retry recomputes the remaining selection.
+
+Deletion removes refs, not file objects immediately. Shared objects remain;
+Git's ordinary garbage collection can reclaim unreferenced objects later.
+Groove never runs GC, expires snapshots automatically, or deletes working files
+as part of pruning. All linked worktrees share snapshot storage and retention.

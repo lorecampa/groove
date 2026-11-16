@@ -746,6 +746,7 @@
     },
     "snapshot_result": {
       "anyOf": [
+        { "$ref": "#/$defs/snapshot_prune_result" },
         { "$ref": "#/$defs/snapshot_storage_result" },
         {
           "$ref": "#/$defs/snapshot_one_result"
@@ -934,6 +935,34 @@
       "properties": {
         "snapshot": {
           "$ref": "#/$defs/snapshot"
+        }
+      }
+    },
+    "snapshot_prune_result": {
+      "type": "object",
+      "required": ["prune"],
+      "additionalProperties": false,
+      "properties": {
+        "prune": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["applied", "selected", "deleted", "retained"],
+          "properties": {
+            "applied": { "type": "boolean" },
+            "selected": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/uuid" } },
+            "deleted": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/uuid" } },
+            "retained": {
+              "type": "array",
+              "items": {
+                "type": "object", "additionalProperties": false,
+                "required": ["id", "reason"],
+                "properties": {
+                  "id": { "$ref": "#/$defs/uuid" },
+                  "reason": { "enum": ["pinned", "protected_workspace", "keep_last", "too_recent"] }
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -1445,6 +1474,7 @@
       "snapshots_result"
     ],
     "snapshot storage": ["snapshot_storage_result"],
+    "snapshot prune": ["snapshot_prune_result"],
     "snapshot restore": [
       "snapshot_restore_result"
     ],

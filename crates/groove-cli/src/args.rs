@@ -327,6 +327,22 @@ pub enum SnapshotCommand {
         #[arg(long, value_name = "N", default_value_t = 0, value_parser = clap::value_parser!(u16).range(0..=1000))]
         largest: u16,
     },
+    /// Preview or apply explicit retention, preserving pinned snapshots.
+    #[command(after_long_help = help!("snapshot-prune"))]
+    Prune {
+        /// Required age threshold, e.g. 30d; accepts ms, s, m, h or d (0s allows any age).
+        #[arg(long = "older-than", value_name = "DURATION", value_parser = parse_retention_age)]
+        older_than_ms: u64,
+        /// Keep this many newest snapshots per originating workspace, including pins.
+        #[arg(long, value_name = "N", default_value_t = 20)]
+        keep_last: usize,
+        /// Delete eligible snapshot refs; never overrides pins or runs Git GC.
+        #[arg(long, conflicts_with = "dry_run")]
+        apply: bool,
+        /// Explicitly preview without deleting anything (the default).
+        #[arg(long, conflicts_with = "apply")]
+        dry_run: bool,
+    },
     /// Show one snapshot's metadata.
     Show {
         /// Snapshot ID.
@@ -362,7 +378,7 @@ pub enum SnapshotCommand {
     Delete {
         /// Snapshot ID.
         id: String,
-        /// Also delete a snapshot pinned by `release --save`.
+        /// Also delete a snapshot pinned for saved release or interrupted recovery.
         #[arg(short = 'f', long)]
         force: bool,
     },
@@ -536,6 +552,22 @@ fn parse_duration(value: &str) -> Result<u64, String> {
         .ok()
         .and_then(|number| number.checked_mul(multiplier))
         .ok_or_else(|| "Duration is too large".into())
+}
+
+fn parse_retention_age(value: &str) -> Result<u64, String> {
+    if let Some(days) = value.strip_suffix('d') {
+        if days.is_empty() || !days.bytes().all(|byte| byte.is_ascii_digit()) {
+            return Err("Retention age requires a non-negative integer and unit, e.g. 30d".into());
+        }
+        return days
+            .parse::<u64>()
+            .ok()
+            .and_then(|days| days.checked_mul(86_400_000))
+            .ok_or_else(|| "Retention age is too large".into());
+    }
+    parse_duration(value).map_err(|_| {
+        "Retention age requires ms, s, m, h or d within the supported range, e.g. 30d".into()
+    })
 }
 
 fn parse_positive_duration(value: &str) -> Result<u64, String> {

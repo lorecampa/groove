@@ -37,7 +37,7 @@ pub struct StorageBlob {
 pub struct StorageReport {
     /// Total snapshots across all worktrees and pools.
     pub snapshots: usize,
-    /// Snapshots protected by a saved-release pin.
+    /// Snapshots protected by a saved-release or recovery pin.
     pub pinned: usize,
     /// Oldest creation time in Unix seconds, or null when empty.
     pub oldest_created_at: Option<u64>,

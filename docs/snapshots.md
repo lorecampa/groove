@@ -93,6 +93,26 @@ against process death: use the safety checkpoint to recover interrupted work.
 
 ## Deletion and storage
 
+`groove snapshot prune --older-than 30d` previews explicit retention; add
+`--apply` to recompute and delete eligible refs. Nothing expires automatically.
+Pruning keeps the newest 20 snapshots per originating workspace by default;
+`--keep-last` adjusts that number. The workspace key is the saved Git directory,
+so multiple tasks using one reusable slot share the same retention window.
+Pinned snapshots count toward the newest window and are always preserved
+independently of age. Snapshots from durably protected source workspaces are
+conservatively retained, covering saved release between capture and pin creation.
+Historical sources with missing registrations are retained while any durable
+reservation exists, since their relationship to protected sources is unknown.
+The result explains each retained snapshot. See `snapshot prune --help` for
+cutoff, concurrency and failure behavior. A preview is not a frozen plan.
+
+In-place restore pins its safety snapshot before changing working files and
+unpins it only after successful restoration and verification. Failure or process
+death leaves the safety checkpoint pinned for recovery. After recovering or
+preserving that state elsewhere, explicitly delete it with `snapshot delete ID
+--force` if it is no longer needed; pruning never overrides it. The pin and saved
+description identify the recovery checkpoint; no automatic timeout releases it.
+
 ```sh
 groove snapshot delete ID                # snapshots pinned by release --save need --force
 ```

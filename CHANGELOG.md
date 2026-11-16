@@ -9,6 +9,8 @@
 
 ### Changed (breaking)
 
+- Failed or interrupted in-place restores retain pinned safety snapshots;
+  deleting those recovery checkpoints now requires `snapshot delete --force`.
 - Infer the owning pool inside a registered managed workspace (including `--repo`)
   when `--pool` is omitted; explicit selection still wins and other paths use `default`.
 - Remember completed idempotency keys for seven days after release rather than
@@ -18,6 +20,9 @@
 
 ### Added
 
+- Add explicit `snapshot prune --older-than DURATION`, previewing by default and
+  requiring `--apply` for deletion. Retention preserves pins, protected sources,
+  and the newest snapshots per originating workspace.
 - Add `snapshot storage` for snapshot/pin counts and whole-repository Git storage,
   with an opt-in `--largest N` scan of unique saved blobs by logical size.
 

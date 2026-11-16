@@ -149,7 +149,7 @@ impl Snapshots {
 
     /// Inspect the original ref while a prepared transaction holds its lock.
     /// This deliberately does not start another absence-verification transaction.
-    fn validate_prepared_pin(
+    pub(super) fn validate_prepared_pin(
         &self,
         id: &str,
         expected: Option<&str>,
@@ -190,7 +190,11 @@ impl Snapshots {
     /// `release --save` pins the snapshot it saves before releasing a workspace.
     pub(crate) fn pin(&self, id: &str) -> Result<()> {
         let lock = self.lock()?;
-        let (s, oid) = self.load_at(id, &lock)?;
+        self.pin_inner(id, &lock)
+    }
+
+    pub(super) fn pin_inner(&self, id: &str, lock: &SnapshotLock) -> Result<()> {
+        let (s, oid) = self.load_at(id, lock)?;
         let reference = format!("{PINS}{}", s.id);
         let expected = if s.pinned {
             oid.clone()
@@ -205,10 +209,10 @@ impl Snapshots {
             &["update-ref", "--no-deref", "--stdin"],
             None,
             Some(transaction.as_bytes()),
-            Some(&lock),
+            Some(lock),
             &[],
             Some(Box::new(|timeout| {
-                self.validate_prepared_pin(&s.id, s.pinned.then_some(oid.as_str()), &lock, timeout)
+                self.validate_prepared_pin(&s.id, s.pinned.then_some(oid.as_str()), lock, timeout)
             })),
         )?;
         Ok(())
@@ -216,26 +220,30 @@ impl Snapshots {
 
     pub(super) fn unpin(&self, id: &str) -> Result<()> {
         let lock = self.lock()?;
+        self.unpin_inner(id, &lock)
+    }
+
+    pub(super) fn unpin_inner(&self, id: &str, lock: &SnapshotLock) -> Result<()> {
         let snapshot_ref = Self::reference(id)?;
         let reference = format!("{PINS}{id}");
-        let inventory = self.pin_inventory(&reference, &lock, self.timeout)?;
+        let inventory = self.pin_inventory(&reference, lock, self.timeout)?;
         if !inventory.contains_key(&reference) {
             // Also accept an already deleted snapshot, but never silently accept
             // dangling symbolic pins omitted by for-each-ref.
             let oid_len = self.string(&["hash-object", "--stdin"])?.len();
-            return self.verify_absent_pins(&[(reference, oid_len)], &lock);
+            return self.verify_absent_pins(&[(reference, oid_len)], lock);
         }
-        let (snapshot, oid) = self.load_at(id, &lock)?;
+        let (snapshot, oid) = self.load_at(id, lock)?;
         let transaction =
             format!("start\nverify {snapshot_ref} {oid}\ndelete {reference} {oid}\nprepare\n");
         self.run_env(
             &["update-ref", "--no-deref", "--stdin"],
             None,
             Some(transaction.as_bytes()),
-            Some(&lock),
+            Some(lock),
             &[],
             Some(Box::new(|timeout| {
-                self.validate_prepared_pin(&snapshot.id, Some(&oid), &lock, timeout)
+                self.validate_prepared_pin(&snapshot.id, Some(&oid), lock, timeout)
             })),
         )?;
         Ok(())
@@ -244,7 +252,7 @@ impl Snapshots {
         let (s, oid) = self.load_at(id, lock)?;
         if s.pinned && !force {
             return Err(invalid(
-                "Snapshot is pinned by release --save; pass --force to delete it",
+                "Snapshot is pinned for saved release or recovery; pass --force to delete it",
             ));
         }
         let reference = Self::reference(id)?;

@@ -20,6 +20,8 @@ use uuid::Uuid;
 
 const PREFIX: &str = "refs/groove/snapshots/";
 mod pins;
+mod prune;
+pub use prune::{PruneOptions, PruneResult, PruneRetained, PruneRetentionReason};
 mod storage;
 pub use storage::{ObjectStorage, StorageBlob, StorageReport};
 
@@ -136,7 +138,8 @@ pub struct Snapshot {
     pub untracked_blob: String,
     /// Optional caller task or session identifier.
     pub session: Option<String>,
-    /// Whether `release --save` pinned this snapshot; deleting it then requires `force`.
+    /// Whether a durable pin protects saved release or interrupted restore recovery.
+    /// Explicit deletion then requires `force`.
     #[serde(default)]
     pub pinned: bool,
 }
@@ -493,11 +496,16 @@ impl Snapshots {
         self.load(id, &lock)
     }
     fn list_inner(&self, lock: &SnapshotLock) -> Result<Vec<Snapshot>> {
-        let refs = self.string(&[
-            "for-each-ref",
-            "--format=%(refname) %(objectname) %(contents:subject)",
-            PREFIX,
-        ])?;
+        let refs = self.ref_query(
+            &[
+                "for-each-ref",
+                "--format=%(refname) %(objectname) %(contents:subject)",
+                PREFIX,
+            ],
+            None,
+            lock,
+            self.timeout,
+        )?;
         let pins = self.pin_inventory(PINS, lock, self.timeout)?;
         let mut absent = Vec::new();
         let mut result = Vec::new();
@@ -1496,7 +1504,12 @@ impl Snapshots {
                     .with_details(|d| d.safety_snapshot_id = Some(safety.id.clone())),
             );
         }
+        self.pin_inner(&safety.id, &lock)
+            .map_err(|e| e.with_details(|d| d.safety_snapshot_id = Some(safety.id.clone())))?;
+        crate::state::checkpoint("snapshot-safety-pinned");
         self.apply(&s, Some(&safety), &lock)
+            .map_err(|e| e.with_details(|d| d.safety_snapshot_id = Some(safety.id.clone())))?;
+        self.unpin_inner(&safety.id, &lock)
             .map_err(|e| e.with_details(|d| d.safety_snapshot_id = Some(safety.id.clone())))?;
         Ok(RestoreResult {
             path: self.root.clone(),

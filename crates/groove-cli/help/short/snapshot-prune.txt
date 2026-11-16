@@ -1,0 +1,3 @@
+Preview: groove snapshot prune --older-than 30d
+Apply:   groove snapshot prune --older-than 30d --keep-last 20 --apply
+Keeps pinned snapshots and protected sources. Deletes refs; Git GC reclaims objects later.

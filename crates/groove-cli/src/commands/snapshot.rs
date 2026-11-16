@@ -103,6 +103,12 @@ pub fn run(context: &Context<'_>, command: &SnapshotCommand) -> Result<Output> {
             }
             Output::text(json!({ "storage": report }), text)
         }
+        SnapshotCommand::Prune {
+            older_than_ms,
+            keep_last,
+            apply,
+            dry_run: _,
+        } => super::snapshot_prune::run(&service, *older_than_ms, *keep_last, *apply),
         SnapshotCommand::Show { id } => snapshot_output(service.show(id)?),
         SnapshotCommand::Diff {
             id,

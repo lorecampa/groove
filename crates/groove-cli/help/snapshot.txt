@@ -37,7 +37,9 @@ Concurrent saves wait for the shared lock up to --git-timeout (default 2m).
 
 Unknown or deleted snapshot IDs return INVALID_ARGUMENT with "Snapshot not found".
 
-Snapshots pinned by `release --save` need `delete --force`. Deleting removes the ref;
+Snapshots pinned by `release --save` or an interrupted in-place restore need
+`delete --force`. Explicit retention is available with snapshot prune --older-than 30d;
+it previews by default and never overrides pins. Deleting removes the ref;
 Git reclaims the space during its normal garbage collection.
 Unreadable or inconsistent pins cause an error, including with --force; repair
 the reference before retrying. A reference changed during deletion is preserved.
