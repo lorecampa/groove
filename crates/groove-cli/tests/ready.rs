@@ -412,7 +412,7 @@ fn refused_destroy_restarts_cancelled_preparation() {
     let listener = UnixListener::bind(&socket).unwrap();
     let mut command = support::groove_in(&repo.path);
     command
-        .args(["pool", "destroy"])
+        .args(["pool", "delete", "default", "--yes"])
         .env("GROOVE_TEST_CHECKPOINT", "ready-cancel-requested")
         .env("GROOVE_TEST_SOCKET", &socket);
     let mut destroy = support::TestChild::spawn(&mut command);
@@ -634,7 +634,14 @@ fn destruction_cancels_the_worker_between_slots_and_waits_for_its_descriptors() 
     let listener = UnixListener::bind(&socket).unwrap();
     let mut destroyer = support::TestChild::spawn(
         support::groove_in(&repo.path)
-            .args(["--git-timeout", "5000ms", "pool", "destroy"])
+            .args([
+                "--git-timeout",
+                "5000ms",
+                "pool",
+                "delete",
+                "default",
+                "--yes",
+            ])
             .env("GROOVE_TEST_CHECKPOINT", "ready-cancel-requested")
             .env("GROOVE_TEST_SOCKET", &socket),
     );
@@ -793,7 +800,7 @@ fn destruction_preview_does_not_cancel_an_active_ready_worker() {
         )
         .unwrap();
     let preview = support::groove_in(&repo.path)
-        .args(["pool", "destroy", "--dry-run"])
+        .args(["pool", "delete", "default", "--dry-run"])
         .output()
         .unwrap();
     assert!(!preview.status.success());
@@ -826,7 +833,7 @@ fn destruction_preview_waits_for_a_background_pass_without_cancelling_it() {
         )
         .unwrap();
     let mut command = support::groove_in(&repo.path);
-    command.args(["pool", "destroy", "--dry-run"]);
+    command.args(["pool", "delete", "default", "--dry-run"]);
     let mut preview = support::TestChild::spawn(&mut command);
     // Observe that preview is still waiting while the worker holds admission.
     let start = Instant::now();

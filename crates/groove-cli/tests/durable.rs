@@ -41,7 +41,9 @@ fn shell_calls_retain_reservations_and_reuse_only_after_explicit_release() {
     fs::write(path.join("tracked.txt"), "task work\n").unwrap();
     let listed = cli(&repo.path, &["list"]);
     assert_success(&listed);
-    assert_eq!(checked(&listed)["result"]["reservations"][0], first);
+    let mut expected = first.clone();
+    expected["pool"] = "default".into();
+    assert_eq!(checked(&listed)["result"]["reservations"][0], expected);
     let blocked = cli(&repo.path, &["acquire"]);
     assert!(!blocked.status.success());
     assert_eq!(checked(&blocked)["error"]["code"], "POOL_EXHAUSTED");
@@ -66,7 +68,7 @@ fn shell_calls_retain_reservations_and_reuse_only_after_explicit_release() {
     assert_eq!(checked(&rejected)["error"]["code"], "INVALID_ARGUMENT");
     assert_eq!(
         checked(&cli(&repo.path, &["list"]))["result"]["reservations"][0],
-        first
+        expected
     );
     // Preserve the result on a branch before returning the workspace.
     support::git(path, &["switch", "-c", "task-result"]);
@@ -90,9 +92,11 @@ fn shell_calls_retain_reservations_and_reuse_only_after_explicit_release() {
     );
     assert_eq!(repo.git(&["show", "task-result:tracked.txt"]), "task work");
     assert!(!cli(&repo.path, &release_args(&first)).status.success());
+    let mut expected = second.clone();
+    expected["pool"] = "default".into();
     assert_eq!(
         checked(&cli(&repo.path, &["list"]))["result"]["reservations"][0],
-        second
+        expected
     );
     assert_success(&cli(&repo.path, &release_args(&second)));
 }

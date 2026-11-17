@@ -6,7 +6,10 @@ use std::{
     io::{Read, Write},
     os::{
         fd::AsRawFd,
-        unix::{ffi::OsStrExt, fs::PermissionsExt},
+        unix::{
+            ffi::OsStrExt,
+            fs::{OpenOptionsExt, PermissionsExt},
+        },
     },
     process::{Command, Stdio},
     time::Duration,
@@ -104,7 +107,7 @@ fn killed_groove_leaves_mutating_git_child_holding_both_locks() {
     command
         .arg("--repo")
         .arg(&r.path)
-        .args(["acquire", "--base", "HEAD"])
+        .args(["acquire", "--pool", "default", "--base", "HEAD"])
         .env(
             "PATH",
             format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()),
@@ -115,9 +118,36 @@ fn killed_groove_leaves_mutating_git_child_holding_both_locks() {
         .stdout(Stdio::null())
         .stderr(Stdio::inherit());
     let mut child = support::TestChild::spawn(&mut command);
-    let mut ready_file = fs::File::open(&ready).unwrap();
+    let mut ready_file = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(&ready)
+        .unwrap();
     let mut marker = [0; 5];
-    ready_file.read_exact(&mut marker).unwrap();
+    let mut read = 0;
+    let deadline = std::time::Instant::now() + support::PROCESS_TIMEOUT;
+    while read < marker.len() {
+        match ready_file.read(&mut marker[read..]) {
+            Ok(count) => read += count,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+            Err(error) => panic!("reading checkout readiness: {error}"),
+        }
+        if read == marker.len() {
+            break;
+        }
+        if child.try_wait().unwrap().is_some() {
+            panic!(
+                "checkout exited before readiness: {:?}",
+                child.wait_with_output().unwrap()
+            );
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "checkout readiness timed out"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(&marker, b"ready");
     child.kill().unwrap();
     child.wait().unwrap();
     assert_eq!(

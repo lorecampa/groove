@@ -41,13 +41,13 @@ fn prune<'a>(extra: &'a [&'a str]) -> Vec<&'a str> {
     args
 }
 #[test]
-fn default_preview_preserves_pinned_and_unpinned_recovery() {
+fn explicit_preview_preserves_pinned_and_unpinned_recovery() {
     let repo = Repo::new();
     fs::write(repo.path.join("tracked.txt"), "recoverable\n").unwrap();
     let id = save(&repo);
     let reference = format!("refs/groove/snapshots/{id}");
     let oid = repo.git(&["rev-parse", &reference]);
-    let preview = checked(&repo, &prune(&[]));
+    let preview = checked(&repo, &prune(&["--dry-run"]));
     assert_eq!(preview["applied"], false);
     assert_eq!(preview["selected"], serde_json::json!([id]));
     assert_eq!(preview["deleted"], serde_json::json!([]));
@@ -315,7 +315,7 @@ fn interrupted_restore_safety(point: &str) {
         .unwrap();
     assert_eq!(safety["pinned"], true);
     let safety_id = safety["id"].as_str().unwrap();
-    let preview = checked(&repo, &prune(&[]));
+    let preview = checked(&repo, &prune(&["--dry-run"]));
     assert_eq!(preview["retained"][0]["id"], safety_id);
     assert_eq!(preview["retained"][0]["reason"], "pinned");
     checked(&repo, &prune(&["--apply"]));

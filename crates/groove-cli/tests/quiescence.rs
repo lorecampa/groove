@@ -75,7 +75,7 @@ fn unreadable_work_is_preserved_by_release_and_destruction() {
     );
     ok(&cli(&repo, &["release", "--force", "--task", "unreadable"]));
     fs::set_permissions(&directory, fs::Permissions::from_mode(0o000)).unwrap();
-    let refused = cli(&repo, &["pool", "destroy"]);
+    let refused = cli(&repo, &["pool", "delete", "default", "--yes"]);
     fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
     assert!(!refused.status.success());
     let response: Value = serde_json::from_slice(&refused.stdout).unwrap();
@@ -132,7 +132,7 @@ fn successful_git_status_with_warnings_cannot_authorize_release_destroy_or_acqui
     };
     for (index, args) in [
         vec!["release", "--task", "warnings"],
-        vec!["pool", "destroy"],
+        vec!["pool", "delete", "default", "--yes"],
     ]
     .into_iter()
     .enumerate()
@@ -485,13 +485,15 @@ fn a_shared_writable_mapping_blocks_release_and_reacquisition_after_fd_close() {
         .unwrap()
         .iter()
         .any(|p| p["pid"] == child.id() && p["uses"] == "open_file"));
-    ok(&cli(&repo, &["release", "--force", "--task", "mapped"]));
+    let forced = error(&cli(&repo, &["release", "--force", "--task", "mapped"]));
+    assert_eq!(forced["code"], "WORKSPACE_IN_USE");
     let refused = cli(&repo, &["acquire"]);
     assert!(!refused.status.success());
     let response: Value = serde_json::from_slice(&refused.stdout).unwrap();
     assert_eq!(response["error"]["code"], "POOL_EXHAUSTED");
     stream.write_all(b"x").unwrap();
     assert!(child.wait().unwrap().success());
+    ok(&cli(&repo, &["release", "mapped", "--force"]));
     acquire(&repo, "next");
     assert_eq!(
         fs::read(Path::new(&path).join("tracked.txt")).unwrap(),

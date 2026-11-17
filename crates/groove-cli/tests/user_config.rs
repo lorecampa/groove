@@ -323,7 +323,7 @@ fn successful_lifecycle_has_fresh_matching_timestamps_and_startup_notices() {
     let repo = support::Repo::new();
     let mut lease = Value::Null;
     let mut invocations = std::collections::HashSet::new();
-    for action in ["pool init", "acquire", "list", "release"] {
+    for action in ["pool create", "acquire", "list", "release"] {
         let logs = home.path().join(action);
         let before = chrono::Utc::now().timestamp_millis();
         let mut cmd = command(home.path());
@@ -333,7 +333,7 @@ fn successful_lifecycle_has_fresh_matching_timestamps_and_startup_notices() {
             .args(["-vv", "--request-id", "lifecycle"])
             .args(action.split_whitespace());
         match action {
-            "pool init" => {
+            "pool create" => {
                 cmd.args([
                     "--capacity",
                     "1",
@@ -424,7 +424,7 @@ fn default_logging_resolves_a_symlinked_home() {
         .env_remove("XDG_STATE_HOME")
         .arg("--repo")
         .arg(&repo.path)
-        .args(["-vv", "list"])
+        .args(["-vv", "pool", "show", "default"])
         .output()
         .unwrap();
     let response: Value = serde_json::from_slice(&output.stdout).unwrap();

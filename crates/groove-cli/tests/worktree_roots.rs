@@ -42,7 +42,7 @@ fn a_symlinked_home_resolves_the_base_before_creating_managed_paths() {
     let lease = run(&repo, &alias, &["acquire"]);
     assert!(Path::new(lease["workspace_path"].as_str().unwrap()).starts_with(root));
     assert_eq!(
-        run(&repo, &home, &["pool", "show"])["pool"]["workspace_root"],
+        run(&repo, &home, &["pool", "show", "default"])["pool"]["workspace_root"],
         initialized["workspace_root"]
     );
 }
@@ -84,7 +84,7 @@ fn root_precedence_and_global_changes_apply_only_to_new_pools() {
         front_root.parent().unwrap().file_name()
     );
     assert_eq!(
-        run(&repo, h, &["pool", "show"])["pool"]["workspace_root"],
+        run(&repo, h, &["pool", "show", "default"])["pool"]["workspace_root"],
         original["workspace_root"]
     );
 

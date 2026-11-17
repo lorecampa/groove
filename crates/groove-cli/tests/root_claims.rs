@@ -38,7 +38,7 @@ fn released_root_claim(interrupt: bool) {
     let marker = root.join(".groove-owner");
     assert!(marker.is_symlink());
     let preview = support::groove_in(&first.path)
-        .args(["pool", "destroy", "--dry-run"])
+        .args(["pool", "delete", "default", "--dry-run"])
         .output()
         .unwrap();
     assert_success(&preview);
@@ -49,7 +49,7 @@ fn released_root_claim(interrupt: bool) {
         let listener = UnixListener::bind(&socket).unwrap();
         let mut child = TestChild::spawn(
             support::groove_in(&first.path)
-                .args(["pool", "destroy"])
+                .args(["pool", "delete", "default", "--yes"])
                 .env("GROOVE_TEST_CHECKPOINT", "pool-deleted")
                 .env("GROOVE_TEST_SOCKET", &socket),
         );
@@ -63,7 +63,7 @@ fn released_root_claim(interrupt: bool) {
     }
     assert_success(
         &support::groove_in(&first.path)
-            .args(["pool", "destroy"])
+            .args(["pool", "delete", "default", "--yes"])
             .output()
             .unwrap(),
     );
@@ -80,7 +80,7 @@ fn released_root_claim(interrupt: bool) {
     std::fs::write(&file, b"new repository's work").unwrap();
     assert_success(
         &support::groove_in(&first.path)
-            .args(["pool", "destroy"])
+            .args(["pool", "delete", "default", "--yes"])
             .output()
             .unwrap(),
     );
@@ -237,7 +237,7 @@ fn independent_repositories_cannot_claim_the_same_empty_checkout_root() {
     );
     assert_success(
         &support::groove_in(&owner.path)
-            .args(["pool", "destroy"])
+            .args(["pool", "delete", "default", "--yes"])
             .output()
             .unwrap(),
     );

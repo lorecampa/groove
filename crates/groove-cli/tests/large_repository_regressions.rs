@@ -170,7 +170,8 @@ fn deleted_pool_succeeds_despite_unreadable_snapshot_ref_cleanup() {
     .unwrap();
     for _ in 0..2 {
         assert_eq!(
-            cli(&repo, &["pool", "destroy", "--force"])["destruction"]["deleted"],
+            cli(&repo, &["pool", "delete", "default", "--yes", "--force"])["destruction"]
+                ["deleted"],
             true
         );
         assert!(!repo.slot(1).exists());
