@@ -311,10 +311,9 @@ fn error_hint(
             .enumerate()
             .map(|(index, part)| {
                 let part = if index % 2 == 1 && part.starts_with("groove ") {
-                    if part.starts_with("groove pool ") {
-                        let (command, options) = part["groove pool ".len()..]
-                            .split_once(' ')
-                            .unwrap_or((&part["groove pool ".len()..], ""));
+                    if let Some(pool_command) = part.strip_prefix("groove pool ") {
+                        let (command, options) =
+                            pool_command.split_once(' ').unwrap_or((pool_command, ""));
                         format!(
                             "groove pool {command} {} {options}{selection}",
                             pool.as_str()
