@@ -13,7 +13,13 @@ pub(super) fn processes_using(root: &Path, skip_ancestors: bool) -> Result<Vec<W
     let started = std::time::Instant::now();
     let executable = fs::metadata("/proc/self/exe")?;
     loop {
-        let found = scan_processes(root, skip_ancestors)?;
+        let (mut found, readers) = scan_processes(root, skip_ancestors)?;
+        if !found.is_empty() {
+            crate::state::checkpoint("workspace-processes-scanned");
+        }
+        if found.is_empty() && super::retry_observed_readers(&readers, started) {
+            continue;
+        }
         // Discovery can start Git in the caller's workspace before Groove knows
         // which pool/slot admission to take. The caller already excludes admitted
         // inspectors. Briefly wait only for these pre-admission Groove children;
@@ -29,13 +35,14 @@ pub(super) fn processes_using(root: &Path, skip_ancestors: bool) -> Result<Vec<W
                 })
             })
         {
+            super::retain_live_observations(&mut found);
             return Ok(found);
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
 }
 
-fn scan_processes(root: &Path, skip_ancestors: bool) -> Result<Vec<WorkspaceProcess>> {
+fn scan_processes(root: &Path, skip_ancestors: bool) -> Result<(Vec<WorkspaceProcess>, Vec<u32>)> {
     let skip = if skip_ancestors {
         self_and_ancestors()
     } else {
@@ -70,21 +77,30 @@ fn scan_processes(root: &Path, skip_ancestors: bool) -> Result<Vec<WorkspaceProc
         HashSet::new()
     };
     let mut found = Vec::new();
+    let mut observed_readers = Vec::new();
     for (pid, path) in candidates {
-        if let Some(uses) = process_use(&path, root, readers.contains(&pid)) {
+        let mut observed_reader = false;
+        if let Some(uses) = process_use(&path, root, readers.contains(&pid), &mut observed_reader) {
             let command = fs::read_to_string(path.join("comm"))
                 .map(|c| c.trim_end().to_owned())
                 .unwrap_or_default();
             found.push(WorkspaceProcess { pid, command, uses });
+        } else if observed_reader {
+            observed_readers.push(pid);
         }
     }
     found.sort_by_key(|p| p.pid);
-    Ok(found)
+    Ok((found, observed_readers))
 }
 
 /// How the process at `/proc/PID` uses `root`, if at all. Unreadable entries
 /// (other users, exited processes) are treated as not using it.
-fn process_use(proc_dir: &Path, root: &Path, pipeline: bool) -> Option<ProcessUse> {
+fn process_use(
+    proc_dir: &Path,
+    root: &Path,
+    pipeline: bool,
+    observed_reader: &mut bool,
+) -> Option<ProcessUse> {
     let inside = |link: PathBuf| fs::read_link(link).is_ok_and(|target| target.starts_with(root));
     if !pipeline && inside(proc_dir.join("cwd")) {
         return Some(ProcessUse::WorkingDirectory);
@@ -92,10 +108,28 @@ fn process_use(proc_dir: &Path, root: &Path, pipeline: bool) -> Option<ProcessUs
     if inside(proc_dir.join("exe")) {
         return Some(ProcessUse::Executable);
     }
-    if fs::read_dir(proc_dir.join("fd"))
-        .is_ok_and(|descriptors| descriptors.flatten().any(|fd| inside(fd.path())))
-    {
-        return Some(ProcessUse::OpenFile);
+    let outside = ["cwd", "exe"]
+        .into_iter()
+        .all(|link| fs::read_link(proc_dir.join(link)).is_ok_and(|path| !path.starts_with(root)));
+    if let Ok(descriptors) = fs::read_dir(proc_dir.join("fd")) {
+        for fd in descriptors.flatten().filter(|fd| inside(fd.path())) {
+            let flags = fs::read_to_string(proc_dir.join("fdinfo").join(fd.file_name()))
+                .ok()
+                .and_then(|info| {
+                    info.lines().find_map(|line| {
+                        line.strip_prefix("flags:")
+                            .and_then(|value| u32::from_str_radix(value.trim(), 8).ok())
+                    })
+                });
+            if outside
+                && flags
+                    .is_some_and(|flags| flags & libc::O_ACCMODE as u32 == libc::O_RDONLY as u32)
+            {
+                *observed_reader = true;
+            } else {
+                return Some(ProcessUse::OpenFile);
+            }
+        }
     }
     // Closing the descriptor does not revoke a shared writable mapping.
     use std::os::unix::ffi::OsStrExt;
@@ -156,4 +190,15 @@ pub(super) fn parent_of(pid: u32) -> Option<u32> {
     let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     let after_name = &stat[stat.rfind(')')? + 1..];
     after_name.split_whitespace().nth(1)?.parse().ok()
+}
+
+/// An unreaped child still answers kill(pid, 0), but no longer owns its files.
+pub(super) fn has_exited(pid: u32) -> bool {
+    fs::read_to_string(format!("/proc/{pid}/stat"))
+        .ok()
+        .and_then(|stat| {
+            stat.rsplit_once(')')
+                .map(|(_, fields)| fields.trim_start().starts_with("Z "))
+        })
+        .unwrap_or(false)
 }

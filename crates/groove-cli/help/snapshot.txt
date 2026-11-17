@@ -62,3 +62,7 @@ snapshot ID. --order asc|desc controls the key and its tie-breaker; the default
 is desc for created (newest first), asc for id. Sorting precedes pagination.
 These options are available on snapshot list only.
 Metadata is still enumerated/sorted. Concurrent changes can shift offset pages.
+
+Snapshot commands accept --lock-timeout DURATION (default 2m) to bound contention
+independently of Git subprocess timeouts. A timeout never breaks another owner's
+lock; stop its writers or retry after they finish.

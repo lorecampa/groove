@@ -26,11 +26,18 @@ struct Receipt {
 }
 #[derive(Debug)]
 pub(super) struct Installation {
+    source: String,
     root: PathBuf,
     executable: PathBuf,
     receipt: Receipt,
 }
 impl Installation {
+    pub fn source(&self) -> &str {
+        &self.source
+    }
+    pub fn supports_upgrade(&self) -> bool {
+        self.source == "cargo:crates-io"
+    }
     pub fn detect() -> Result<Option<Self>> {
         let executable = fs::canonicalize(std::env::current_exe()?)?;
         let Some(bin) = executable
@@ -49,13 +56,25 @@ impl Installation {
             Err(error) => return Err(error.into()),
         };
         let receipts: Receipts = crate::state::read_bounded(&receipt_path, process::LIMIT as u64)?;
-        let key = format!("groove-cli {} ({REGISTRY})", env!("CARGO_PKG_VERSION"));
-        let Some(receipt) = receipts
-            .installs
-            .into_iter()
-            .find_map(|(name, receipt)| (name == key).then_some(receipt))
-        else {
+        let prefix = format!("groove-cli {} (", env!("CARGO_PKG_VERSION"));
+        let mut candidates = receipts.installs.into_iter().filter(|(name, receipt)| {
+            name.starts_with(&prefix) && name.ends_with(')') && receipt.bins == ["groove"]
+        });
+        let Some((key, receipt)) = candidates.next() else {
             return Ok(None);
+        };
+        if candidates.next().is_some() {
+            return Ok(None);
+        }
+        let origin = &key[prefix.len()..key.len() - 1];
+        let source = if origin == REGISTRY {
+            "cargo:crates-io"
+        } else if origin.starts_with("git+") {
+            "cargo:git"
+        } else if origin.starts_with("path+") {
+            "cargo:path"
+        } else {
+            "cargo:other-registry"
         };
         if receipt.bins != ["groove"] || executable != root.join("bin/groove") {
             return Ok(None);
@@ -65,6 +84,7 @@ impl Installation {
                 "Cargo installation paths must be UTF-8 for upgrade; use the original installer for this path"));
         }
         Ok(Some(Self {
+            source: source.into(),
             root: root.to_path_buf(),
             executable,
             receipt,
@@ -149,6 +169,16 @@ pub(super) fn plan(
     explicit: Option<&Version>,
     options: &Options,
 ) -> Result<Component> {
+    if let Some(installation) = installation.filter(|installation| !installation.supports_upgrade())
+    {
+        return Ok(Component {
+            name: "cli".into(), source: installation.source.clone(),
+            path: Some(installation.executable.clone()), current_version: Some(current.to_string()),
+            target_version: None, update_available: None, status: Status::Skipped,
+            message: "This CLI was installed from Git, a local path, or a non-crates.io registry. Check releases at https://github.com/lorecampa/groove/releases and reinstall through the original source. For an official Git-tag installation, select a reviewed tag with cargo install --locked --git https://github.com/lorecampa/groove --tag vX.Y.Z groove-cli. No registry lookup or source switch was performed.".into(),
+            commands: Vec::new(),
+        });
+    }
     if installation.is_none() && !options.check && !options.dry_run {
         return Ok(Component {
             name: "cli".into(),
@@ -163,7 +193,10 @@ pub(super) fn plan(
         });
     }
     let target = select(
-        &process::index_request(Duration::from_secs(10))?.wait()?,
+        &process::index_request(Duration::from_secs(10)).and_then(|request| request.wait()).map_err(|mut error| {
+            error.message = format!("Cannot check the official crates.io index: {}. Check network/DNS access to index.crates.io. Offline or mirrored registries may lag; verify groove --version before replacing an installation. When GitHub is reachable, an official Git-tag install is available: cargo install --locked --git https://github.com/lorecampa/groove --tag vX.Y.Z groove-cli", error.message);
+            error
+        })?,
         explicit,
     )?;
     let available = target > *current;

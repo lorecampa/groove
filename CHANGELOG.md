@@ -2,6 +2,78 @@
 
 ## Unreleased
 
+### Fixed
+
+- Buffer metadata JSON fragments before writing, without changing stored bytes,
+  atomic publication or the file and directory syncs required for durability.
+
+- Recheck advisory process observations before refusing handoff: a child that
+  exited during a process scan no longer causes a stale workspace-in-use error.
+  Live and permission-denied processes remain blockers; descriptor ownership
+  and writer exclusion are unchanged.
+
+- Avoid building a whole-target collision inventory when restore finds no
+  ignored files, and reuse the captured index tree when staging changed nothing.
+  Safety capture, stability checks and ignored-file collision refusal remain.
+
+- Preserve resumable draft publication on macOS Bash 3.2 when all assets are
+  already uploaded; guard empty array expansion under `set -u`.
+
+- Verify exact tracked-path spelling during reuse on case-insensitive storage;
+  case-only contamination now triggers cleanup or a safe checkout rebuild.
+
+- Accept Git's fsmonitor IPC socket at the root of verified worktree
+  administration, while continuing to reject unknown sockets and special files.
+  Preserve the daemon and its socket across safe handoffs.
+
+- Exercise the installed pool command in CI and run the concurrent detailed
+  inspection regression on native macOS stable jobs.
+
+- Defer idle maintenance before taking slot exclusion when no preparation or
+  eviction is due, so a no-op background pass cannot exhaust zero-wait capacity.
+  Actual maintenance still requires descriptor ownership and revalidation.
+
+- Replace unmaintained Chrono with UTC-only `time` formatting and parsing,
+  preserving millisecond log timestamps and release-date validation. Record
+  dependency review evidence without adding an advisory exception.
+
+- Bound snapshot EOL audits to changed physical and staged paths in verified LF
+  pool checkouts. Keep full audits for ordinary checkouts, changed conversion
+  rules and missing verification evidence; normalized CRLF bytes remain refused.
+
+- Run CI on pull requests and main pushes. Resolve release tags to one immutable
+  commit for Linux/macOS checks, native builds and publication; require the full
+  matrix before publishing and remove the documented offline bypass.
+
+- Identify Cargo Git/path/alternate-registry installations during upgrade checks
+  and retain their source instead of querying crates.io or switching installers.
+  Offline registry failures now explain DNS/network recovery and the reviewed
+  Git-tag installation fallback. Installation docs warn about lagging mirrors.
+
+- Reuse unchanged verified ready checkouts without repeating checkout or clean.
+  The shortcut requires unchanged physical inventory, index and conversion policy;
+  independent final verification still runs before handoff. Cleanup policy is now
+  part of the marker fingerprint, so old markers conservatively take the full path.
+
+- Skip `git clean` when an untracked-aware status inventory is already empty,
+  retaining the final baseline verification and pristine ignored-file cleanup.
+
+- Give snapshot commands an independent `--lock-timeout` budget, so a short
+  contention wait does not also impose a tiny repository-discovery Git timeout.
+
+- Distinguish passive read-only observers outside checkouts from writable
+  descriptors and workspace processes. New macOS default checkout roots use
+  `.worktrees.noindex` to avoid Spotlight indexing; existing roots stay fixed.
+
+- Apply acquisition's capacity wait limit to preparing spares as well as active
+  reservations; zero wait no longer consumes the Git timeout waiting on a child.
+
+- Accept repositories with worktree configuration enabled before their optional
+  `config.worktree` file has been created.
+- Match Linux inspection admission on macOS: briefly wait for pre-admission
+  Groove Git children and recognize connected pipeline readers without exempting
+  unrelated workspace writers.
+
 ## [0.5.0] - 2026-11-17
 
 ### Changed

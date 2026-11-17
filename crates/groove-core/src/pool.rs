@@ -792,16 +792,6 @@ impl Pool {
                     }
                 }
             }
-            // A spare being materialized is preparation, not a reservation using
-            // capacity. Permit its bounded preparation to finish even with wait=0.
-            // Once its record becomes leased, ordinary capacity semantics resume.
-            if preparing && start.elapsed() < options.git_timeout {
-                std::thread::sleep(
-                    retry_delay.min(options.git_timeout.saturating_sub(start.elapsed())),
-                );
-                retry_delay = (retry_delay * 2).min(Duration::from_millis(100));
-                continue;
-            }
             if busy == 0 || options.wait.is_zero() || start.elapsed() >= options.wait {
                 let code = if busy == 0 {
                     crate::ErrorCode::PoolUnhealthy
@@ -810,7 +800,12 @@ impl Pool {
                 } else {
                     crate::ErrorCode::AcquireTimeout
                 };
-                return Err(Error::new(code, "No workspace slot is available")
+                let message = if preparing && !current.ready_report()?.running {
+                    "No workspace slot is available; slot descriptors remain held without an active preparation owner. Stop surviving writers before retrying"
+                } else {
+                    "No workspace slot is available"
+                };
+                return Err(Error::new(code, message)
                     .with_details(|d| {
                         d.processes = observed_processes;
                         d.capacity = Some(crate::CapacityFailure {

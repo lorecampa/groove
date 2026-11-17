@@ -73,8 +73,9 @@ not sandbox a build. Keep secrets out of dependency-review/build environments.
 
 ## Dependency updates and review backlog
 
-`supply-chain/` records Cargo Vet policy and minimized imports from Mozilla's
-and Google's audit collections. Local Groove packages are first-party code, even when their
+`supply-chain/` records Cargo Vet policy, local source reviews and minimized
+imports from Mozilla, Google, Bytecode Alliance and Zcash audit collections.
+Local Groove packages are first-party code, even when their
 versions match crates.io. Current exact-version exemptions are a bootstrap
 review backlog, **not completed audits**. They prevent accepting new versions
 silently; do not regenerate the baseline to make an update pass.

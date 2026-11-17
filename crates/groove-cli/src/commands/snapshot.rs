@@ -14,11 +14,14 @@ use serde_json::json;
 fn created(snapshot: &Snapshot) -> String {
     i64::try_from(snapshot.created_at)
         .ok()
-        .and_then(|seconds| chrono::DateTime::from_timestamp(seconds, 0))
-        .map_or_else(
-            || snapshot.created_at.to_string(),
-            |time| time.format("%Y-%m-%d %H:%M:%SZ").to_string(),
-        )
+        .and_then(|seconds| time::OffsetDateTime::from_unix_timestamp(seconds).ok())
+        .and_then(|time| {
+            time.format(time::macros::format_description!(
+                "[year]-[month]-[day] [hour]:[minute]:[second]Z"
+            ))
+            .ok()
+        })
+        .unwrap_or_else(|| snapshot.created_at.to_string())
 }
 
 fn describe(snapshot: &Snapshot) -> String {
@@ -41,8 +44,10 @@ fn snapshot_output(snapshot: Snapshot) -> Result<Output> {
     Output::text(json!({ "snapshot": snapshot }), text)
 }
 
-pub fn run(context: &Context<'_>, command: &SnapshotCommand) -> Result<Output> {
-    let service = Snapshots::open(context.repo, context.git_timeout)?;
+pub fn run(context: &Context<'_>, options: &crate::args::SnapshotArgs) -> Result<Output> {
+    let service = Snapshots::open(context.repo, context.git_timeout)?
+        .with_lock_timeout(std::time::Duration::from_millis(options.lock_timeout_ms));
+    let command = &options.command;
     match command {
         SnapshotCommand::Save {
             description,

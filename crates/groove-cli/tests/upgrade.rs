@@ -32,6 +32,13 @@ impl Fixture {
             .join("installation with spaces");
         fs::create_dir_all(root.join("bin")).unwrap();
         fs::create_dir(root.join("peers")).unwrap();
+        // Restrict installer/network peers without falling back to an older
+        // system Git (notably Apple's /usr/bin/git on macOS runners).
+        std::os::unix::fs::symlink(
+            std::env::var_os("GROOVE_TEST_GIT").expect("test runner pins native Git"),
+            root.join("peers/git"),
+        )
+        .unwrap();
         fs::copy(support::groove_binary(), root.join("bin/groove")).unwrap();
         let receipt = json!({"installs":{format!("groove-cli {} (registry+https://github.com/rust-lang/crates.io-index)",env!("CARGO_PKG_VERSION")):{
             "bins":["groove"],"features":["custom"],"all_features":false,"no_default_features":true,"profile":"release","target":"x86_64-unknown-linux-gnu"}}});
@@ -319,6 +326,64 @@ fn unsupported_sources_and_downgrades_never_run_an_installer() {
 }
 
 #[test]
+fn git_installs_report_their_source_without_querying_an_unrelated_registry() {
+    if !support::in_subprocess(
+        "git_installs_report_their_source_without_querying_an_unrelated_registry",
+    ) {
+        return;
+    }
+    let fixture = Fixture::new();
+    let path = fixture.root.join(".crates2.json");
+    let mut receipt: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    let installs = receipt["installs"].as_object_mut().unwrap();
+    let old = installs.keys().next().unwrap().clone();
+    let entry = installs.remove(&old).unwrap();
+    installs.insert(format!("groove-cli {} (git+https://github.com/lorecampa/groove?tag=v0.5.0#a010bce74fbe24f42ed67d08ffc9c3ec62032880)", env!("CARGO_PKG_VERSION")), entry);
+    fs::write(path, serde_json::to_vec(&receipt).unwrap()).unwrap();
+    script(
+        &fixture.root.join("peers/curl"),
+        "echo 'curl: could not resolve host: index.crates.io' >&2\nexit 6\n",
+    );
+    let output = fixture.run(&["upgrade", "--check"]);
+    assert!(output.status.success(), "{output:?}");
+    let value = response(&output);
+    let component = &value["result"]["components"][0];
+    assert_eq!(component["source"], "cargo:git");
+    assert!(component["update_available"].is_null());
+    assert!(component["message"].as_str().unwrap().contains("--tag"));
+    assert!(!fixture.root.join("cargo-args").exists());
+}
+
+#[test]
+fn offline_registry_failures_explain_network_and_mirror_recovery_without_installing() {
+    if !support::in_subprocess(
+        "offline_registry_failures_explain_network_and_mirror_recovery_without_installing",
+    ) {
+        return;
+    }
+    let fixture = Fixture::new();
+    script(
+        &fixture.root.join("peers/curl"),
+        "echo 'curl: could not resolve host: index.crates.io' >&2\nexit 6\n",
+    );
+    let output = fixture.run(&["upgrade", "--check"]);
+    assert_eq!(output.status.code(), Some(7));
+    let value = response(&output);
+    let message = value["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains("network/DNS")
+            && message.contains("mirrored")
+            && message.contains("--tag"),
+        "{message}"
+    );
+    assert_eq!(
+        value["error"]["details"]["upgrade"]["components"][0]["source"],
+        "cargo:crates-io"
+    );
+    assert!(!fixture.root.join("cargo-args").exists());
+}
+
+#[test]
 fn plugin_failures_preserve_the_cli_upgrade_and_continue_other_harnesses() {
     if !support::in_subprocess(
         "plugin_failures_preserve_the_cli_upgrade_and_continue_other_harnesses",
@@ -548,8 +613,8 @@ fn terminal_run(command: &mut Command) -> (Output, String) {
                 &mut master,
                 &mut slave,
                 std::ptr::null_mut(),
-                std::ptr::null(),
-                std::ptr::null(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
             )
         },
         0
@@ -577,7 +642,9 @@ fn terminal_run(command: &mut Command) -> (Output, String) {
         });
     }
     let child = support::TestChild::spawn(command);
-    drop(slave);
+    // Keep a slave endpoint alive until the bounded post-exit drain finishes.
+    // Darwin may discard unread output when the last slave closes; Linux's
+    // post-close EIO behavior had hidden that fixture race.
     let output = child.wait_with_output().unwrap();
     // SAFETY: master is live and exclusively used by this test.
     unsafe {
@@ -590,10 +657,14 @@ fn terminal_run(command: &mut Command) -> (Output, String) {
     let mut buffer = [0; 4096];
     loop {
         match master.read(&mut buffer) {
-            Ok(0) | Err(_) => break,
+            Ok(0) => break,
             Ok(n) => bytes.extend_from_slice(&buffer[..n]),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+            Err(error) => panic!("Cannot drain upgrade PTY: {error}"),
         }
     }
+    drop(slave);
     (output, String::from_utf8_lossy(&bytes).into_owned())
 }
 fn initialize_notice_pool(fixture: &Fixture) -> support::Repo {

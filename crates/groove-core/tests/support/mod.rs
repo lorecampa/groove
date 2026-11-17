@@ -32,21 +32,27 @@ pub fn worktree_root(path: &Path, name: &str) -> PathBuf {
     };
     state.join("worktrees")
 }
+/// Canonicalize temporary roots before exercising managed-path validation.
+pub fn tempdir() -> TempDir {
+    // Short Darwin roots leave room for process-fixture socket names.
+    let root = std::env::var_os("GROOVE_TEST_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            if cfg!(target_os = "macos") {
+                PathBuf::from("/private/tmp")
+            } else {
+                std::env::temp_dir()
+            }
+        });
+    tempfile::tempdir_in(root.canonicalize().unwrap()).unwrap()
+}
+
 impl Repo {
     pub fn new() -> Self {
         Self::format("sha1")
     }
     pub fn format(format: &str) -> Self {
-        // Darwin's default TMPDIR can leave too little room for Unix socket
-        // names. Keep process fixtures short without changing global env vars.
-        let temp = if let Some(root) = std::env::var_os("GROOVE_TEST_ROOT") {
-            tempfile::tempdir_in(root)
-        } else if cfg!(target_os = "macos") {
-            tempfile::tempdir_in("/private/tmp")
-        } else {
-            tempfile::tempdir()
-        }
-        .unwrap();
+        let temp = tempdir();
         let path = temp.path().join("repo with spaces è");
         fs::create_dir(&path).unwrap();
         let repo = Self { temp, path };
@@ -173,13 +179,19 @@ impl TestChild {
         })
     }
     fn failure(&self, kind: io::ErrorKind, context: &str) -> io::Error {
+        let sample = if kind == io::ErrorKind::TimedOut {
+            sample_timed_out_child(self.child.id())
+        } else {
+            String::new()
+        };
         io::Error::new(
             kind,
             format!(
-                "{context}; child={} stdout={} stderr={}",
+                "{context}; child={} stdout={} stderr={}{}",
                 self.child.id(),
                 String::from_utf8_lossy(&captured(&self.stdout).unwrap_or_default()),
                 String::from_utf8_lossy(&captured(&self.stderr).unwrap_or_default()),
+                sample,
             ),
         )
     }
@@ -232,6 +244,61 @@ impl TestChild {
             ));
         }
         Ok(stream)
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn sample_timed_out_child(_: u32) -> String {
+    String::new()
+}
+
+/// Diagnose an already-failed deadline without extending the fixture's budget.
+/// The child remains owned and unreaped, so its PID cannot be recycled while
+/// sample runs. Only our sampler is killed if its independent budget expires.
+#[cfg(target_os = "macos")]
+fn sample_timed_out_child(pid: u32) -> String {
+    let sample = || -> io::Result<Vec<u8>> {
+        let report = tempfile::NamedTempFile::new()?;
+        let mut sampler = Command::new("/usr/bin/sample")
+            .arg(pid.to_string())
+            .args(["1", "1", "-file"])
+            .arg(report.path())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()?;
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            let status = match sampler.try_wait() {
+                Ok(status) => status,
+                Err(error) => {
+                    let _ = sampler.kill();
+                    let _ = sampler.wait();
+                    return Err(error);
+                }
+            };
+            if let Some(status) = status {
+                if !status.success() {
+                    return Err(io::Error::other(format!("sample exited {status}")));
+                }
+                let mut bytes = captured(report.as_file())?;
+                bytes.truncate(64 * 1024);
+                return Ok(bytes);
+            }
+            if Instant::now() >= deadline {
+                let _ = sampler.kill();
+                let _ = sampler.wait();
+                return Err(io::Error::new(io::ErrorKind::TimedOut, "sample deadline"));
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    };
+    match sample() {
+        Ok(bytes) => format!(
+            "\nnative stack sample:\n{}",
+            String::from_utf8_lossy(&bytes)
+        ),
+        Err(error) => format!("\nnative stack sampling failed: {error}"),
     }
 }
 

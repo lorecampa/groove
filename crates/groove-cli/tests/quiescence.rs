@@ -31,6 +31,99 @@ fn acquire(repo: &Repo, task: &str) -> String {
         .to_owned()
 }
 
+#[cfg(feature = "test-hooks")]
+#[test]
+fn release_rechecks_process_liveness_after_scanning() {
+    use std::{io::Write, os::unix::net::UnixListener};
+    for (exit_after_scan, reap_before_resume) in [(false, false), (true, true), (true, false)] {
+        let repo = Repo::new();
+        ok(&cli(
+            &repo,
+            &["pool", "init", "--capacity", "1", "--idle-timeout", "never"],
+        ));
+        let workspace = acquire(&repo, "scan-race");
+        let mut writer =
+            support::TestChild::spawn(support::command(Path::new(&workspace), "sleep").arg("60"));
+        let socket = repo.temp.path().join("scan.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let mut releaser = support::TestChild::spawn(
+            support::groove_in(&repo.path)
+                .args(["release", "--task", "scan-race"])
+                .env("GROOVE_TEST_CHECKPOINT", "workspace-processes-scanned")
+                .env("GROOVE_TEST_SOCKET", &socket),
+        );
+        let mut scan = releaser
+            .checkpoint(
+                &listener,
+                "workspace-processes-scanned",
+                support::PROCESS_TIMEOUT,
+            )
+            .unwrap();
+        if exit_after_scan {
+            writer.kill().unwrap();
+            if reap_before_resume {
+                writer.wait().unwrap();
+            } else {
+                // Keep our exited child's PID allocated while release checks the
+                // stale observation: kill(pid, 0) alone still sees this zombie.
+                let deadline = Instant::now() + support::PROCESS_TIMEOUT;
+                loop {
+                    // SAFETY: initialized output storage for our own child;
+                    // WNOWAIT observes exit without consuming its wait status.
+                    let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+                    // SAFETY: writer is our unreaped child and info is writable.
+                    let status = unsafe {
+                        libc::waitid(
+                            libc::P_PID,
+                            writer.id(),
+                            &mut info,
+                            libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+                        )
+                    };
+                    assert_eq!(status, 0, "{}", std::io::Error::last_os_error());
+                    #[cfg(target_os = "linux")]
+                    // SAFETY: waitid initialized the siginfo payload.
+                    let pid = unsafe { info.si_pid() };
+                    #[cfg(target_os = "macos")]
+                    let pid = info.si_pid;
+                    if pid != 0 {
+                        break;
+                    }
+                    assert!(Instant::now() < deadline, "writer did not exit");
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+                // SAFETY: signal zero does not deliver a signal to our child.
+                assert_eq!(unsafe { libc::kill(writer.id() as i32, 0) }, 0);
+            }
+        }
+        scan.write_all(b"continue").unwrap();
+        drop(scan);
+        let result = releaser.wait_with_output().unwrap();
+        if exit_after_scan && !reap_before_resume {
+            writer.wait().unwrap();
+        }
+        if !exit_after_scan {
+            writer.kill().unwrap();
+            writer.wait().unwrap();
+            assert_eq!(error(&result)["code"], "WORKSPACE_IN_USE");
+            assert_eq!(
+                ok(&cli(&repo, &["list"]))["reservations"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                1
+            );
+            ok(&cli(&repo, &["release", "--task", "scan-race"]));
+        } else {
+            ok(&result);
+            assert!(ok(&cli(&repo, &["list"]))["reservations"]
+                .as_array()
+                .unwrap()
+                .is_empty());
+        }
+    }
+}
+
 #[test]
 fn unreadable_work_is_preserved_by_release_and_destruction() {
     use std::os::unix::fs::PermissionsExt;

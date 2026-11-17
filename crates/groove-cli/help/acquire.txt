@@ -60,8 +60,8 @@ Older checkouts without directory-metadata inventories rebuild once. Allow the
 cold-checkout Git timeout for that first acquisition on a large repository.
 Pools with ready_target start replacement preparation
 in a separate process after reservation. Acquisition does not wait for replacement;
-it still prepares/verifies its own requested base. A currently preparing spare may
-be awaited within --git-timeout even when --wait is zero. Ready targets never
+it still prepares/verifies its own requested base. Waiting for a currently preparing
+spare counts against --wait, including a single scan with --wait 0s. Ready targets never
 reduce reservable capacity and never expire a protected reservation.
 
 --path-only prints exactly the workspace path and a newline in human mode.

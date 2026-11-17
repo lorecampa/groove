@@ -326,7 +326,7 @@ fn crash_publication_and_concurrent_writer_boundaries() {
         // This budget also bounds Git discovery before the lock wait. Allow
         // startup on loaded native runners; the paused checkpoint, rather than
         // elapsed time, guarantees the other process still holds the lock.
-        let blocked = cli(&repo, &["--git-timeout", "1000ms", "snapshot", "save"]);
+        let blocked = cli(&repo, &["snapshot", "--lock-timeout", "1000ms", "save"]);
         assert_eq!(
             blocked.status.code(),
             Some(2),
@@ -622,7 +622,7 @@ fn snapshot_wait_honors_timeout_and_preserves_reserved_results() {
     let second_listener = UnixListener::bind(&second_socket).unwrap();
     let mut second = support::TestChild::spawn(
         support::groove_in(std::path::Path::new(&second_workspace))
-            .args(["--git-timeout", "10000ms", "snapshot", "save"])
+            .args(["snapshot", "--lock-timeout", "10000ms", "save"])
             .env("GROOVE_TEST_CHECKPOINT", "snapshot-lock-contended")
             .env("GROOVE_TEST_SOCKET", &second_socket),
     );
@@ -637,7 +637,7 @@ fn snapshot_wait_honors_timeout_and_preserves_reserved_results() {
     // A third caller deliberately exhausts a real lock wait while the first
     // owner stays paused. This establishes contention beyond the old 100 ms cap.
     let started = Instant::now();
-    let blocked = cli(&repo, &["--git-timeout", "350ms", "snapshot", "save"]);
+    let blocked = cli(&repo, &["snapshot", "--lock-timeout", "350ms", "save"]);
     assert_eq!(blocked.status.code(), Some(2));
     let error: Value = serde_json::from_slice(&blocked.stdout).unwrap();
     assert_eq!(error["error"]["retryable"], true);

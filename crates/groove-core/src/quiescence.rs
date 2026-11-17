@@ -16,6 +16,48 @@ use crate::{Error, ErrorCode, LeaseId, Pool, Result, WorkspaceGitStatus};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, fs, time::Duration};
 
+/// Discard only observations of processes the OS now proves have exited.
+/// Enumeration is not atomic: short Git children can finish while a Darwin
+/// descriptor scan is still examining other processes. Unknown/denied probes
+/// remain blockers. This does not establish ownership or exempt live writers.
+fn retain_live_observations(processes: &mut Vec<WorkspaceProcess>) {
+    processes.retain(|process| {
+        let Ok(pid) = i32::try_from(process.pid) else {
+            return true;
+        };
+        // SAFETY: signal zero sends no signal; it only probes this observed PID.
+        let exists = unsafe { libc::kill(pid, 0) };
+        let exited = (exists < 0
+            && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH))
+            || os::has_exited(process.pid);
+        if exited {
+            tracing::debug!(
+                pid = process.pid,
+                "Workspace process exited during inspection"
+            );
+        }
+        !exited
+    });
+}
+
+/// Report passive readers and give short-lived observations time to finish.
+/// They hold no writable descriptor, cwd or executable inside the checkout.
+fn retry_observed_readers(readers: &[u32], started: std::time::Instant) -> bool {
+    if readers.is_empty() {
+        return false;
+    }
+    if started.elapsed() < Duration::from_millis(100) {
+        std::thread::sleep(Duration::from_millis(10));
+        return true;
+    }
+    tracing::debug!(
+        event = "workspace.observed_readers",
+        ?readers,
+        "Read-only observers remain outside the workspace"
+    );
+    false
+}
+
 fn processes_using(root: &std::path::Path) -> Result<Vec<WorkspaceProcess>> {
     os::processes_using(root, true)
 }
@@ -49,11 +91,12 @@ pub struct WorkspaceProcess {
 }
 
 impl Pool {
-    /// List other processes whose working directory, executable or open files are
+    /// List other processes whose working directory, executable or writable files are
     /// inside the reservation's workspace. The calling process and its ancestors (the
     /// shell that ran this command) are excluded. A connected pipeline reader's
     /// working directory alone does not block release. Only processes this user may
-    /// inspect are seen.
+    /// inspect are seen. Read-only observers with cwd and executable outside the
+    /// workspace are retried briefly and reported through tracing instead.
     ///
     /// # Errors
     /// Rejects unknown or stale lease IDs and reports process-enumeration failures.

@@ -347,8 +347,11 @@ fn persisted_metadata_matches_published_schemas() {
 #[test]
 fn settings_and_read_commands_match_the_protocol() {
     let r = Repo::new();
-    assert_success(&cli(&r, &["pool", "init", "--capacity", "1"]));
-    let lease = check(&cli(&r, &["acquire", "--task", "live"]));
+    assert_success(&cli(
+        &r,
+        &["pool", "init", "--capacity", "1", "--idle-timeout", "never"],
+    ));
+    let lease = assert_success(&cli(&r, &["acquire", "--task", "live"]));
     let id = lease["result"]["reservation_id"].as_str().unwrap();
     let configured = cli(&r, &["pool", "set", "--capacity", "3", "--cleanup", "warm"]);
     assert_success(&configured);
@@ -951,7 +954,10 @@ fn common_failures_have_the_same_advice_in_human_and_json_output() {
 fn selected_show_runs_git_status_only_in_the_selected_workspace() {
     use std::{fs, os::unix::fs::PermissionsExt, process::Command};
     let r = Repo::new();
-    assert_success(&cli(&r, &["pool", "init", "--capacity", "2"]));
+    assert_success(&cli(
+        &r,
+        &["pool", "init", "--capacity", "2", "--idle-timeout", "never"],
+    ));
     let first = check(&cli(&r, &["acquire", "--task", "first"]));
     let second = assert_success(&cli(&r, &["acquire", "--task", "second"]));
     let first_path = first["result"]["workspace_path"].as_str().unwrap();

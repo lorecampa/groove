@@ -140,6 +140,11 @@ pub(crate) fn validate_config(git: &Git, repo: &Repository) -> Result<()> {
 }
 
 fn validate_worktree_config(git: &Git, repo: &Repository) -> Result<()> {
+    // Enabling worktreeConfig does not create this optional file. Preserve
+    // other filesystem failures instead of treating unreadable settings as empty.
+    if !repo.common.join("config.worktree").try_exists()? {
+        return Ok(());
+    }
     // The common Git directory selects the main checkout's config.worktree,
     // independently of which linked checkout initiated preparation.
     let config = git.run(
@@ -323,7 +328,7 @@ pub(crate) fn prepare(
         match normalize(&git, &path, oid, config.cleanup_policy, &[fd])
             .inspect(|()| state::checkpoint("normalized-in-place"))
             .and_then(|()| verify(&git, repo, &path, oid, config.cleanup_policy))
-            .and_then(|()| mark_verified(&git, &path))
+            .and_then(|()| mark_verified(&git, &path, config.cleanup_policy))
         {
             Ok(()) => {
                 state::checkpoint("verified");
@@ -358,7 +363,7 @@ pub(crate) fn prepare(
     drop(admin);
     normalize(&git, &path, oid, config.cleanup_policy, &[fd])?;
     verify(&git, repo, &path, oid, config.cleanup_policy)?;
-    mark_verified(&git, &path)?;
+    mark_verified(&git, &path, config.cleanup_policy)?;
     state::checkpoint("verified");
     Ok(if exists {
         RecoveryOutcome::Rebuilt
@@ -456,6 +461,31 @@ pub(crate) fn normalize(
             ));
         }
     }
+    // A prepared checkout with unchanged physical files and index already has
+    // the requested baseline. Skip redundant mutation, but retain the caller's
+    // independent final verification before publishing a reservation.
+    if reuse_possible
+        && !inventory.directories_changed
+        && inventory.touched_complete
+        && inventory.touched.is_empty()
+    {
+        if let Some((metadata, contents)) = verified.as_ref().zip(verified_context.as_deref()) {
+            let index_metadata = fs::metadata(&index)?;
+            let prefix = format!("{}\n", oid.as_str());
+            if (index_metadata.ctime(), index_metadata.ctime_nsec())
+                < (metadata.mtime(), metadata.mtime_nsec())
+                && contents
+                    .strip_prefix(prefix.as_bytes())
+                    .is_some_and(|context| context.len() == 32)
+                && contents[prefix.len()..] == conversion_context(git, path, policy)?
+            {
+                tracing::debug!(
+                    "Reusing unchanged verified checkout; final verification remains required"
+                );
+                return Ok(());
+            }
+        }
+    }
     if !reuse_untouched(
         git,
         path,
@@ -465,6 +495,7 @@ pub(crate) fn normalize(
             .zip(verified_context.as_deref())
             .filter(|_| reuse_possible),
         &inventory,
+        policy,
         fds,
     )? {
         // The full path discards flags and stat-cache assumptions and breaks every
@@ -514,26 +545,34 @@ pub(crate) fn normalize(
         fds,
     )?;
     crate::progress::set_phase("cleaning");
-    git.run(
-        path,
-        &[
-            "clean",
-            if policy == CleanupPolicy::Pristine {
-                "-ffdx"
-            } else {
-                "-ffd"
-            },
-            "--",
-        ],
-        fds,
-    )?;
+    if inventory.directories_changed || !baseline_status(git, path, policy, fds)?.is_empty() {
+        git.run(
+            path,
+            &[
+                "clean",
+                if policy == CleanupPolicy::Pristine {
+                    "-ffdx"
+                } else {
+                    "-ffd"
+                },
+                "--",
+            ],
+            fds,
+        )?;
+    }
     Ok(())
 }
 
-fn conversion_context(git: &Git, path: &Path) -> Result<Vec<u8>> {
+fn conversion_context(git: &Git, path: &Path, policy: CleanupPolicy) -> Result<Vec<u8>> {
     use sha2::{Digest, Sha256};
     use std::os::unix::ffi::OsStrExt;
     let mut context = Sha256::new();
+    // A pristine acquisition must not trust a warm marker containing ignored
+    // residue. Older markers lack this policy fingerprint and fall back safely.
+    context.update(match policy {
+        CleanupPolicy::Pristine => b"pristine".as_slice(),
+        CleanupPolicy::Warm => b"warm".as_slice(),
+    });
     for entry in git
         .run(path, &["config", "--null", "--list"], &[])?
         .split(|byte| *byte == 0)
@@ -605,7 +644,68 @@ fn conversion_context(git: &Git, path: &Path) -> Result<Vec<u8>> {
     Ok(context.finalize().to_vec())
 }
 
-fn mark_verified(git: &Git, path: &Path) -> Result<()> {
+/// Physical paths needing a snapshot EOL audit after a verified LF checkout.
+/// Missing or incompatible evidence requests a full audit; this never refreshes
+/// the marker or trusts Git's mutable stat cache as a physical-byte baseline.
+pub(crate) fn snapshot_audit_paths(
+    git: &Git,
+    path: &Path,
+    head: &str,
+    policy: CleanupPolicy,
+) -> Result<Option<Vec<u8>>> {
+    use std::os::unix::fs::MetadataExt;
+    let marker = registration_from_file(path)?.join("groove-verified");
+    repository::no_symlinks(&marker)?;
+    let metadata = match fs::metadata(&marker) {
+        Ok(value) => value,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    if !metadata.is_file()
+        || metadata.modified()? > std::time::SystemTime::now()
+        || metadata.dev() != fs::metadata(path)?.dev()
+        || !crate::platform::fs::recognized_fs(path)?
+    {
+        return Ok(None);
+    }
+    let contents = fs::read(&marker)?;
+    let prefix = format!("{head}\n");
+    let Some(context) = contents.strip_prefix(prefix.as_bytes()) else {
+        return Ok(None);
+    };
+    if context != conversion_context(git, path, policy)? {
+        return Ok(None);
+    }
+    // An unchanged checkout may itself contain normalized CRLF bytes. Such
+    // configurations still need the whole-tree physical EOL audit.
+    for (key, safe) in [
+        (
+            "core.autocrlf",
+            ["false", "no", "off", "0", "input"].as_slice(),
+        ),
+        ("core.eol", ["lf", "native"].as_slice()),
+    ] {
+        match git.run(path, &["config", "--get", key], &[]) {
+            Ok(found)
+                if safe
+                    .iter()
+                    .any(|value| trim(&found).eq_ignore_ascii_case(value.as_bytes())) => {}
+            Ok(_) => return Ok(None),
+            Err(error) if error.git_exit_code() == Some(1) => (),
+            Err(error) => return Err(error),
+        }
+    }
+    let inventory = crate::walk::inventory(
+        path,
+        crate::walk::Options {
+            verified: Some((metadata.mtime(), metadata.mtime_nsec())),
+            ..Default::default()
+        },
+    )?;
+    Ok(inventory.touched_complete.then_some(inventory.touched))
+}
+
+fn mark_verified(git: &Git, path: &Path, policy: CleanupPolicy) -> Result<()> {
     crate::progress::set_phase("recording inventory");
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
@@ -621,7 +721,7 @@ fn mark_verified(git: &Git, path: &Path) -> Result<()> {
         .mode(0o600)
         .open(marker)?;
     file.write_all(&git.run(path, &["rev-parse", "--verify", "HEAD"], &[])?)?;
-    file.write_all(&conversion_context(git, path)?)?;
+    file.write_all(&conversion_context(git, path, policy)?)?;
     file.sync_all()?;
     state::sync_dir(&admin)
 }
@@ -635,6 +735,7 @@ fn reuse_untouched(
     oid: &crate::CommitOid,
     verified: Option<(&fs::Metadata, &[u8])>,
     inventory: &crate::walk::Inventory,
+    policy: CleanupPolicy,
     fds: &[i32],
 ) -> Result<bool> {
     use std::io::{Seek, Write};
@@ -663,7 +764,7 @@ fn reuse_untouched(
         return Ok(false);
     };
     if previous.parse::<crate::CommitOid>().is_err()
-        || marker[newline + 1..] != conversion_context(git, path)?
+        || marker[newline + 1..] != conversion_context(git, path, policy)?
     {
         return Ok(false);
     }
@@ -742,10 +843,25 @@ pub(crate) fn verify(
             ))
         }
     }
-    // HEAD == oid was checked above, and status includes staged and modified
+    if !baseline_status(git, path, policy, &[])?.is_empty() {
+        return Err(Error::new(
+            crate::ErrorCode::RecoveryFailed,
+            "Worktree is not at a clean baseline",
+        ));
+    }
+    Ok(())
+}
+
+fn baseline_status(git: &Git, path: &Path, policy: CleanupPolicy, fds: &[i32]) -> Result<Vec<u8>> {
+    // Status includes staged and modified
     // entries. Only emptiness matters: collapsing untracked/ignored directories
     // is equivalent and avoids enumerating every file beneath them.
     let mut args = vec![
+        // Exact path spelling is part of the baseline even on case-insensitive
+        // storage. Otherwise Git can hide a case-only rename from both cleanup
+        // and verification, handing the next owner the previous owner's name.
+        "-c",
+        "core.ignorecase=false",
         "status",
         "--porcelain=v1",
         "-z",
@@ -756,23 +872,15 @@ pub(crate) fn verify(
     if policy == CleanupPolicy::Pristine {
         args.push("--ignored");
     }
-    if !git
-        .run_with(
-            path,
-            &args,
-            crate::git::Invocation {
-                reject_stderr: true,
-                ..Default::default()
-            },
-        )?
-        .is_empty()
-    {
-        return Err(Error::new(
-            crate::ErrorCode::RecoveryFailed,
-            "Worktree is not at a clean baseline",
-        ));
-    }
-    Ok(())
+    git.run_with(
+        path,
+        &args,
+        crate::git::Invocation {
+            reject_stderr: true,
+            inherit: fds,
+            ..Default::default()
+        },
+    )
 }
 /// Detach HEAD in a released checkout so a branch the task created or switched
 /// to is no longer "checked out" there, freeing it for `git switch` or deletion
@@ -883,7 +991,7 @@ pub(crate) fn registration(repo: &Repository, path: &Path) -> Result<PathBuf> {
             "Worktree registration is outside the repository",
         ));
     }
-    validate_admin_tree(&admin)?;
+    validate_admin_tree(&admin, true)?;
     repository::no_symlinks(&admin.join("gitdir"))?;
     let backlink = fs::read(admin.join("gitdir"))?;
     if !backlink_matches(&admin, &backlink, path) {
@@ -957,11 +1065,18 @@ pub(crate) fn backlink_matches(admin: &Path, raw: &[u8], path: &Path) -> bool {
             _ => false,
         }
 }
-fn validate_admin_tree(path: &Path) -> Result<()> {
+fn validate_admin_tree(path: &Path, root: bool) -> Result<()> {
+    use std::os::unix::fs::FileTypeExt;
     repository::no_symlinks(path)?;
     for item in fs::read_dir(path)? {
         let item = item?;
         let kind = item.file_type()?;
+        // Git's built-in monitor owns this IPC endpoint. It is neither worktree
+        // content nor a writer-exclusion record. Preserve it during in-place
+        // reuse; do not connect to or stop a process based on its name.
+        if root && kind.is_socket() && item.file_name() == "fsmonitor--daemon.ipc" {
+            continue;
+        }
         if kind.is_symlink() || (!kind.is_dir() && !kind.is_file()) {
             return Err(Error::new(
                 crate::ErrorCode::RecoveryFailed,
@@ -969,7 +1084,7 @@ fn validate_admin_tree(path: &Path) -> Result<()> {
             ));
         }
         if kind.is_dir() {
-            validate_admin_tree(&item.path())?;
+            validate_admin_tree(&item.path(), false)?;
         }
     }
     Ok(())

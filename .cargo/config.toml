@@ -1,0 +1,4 @@
+# Isolate test processes before libtest starts its worker threads. Ordinary
+# cargo run executables pass through unchanged.
+[target.'cfg(unix)']
+runner = "crates/groove-core/tests/support/runner.sh"

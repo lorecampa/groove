@@ -477,7 +477,7 @@ fn surviving_pin_child(managed: bool, deletion: bool) {
     }
     let blocked = cli(
         &repo.path,
-        &["--git-timeout", "250ms", "snapshot", "show", &id],
+        &["snapshot", "--lock-timeout", "250ms", "show", &id],
     );
     assert_eq!(blocked.status.code(), Some(2), "{blocked:?}");
     let error = response(&blocked);

@@ -202,11 +202,20 @@ pub enum Command {
         shell: clap_complete::Shell,
     },
     /// Save, inspect, restore and delete local checkpoints.
-    #[command(subcommand, after_long_help = help!("snapshot"))]
-    Snapshot(SnapshotCommand),
+    #[command(after_long_help = help!("snapshot"))]
+    Snapshot(SnapshotArgs),
     /// User preferences shared by every repository.
     #[command(subcommand, after_long_help = help!("config"))]
     Config(ConfigCommand),
+}
+
+#[derive(ClapArgs)]
+pub struct SnapshotArgs {
+    /// Wait for snapshot exclusion independently of Git subprocess timeouts.
+    #[arg(long = "lock-timeout", global = true, default_value = "2m", value_parser = parse_positive_duration, value_name = "DURATION")]
+    pub lock_timeout_ms: u64,
+    #[command(subcommand)]
+    pub command: SnapshotCommand,
 }
 
 #[derive(ClapArgs)]
@@ -857,6 +866,32 @@ mod scalar_tests {
             "18446744073709551615G",
         ] {
             assert!(parse_size(input).is_err(), "{input}");
+        }
+    }
+
+    #[test]
+    fn ci_packaged_smoke_uses_an_installed_command() {
+        // This repository conformance check also compiles in extracted crates,
+        // whose published contents deliberately exclude GitHub workflows.
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.github/workflows/ci.yml");
+        let workflow = match std::fs::read_to_string(path) {
+            Ok(workflow) => workflow,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+            Err(error) => panic!("Cannot read CI smoke commands: {error}"),
+        };
+        let commands: Vec<_> = workflow
+            .lines()
+            .map(str::trim)
+            .filter(|line| line.starts_with("\"$RUNNER_TEMP/package/bin/groove\" "))
+            .collect();
+        assert!(
+            !commands.is_empty(),
+            "the packaged CLI smoke invocation is missing"
+        );
+        for line in commands {
+            let arguments = shell_words::split(line).unwrap();
+            Args::try_parse_from(arguments).unwrap_or_else(|error| panic!("{line}: {error}"));
         }
     }
 

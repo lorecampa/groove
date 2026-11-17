@@ -8,6 +8,61 @@ use std::{
     time::{Duration, Instant},
 };
 use support::{assert_success, Repo};
+
+#[test]
+fn capacity_wait_bounds_preparing_slots_independently_of_the_git_budget() {
+    use std::os::fd::AsRawFd;
+    if !support::in_subprocess(
+        "capacity_wait_bounds_preparing_slots_independently_of_the_git_budget",
+    ) {
+        return;
+    }
+    let repo = Repo::new();
+    cli(
+        &repo,
+        &[
+            "pool",
+            "init",
+            "--capacity",
+            "1",
+            "--ready-target",
+            "0",
+            "--idle-timeout",
+            "never",
+        ],
+    );
+    cli(&repo, &["acquire", "--task", "initial"]);
+    cli(&repo, &["release", "--task", "initial"]);
+    let lock = fs::File::open(repo.state().join("locks/wt-0001.lock")).unwrap();
+    assert_eq!(
+        // SAFETY: the file owns this descriptor throughout both CLI contenders;
+        // this is the same exclusion a surviving preparation child retains.
+        unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) },
+        0
+    );
+    for (wait, expected) in [("0s", "POOL_EXHAUSTED"), ("100ms", "ACQUIRE_TIMEOUT")] {
+        let started = Instant::now();
+        let output = support::groove_in(&repo.path)
+            .args(["--git-timeout", "3s", "acquire", "--wait", wait])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(3), "{output:?}");
+        let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(value["error"]["code"], expected);
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "capacity wait consumed the Git budget: {value}"
+        );
+        assert_eq!(
+            fs::read(repo.slot(1).join("tracked.txt")).unwrap(),
+            b"baseline\n"
+        );
+    }
+    drop(lock);
+    cli(&repo, &["acquire", "--task", "after-owner-exit"]);
+    cli(&repo, &["release", "--task", "after-owner-exit"]);
+}
+
 #[test]
 fn initializing_an_unborn_repository_explains_the_first_commit_requirement() {
     let repo = Repo::new();
@@ -263,7 +318,7 @@ fn explicit_ready_target_prepares_and_replenishes_without_a_public_worker_comman
     assert_eq!(initialized["idle_timeout"], "7d");
     let pool = Pool::open(&repo.path).unwrap();
     wait_ready(&pool, 1);
-    let first = cli(&repo, &["acquire", "--task", "one"]);
+    let first = cli(&repo, &["acquire", "--task", "one", "--wait", "20s"]);
     wait_ready(&pool, 1);
     // Confirm an actual second checkout exists, rather than trusting a stale report.
     let deadline = Instant::now() + Duration::from_secs(20);
@@ -276,15 +331,17 @@ fn explicit_ready_target_prepares_and_replenishes_without_a_public_worker_comman
         assert!(Instant::now() < deadline);
         std::thread::sleep(Duration::from_millis(10));
     }
-    let second = cli(&repo, &["acquire", "--task", "two"]);
+    let second = cli(&repo, &["acquire", "--task", "two", "--wait", "20s"]);
     assert_ne!(first["slot_id"], second["slot_id"]);
     wait_ready(&pool, 1);
     assert_eq!(pool.protected_leases().unwrap().len(), 2);
     assert!(cli(&repo, &["pool", "show"])["ready"].is_object());
     let help = cli(&repo, &["--help"]);
     assert!(!help["text"].as_str().unwrap().contains("reconcile"));
-    // Consume the last spare so any remaining worker has no preparation to do.
-    cli(&repo, &["acquire", "--task", "three"]);
+    // Reports are observations: a queued background pass can start after one
+    // is read. Explicitly wait within the fixture's existing 20-second readiness
+    // budget; zero-wait acquisition deliberately no longer awaits a preparer.
+    cli(&repo, &["acquire", "--task", "three", "--wait", "20s"]);
     wait_ready(&pool, 0);
 }
 #[test]
@@ -705,7 +762,7 @@ fn destruction_refuses_a_live_preparer_then_preserves_its_permanent_lock() {
         Pool::destroy(
             &repo.path,
             groove_core::DestroyOptions {
-                git_timeout: Duration::from_millis(100),
+                lock_timeout: Some(Duration::from_millis(100)),
                 ..Default::default()
             }
         )

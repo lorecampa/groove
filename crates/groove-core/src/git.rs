@@ -147,10 +147,18 @@ impl Git {
         &self,
         cwd: &Path,
         args: &[&str],
+        invocation: Invocation<'_>,
+    ) -> Result<std::fs::File> {
+        self.spool_os(cwd, args.iter().map(OsStr::new), invocation)
+    }
+    pub fn spool_os<'a>(
+        &self,
+        cwd: &Path,
+        args: impl IntoIterator<Item = &'a OsStr>,
         mut invocation: Invocation<'_>,
     ) -> Result<std::fs::File> {
         invocation.output = OutputMode::Spool;
-        let capture = self.spawn(cwd, args.iter().map(OsStr::new), invocation)?;
+        let capture = self.spawn(cwd, args, invocation)?;
         let mut file = capture.file.expect("spool capture creates its output file");
         file.rewind()?;
         Ok(file)

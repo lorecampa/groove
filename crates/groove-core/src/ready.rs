@@ -630,6 +630,37 @@ impl Pool {
         if fs::symlink_metadata(&protection).is_ok() {
             return Ok(false);
         }
+        if retained >= policy.ready_target {
+            // An opportunistic pass can defer work based on observations. It
+            // must not take capacity away from a zero-wait acquire merely to
+            // discover under the slot lock that no maintenance is due. These
+            // observations never authorize mutation: actual work still takes
+            // both descriptor guards and revalidates all state below.
+            let record: SlotRecord = state::read(&self.repo.record_path(slot))?;
+            let work_path = self.ready_path(slot);
+            let work: Option<Work> = if work_path.try_exists()? {
+                Some(state::read(&work_path)?)
+            } else {
+                None
+            };
+            let expired = policy.idle_timeout.0.is_some_and(|timeout| {
+                record.idle_since_unix_ms.is_some_and(|idle_since| {
+                    crate::reservation::now_ms()
+                        .checked_sub(idle_since)
+                        .is_some_and(|age| age >= timeout.as_millis() as u64)
+                })
+            });
+            if record.schema_version == state::SCHEMA_VERSION
+                && matches!(record.phase, SlotPhase::Available | SlotPhase::Released)
+                && work.as_ref().is_none_or(|work| {
+                    work.schema_version == state::SCHEMA_VERSION
+                        && work.phase != WorkPhase::Evicting
+                })
+                && !expired
+            {
+                return Ok(false);
+            }
+        }
         let Some(guard) = SlotGuard::try_lock(
             &self.repo.lock_path(slot),
             self.config.slots.get(slot).copied(),

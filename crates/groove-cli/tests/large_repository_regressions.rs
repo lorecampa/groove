@@ -29,6 +29,17 @@ fn init(repo: &Repo) {
 #[test]
 #[ignore = "200 real-process acquire/release cycles with concurrent inspection"]
 fn release_waits_for_concurrent_detailed_inspection() {
+    // Preserve process classification diagnostics if native scanning races fail.
+    let cli = |repo: &Repo, args: &[&str]| {
+        support::assert_success(
+            &support::groove_in(&repo.path)
+                .arg("-vv")
+                .args(args)
+                .output()
+                .unwrap(),
+        )["result"]
+            .clone()
+    };
     let repo = Repo::new();
     init(&repo);
     cli(&repo, &["acquire", "--task", "initial"]);
@@ -55,7 +66,10 @@ fn release_waits_for_concurrent_detailed_inspection() {
     }
     cli(&repo, &["release", "--task", "initial"]);
     for _ in 0..200 {
-        cli(&repo, &["acquire", "--task", "cycle"]);
+        // Inspection can still hold admission after release. This regression
+        // tests release's exclusion, not zero-wait capacity; request that wait
+        // explicitly now that --wait 0s never waits for another slot user.
+        cli(&repo, &["acquire", "--task", "cycle", "--wait", "2s"]);
         cli(&repo, &["release", "--task", "cycle"]);
     }
     fs::write(stop, b"stop").unwrap();
@@ -63,7 +77,6 @@ fn release_waits_for_concurrent_detailed_inspection() {
 }
 
 #[test]
-#[cfg(target_os = "linux")]
 fn release_supports_transitive_pipeline_readers() {
     use std::os::unix::process::CommandExt;
     for stages in ["cat", "cat | cat", "cat | cat | cat"] {
@@ -89,7 +102,6 @@ fn release_supports_transitive_pipeline_readers() {
 }
 
 #[test]
-#[cfg(target_os = "linux")]
 fn transitive_pipeline_does_not_exempt_background_workspace_writers() {
     use std::os::unix::process::CommandExt;
     let repo = Repo::new();
