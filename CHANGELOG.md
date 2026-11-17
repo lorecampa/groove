@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Exercise the installed pool command in CI and run the concurrent detailed
+  inspection regression on native macOS stable jobs.
+
 - Defer idle maintenance before taking slot exclusion when no preparation or
   eviction is due, so a no-op background pass cannot exhaust zero-wait capacity.
   Actual maintenance still requires descriptor ownership and revalidation.

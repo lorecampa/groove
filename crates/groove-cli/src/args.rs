@@ -870,6 +870,24 @@ mod scalar_tests {
     }
 
     #[test]
+    fn ci_packaged_smoke_uses_an_installed_command() {
+        let workflow = include_str!("../../../.github/workflows/ci.yml");
+        let commands: Vec<_> = workflow
+            .lines()
+            .map(str::trim)
+            .filter(|line| line.starts_with("\"$RUNNER_TEMP/package/bin/groove\" "))
+            .collect();
+        assert!(
+            !commands.is_empty(),
+            "the packaged CLI smoke invocation is missing"
+        );
+        for line in commands {
+            let arguments = shell_words::split(line).unwrap();
+            Args::try_parse_from(arguments).unwrap_or_else(|error| panic!("{line}: {error}"));
+        }
+    }
+
+    #[test]
     fn show_requires_exactly_one_selector_and_pool_show_has_collection_options() {
         assert!(Args::try_parse_from(["groove", "show"]).is_err());
         for (flag, value) in [
