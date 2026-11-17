@@ -589,6 +589,10 @@
     },
     "reservation": {
       "properties": {
+        "pool": {
+          "$ref": "#/$defs/pool_name",
+          "description": "Owning pool namespace when returned by repository-wide listing."
+        },
         "acquired_at_unix_ms": {
           "minimum": 0,
           "type": "integer"

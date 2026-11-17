@@ -4,6 +4,9 @@
 
 ### Changed
 
+- List active reservations across every ready pool by default, with a POOL column
+  and additive optional `pool` field. Filtering precedes global pagination.
+
 - Resolve task and reservation-ID selectors across pools when `--pool` is omitted.
   Explicit misses report other matching pools; duplicate labels require an
   unambiguous UUID. Saved-release retries also locate retained receipts.

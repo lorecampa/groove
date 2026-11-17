@@ -271,6 +271,11 @@ fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {
                 | Command::Upgrade(_)
                 | Command::Snapshot(_)
                 | Command::Pool(args::PoolCommand::List { .. })
+                | Command::List {
+                    slots: false,
+                    details: false,
+                    ..
+                }
         )
     {
         match groove_core::Pool::owning_pool(&args.repo, Duration::from_millis(args.git_timeout_ms))

@@ -165,3 +165,46 @@ fn saved_release_retries_find_the_original_pool_after_slot_reuse() {
     );
     invoke(&repo, &["release", "--task", "next"], 0);
 }
+
+#[test]
+fn listing_includes_every_pool_before_global_pagination() {
+    let repo = Repo::new();
+    for (name, task) in [("frontend", "nav"), ("backend", "api")] {
+        invoke(
+            &repo,
+            &[
+                "pool",
+                "init",
+                name,
+                "--capacity",
+                "1",
+                "--ready-target",
+                "0",
+                "--idle-timeout",
+                "never",
+            ],
+            0,
+        );
+        invoke(&repo, &["--pool", name, "acquire", "--task", task], 0);
+    }
+    let all = invoke(&repo, &["list", "--unlimited"], 0);
+    assert_eq!(all["result"]["reservations"].as_array().unwrap().len(), 2);
+    assert_eq!(all["result"]["reservations"][0]["pool"], "backend");
+    assert_eq!(all["result"]["reservations"][1]["pool"], "frontend");
+    let page = invoke(&repo, &["list", "--limit", "1", "--offset", "1"], 0);
+    assert_eq!(page["result"]["pagination"]["total"], 2);
+    assert_eq!(page["result"]["reservations"][0]["pool"], "frontend");
+    let filtered = invoke(&repo, &["list", "--pool", "frontend"], 0);
+    assert_eq!(
+        filtered["result"]["reservations"].as_array().unwrap().len(),
+        1
+    );
+    let human = support::groove_human_in(&repo.path)
+        .arg("list")
+        .output()
+        .unwrap();
+    assert!(human.status.success());
+    assert!(String::from_utf8(human.stdout).unwrap().contains("POOL"));
+    invoke(&repo, &["release", "--task", "nav"], 0);
+    invoke(&repo, &["release", "--task", "api"], 0);
+}

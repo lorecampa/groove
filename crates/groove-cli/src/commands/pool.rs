@@ -314,8 +314,8 @@ pub fn list(
     page: &PageArgs,
     sort: SlotSort,
 ) -> Result<Output> {
-    let pool = context.pool()?;
     if slots || details {
+        let pool = context.pool()?;
         let mut inspection = if details {
             pool.inspect_detailed(context.git_timeout)?
         } else {
@@ -327,10 +327,32 @@ pub fn list(
         let text = slot_table(&inspection);
         return Output::text(json!({ "inspection": inspection }), text)?.paginated(pagination);
     }
-    let mut leases = pool.protected_leases()?;
+    let names = if let Some(name) = context.selected_pool {
+        vec![name.clone()]
+    } else {
+        Pool::list_pools(context.repo, context.git_timeout)?
+            .into_iter()
+            .filter(|pool| pool.phase == groove_core::PoolPhase::Ready)
+            .map(|pool| pool.name)
+            .collect()
+    };
+    let mut leases = Vec::new();
+    for name in names {
+        let pool = Pool::open_named_with_timeout(context.repo, &name, context.git_timeout)?;
+        leases.extend(
+            pool.protected_leases()?
+                .into_iter()
+                .map(|lease| (name.clone(), lease)),
+        );
+    }
     leases.sort_by(|a, b| match sort {
-        SlotSort::Slot => a.slot_id.cmp(&b.slot_id),
-        SlotSort::Task => a.task.cmp(&b.task).then_with(|| a.slot_id.cmp(&b.slot_id)),
+        SlotSort::Slot => a.1.slot_id.cmp(&b.1.slot_id).then_with(|| a.0.cmp(&b.0)),
+        SlotSort::Task => {
+            a.1.task
+                .cmp(&b.1.task)
+                .then_with(|| a.0.cmp(&b.0))
+                .then_with(|| a.1.slot_id.cmp(&b.1.slot_id))
+        }
     });
     let (leases, pagination) = page.apply(leases);
     let text = if leases.is_empty() {
@@ -338,8 +360,9 @@ pub fn list(
     } else {
         let rows: Vec<Vec<String>> = leases
             .iter()
-            .map(|lease| {
+            .map(|(pool, lease)| {
                 vec![
+                    pool.to_string(),
                     lease.slot_id.to_string(),
                     task_label(Some(lease)),
                     lease.lease_id.to_string(),
@@ -347,8 +370,17 @@ pub fn list(
                 ]
             })
             .collect();
-        table(&["SLOT", "TASK", "RESERVATION", "PATH"], &rows)
+        table(&["POOL", "SLOT", "TASK", "RESERVATION", "PATH"], &rows)
     };
+    let leases: Result<Vec<_>> = leases
+        .into_iter()
+        .map(|(pool, lease)| {
+            let mut value = serde_json::to_value(lease)?;
+            value["pool"] = json!(pool);
+            Ok(value)
+        })
+        .collect();
+    let leases = leases?;
     Output::text(json!({ "leases": leases }), text)?.paginated(pagination)
 }
 
