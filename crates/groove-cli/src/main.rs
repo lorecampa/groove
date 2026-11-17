@@ -222,7 +222,48 @@ fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {
         );
     }
     let explicit_pool = positional_pool.or(args.pool.as_ref());
-    let inferred_pool = if explicit_pool.is_none()
+    let reservation_selector = match &args.command {
+        Command::Release {
+            lease: selector,
+            save,
+            ..
+        } if selector.task.is_some() || selector.lease_id.is_some() => {
+            Some((selector.clone(), *save))
+        }
+        Command::Show { selector, .. }
+            if selector.task.is_some() || selector.lease_id.is_some() =>
+        {
+            Some((
+                args::LeaseSelector {
+                    task: selector.task.clone(),
+                    lease_id: selector.lease_id,
+                },
+                false,
+            ))
+        }
+        _ => None,
+    };
+    let inferred_pool = if let Some((selector, saved)) = reservation_selector {
+        match commands::reservation_pool(
+            &args.repo,
+            explicit_pool,
+            &selector,
+            saved,
+            Duration::from_millis(args.git_timeout_ms),
+        ) {
+            Ok(name) => Some(name),
+            Err(error) => {
+                return output::emit_error(
+                    format,
+                    request_id,
+                    &error,
+                    terminal,
+                    Some(args),
+                    explicit_pool,
+                )
+            }
+        }
+    } else if explicit_pool.is_none()
         && !matches!(
             args.command,
             Command::Config(_)
@@ -230,7 +271,8 @@ fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {
                 | Command::Upgrade(_)
                 | Command::Snapshot(_)
                 | Command::Pool(args::PoolCommand::List { .. })
-        ) {
+        )
+    {
         match groove_core::Pool::owning_pool(&args.repo, Duration::from_millis(args.git_timeout_ms))
         {
             Ok(pool) => pool,

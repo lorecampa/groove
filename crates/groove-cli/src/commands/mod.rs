@@ -33,6 +33,82 @@ impl Context<'_> {
     }
 }
 
+/// Locate an explicit reservation selector without silently choosing default.
+pub fn reservation_pool(
+    repo: &Path,
+    selected: Option<&groove_core::PoolName>,
+    selector: &LeaseSelector,
+    saved: bool,
+    timeout: Duration,
+) -> Result<groove_core::PoolName> {
+    use groove_core::{Error, ErrorCode, PoolPhase};
+    let label = selector
+        .task
+        .as_ref()
+        .map(|task| format!("task '{task}'"))
+        .unwrap_or_else(|| {
+            format!(
+                "reservation '{}'",
+                selector.lease_id.expect("explicit selector")
+            )
+        });
+    let mut matches = Vec::new();
+    for entry in Pool::list_pools(repo, timeout)? {
+        if entry.phase != PoolPhase::Ready && !(saved && entry.phase == PoolPhase::Deleted) {
+            continue;
+        }
+        let pool = Pool::open_retained_named(repo, &entry.name, timeout)?;
+        let found = if let Some(id) = selector.lease_id {
+            if saved && pool.has_saved_release(id)? {
+                true
+            } else {
+                match pool.lease_info(id) {
+                    Ok(_) => true,
+                    Err(error) if error.code == ErrorCode::LeaseMismatch => false,
+                    Err(error) => return Err(error),
+                }
+            }
+        } else if entry.phase == PoolPhase::Ready {
+            match pool.lease_by_task(selector.task.as_deref().expect("explicit task selector")) {
+                Ok(_) => true,
+                Err(error) if error.code == ErrorCode::LeaseMismatch => false,
+                Err(error) => return Err(error),
+            }
+        } else {
+            false
+        };
+        if found {
+            matches.push(entry.name);
+        }
+    }
+    if let Some(selected) = selected {
+        if matches.contains(selected) {
+            return Ok(selected.clone());
+        }
+        let elsewhere = if matches.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "; it is present in {}",
+                matches
+                    .iter()
+                    .map(|name| format!("'{name}'"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
+        return Err(Error::new(
+            ErrorCode::LeaseMismatch,
+            format!("No {label} in pool '{selected}'{elsewhere}"),
+        ));
+    }
+    match matches.as_slice() {
+        [name] => Ok(name.clone()),
+        [] => Err(Error::new(ErrorCode::LeaseMismatch, format!("No {label} found in any repository pool"))),
+        _ => Err(Error::new(ErrorCode::InvalidArgument, format!("Several pools contain {label}: {}. Select the reservation UUID; migrate duplicate task labels before reusing the label", matches.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")))),
+    }
+}
+
 /// Resolve the selector to a lease ID without validating an explicit ID, so
 /// core retry logic (e.g. saved-release receipts for superseded generations) still applies.
 fn select_id(pool: &Pool, selector: &LeaseSelector, path: &Path) -> Result<groove_core::LeaseId> {

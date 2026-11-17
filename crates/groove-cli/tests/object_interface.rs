@@ -64,3 +64,104 @@ fn pool_objects_accept_positional_names_and_legacy_flags_without_ambiguity() {
         1
     );
 }
+
+#[test]
+fn reservation_selectors_search_pools_and_explicit_misses_explain_the_location() {
+    let repo = Repo::new();
+    for name in ["default", "frontend"] {
+        invoke(
+            &repo,
+            &[
+                "pool",
+                "init",
+                name,
+                "--capacity",
+                "1",
+                "--ready-target",
+                "0",
+                "--idle-timeout",
+                "never",
+            ],
+            0,
+        );
+    }
+    for selector in ["--task", "--reservation-id"] {
+        let lease = invoke(
+            &repo,
+            &["--pool", "frontend", "acquire", "--task", "fix"],
+            0,
+        );
+        let id = lease["result"]["reservation_id"].as_str().unwrap();
+        let value = if selector == "--task" { "fix" } else { id };
+        assert_eq!(
+            invoke(&repo, &["show", selector, value], 0)["result"]["reservation"]["reservation_id"],
+            id
+        );
+        let wrong = invoke(&repo, &["--pool", "default", "release", selector, value], 5);
+        assert_eq!(wrong["error"]["code"], "RESERVATION_MISMATCH");
+        assert!(wrong["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("frontend"));
+        assert!(!wrong["error"]["hint"]
+            .as_str()
+            .unwrap()
+            .contains("--pool default"));
+        assert_eq!(
+            invoke(&repo, &["show", selector, value], 0)["result"]["active"],
+            true
+        );
+        invoke(&repo, &["release", selector, value], 0);
+    }
+    let missing = invoke(&repo, &["show", "--task", "missing"], 5);
+    assert!(missing["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("any repository pool"));
+    assert!(!missing["error"]["hint"]
+        .as_str()
+        .unwrap()
+        .contains("--pool default"));
+}
+
+#[test]
+fn saved_release_retries_find_the_original_pool_after_slot_reuse() {
+    let repo = Repo::new();
+    invoke(
+        &repo,
+        &[
+            "pool",
+            "init",
+            "frontend",
+            "--capacity",
+            "1",
+            "--ready-target",
+            "0",
+            "--idle-timeout",
+            "never",
+        ],
+        0,
+    );
+    let lease = invoke(
+        &repo,
+        &["--pool", "frontend", "acquire", "--task", "first"],
+        0,
+    );
+    let id = lease["result"]["reservation_id"].as_str().unwrap();
+    let saved = invoke(&repo, &["release", "--reservation-id", id, "--save"], 0);
+    let next = invoke(
+        &repo,
+        &["--pool", "frontend", "acquire", "--task", "next"],
+        0,
+    );
+    assert_eq!(
+        invoke(&repo, &["release", "--reservation-id", id, "--save"], 0)["result"]["snapshot"]
+            ["id"],
+        saved["result"]["snapshot"]["id"]
+    );
+    assert_eq!(
+        invoke(&repo, &["show", "--task", "next"], 0)["result"]["reservation"]["reservation_id"],
+        next["result"]["reservation_id"]
+    );
+    invoke(&repo, &["release", "--task", "next"], 0);
+}

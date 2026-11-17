@@ -221,6 +221,29 @@ impl Lease {
 }
 
 impl Pool {
+    /// Whether this pool retains a validated saved-release receipt for `id`.
+    ///
+    /// This is a read-only routing hint, never proof of descriptor ownership or
+    /// authorization to release a successor. [`Self::finish`] rechecks recovery
+    /// and generation state when a caller retries the saved release.
+    ///
+    /// # Errors
+    /// Reports filesystem failures and malformed or mismatched receipt records.
+    pub fn has_saved_release(&self, id: LeaseId) -> Result<bool> {
+        let path = receipt_path(self, id);
+        if !path.try_exists()? {
+            return Ok(false);
+        }
+        let receipt: FinishReceipt = state::read(&path)?;
+        if receipt.schema_version != state::SCHEMA_VERSION || receipt.lease_id != id {
+            return Err(Error::new(
+                ErrorCode::RecoveryFailed,
+                "Invalid saved release receipt",
+            ));
+        }
+        Ok(true)
+    }
+
     /// Save a pinned checkpoint and release the reservation identified by `id`.
     ///
     /// Stop all external writers before calling. While the checkout remains

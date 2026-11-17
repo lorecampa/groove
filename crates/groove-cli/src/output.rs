@@ -302,11 +302,18 @@ fn error_hint(
         .or(args.pool.as_ref())
         .cloned()
         .unwrap_or_default();
-    let selection = format!(
-        " --pool {} --repo {}",
-        pool.as_str(),
-        shell_words::quote(&args.repo.to_string_lossy())
-    );
+    let selection = if error.code == ErrorCode::LeaseMismatch {
+        format!(
+            " --repo {}",
+            shell_words::quote(&args.repo.to_string_lossy())
+        )
+    } else {
+        format!(
+            " --pool {} --repo {}",
+            pool.as_str(),
+            shell_words::quote(&args.repo.to_string_lossy())
+        )
+    };
     Some(
         hint.split('`')
             .enumerate()

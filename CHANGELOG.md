@@ -4,6 +4,10 @@
 
 ### Changed
 
+- Resolve task and reservation-ID selectors across pools when `--pool` is omitted.
+  Explicit misses report other matching pools; duplicate labels require an
+  unambiguous UUID. Saved-release retries also locate retained receipts.
+
 - Accept positional pool names on `pool init`, `show`, `get`, `set` and `destroy`.
   Legacy `--pool` remains accepted; conflicting explicit names are rejected.
   These additive selectors retain JSON API version 2 and its existing result types.
