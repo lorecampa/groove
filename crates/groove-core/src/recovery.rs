@@ -986,7 +986,7 @@ pub(crate) fn registration(repo: &Repository, path: &Path) -> Result<PathBuf> {
             "Worktree registration is outside the repository",
         ));
     }
-    validate_admin_tree(&admin)?;
+    validate_admin_tree(&admin, true)?;
     repository::no_symlinks(&admin.join("gitdir"))?;
     let backlink = fs::read(admin.join("gitdir"))?;
     if !backlink_matches(&admin, &backlink, path) {
@@ -1060,11 +1060,18 @@ pub(crate) fn backlink_matches(admin: &Path, raw: &[u8], path: &Path) -> bool {
             _ => false,
         }
 }
-fn validate_admin_tree(path: &Path) -> Result<()> {
+fn validate_admin_tree(path: &Path, root: bool) -> Result<()> {
+    use std::os::unix::fs::FileTypeExt;
     repository::no_symlinks(path)?;
     for item in fs::read_dir(path)? {
         let item = item?;
         let kind = item.file_type()?;
+        // Git's built-in monitor owns this IPC endpoint. It is neither worktree
+        // content nor a writer-exclusion record. Preserve it during in-place
+        // reuse; do not connect to or stop a process based on its name.
+        if root && kind.is_socket() && item.file_name() == "fsmonitor--daemon.ipc" {
+            continue;
+        }
         if kind.is_symlink() || (!kind.is_dir() && !kind.is_file()) {
             return Err(Error::new(
                 crate::ErrorCode::RecoveryFailed,
@@ -1072,7 +1079,7 @@ fn validate_admin_tree(path: &Path) -> Result<()> {
             ));
         }
         if kind.is_dir() {
-            validate_admin_tree(&item.path())?;
+            validate_admin_tree(&item.path(), false)?;
         }
     }
     Ok(())

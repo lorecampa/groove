@@ -681,7 +681,7 @@ fn redirected_human_and_json_patches_apply_with_forced_color_and_custom_prefixes
 /// An agent's own `git status` with `core.fsmonitor=true` leaves a Git filesystem
 /// monitor daemon running for the slot. Read-only event observers outside the
 /// checkout must neither block release nor serve stale state to the next reservation
-/// after in-place cleanup. Linux Git has no built-in monitor daemon.
+/// after in-place cleanup. Exercise the native Git monitor on macOS.
 #[cfg(target_os = "macos")]
 #[test]
 fn a_filesystem_monitor_daemon_neither_blocks_release_nor_goes_stale() {
@@ -821,4 +821,43 @@ fn killed_filter_validation_scratch_is_reclaimed_by_the_next_owner() {
             .unwrap(),
     );
     assert!(!scratch[0].exists());
+}
+
+#[test]
+fn git_monitor_ipc_is_valid_administration_but_unknown_sockets_are_refused() {
+    use std::os::unix::net::UnixListener;
+    if !support::in_subprocess(
+        "git_monitor_ipc_is_valid_administration_but_unknown_sockets_are_refused",
+    ) {
+        return;
+    }
+    let repo = Repo::new();
+    assert_success(&cli(
+        &repo.path,
+        &["pool", "init", "--capacity", "1", "--idle-timeout", "never"],
+    ));
+    let first = assert_success(&cli(&repo.path, &["acquire", "--task", "socket-first"]));
+    let workspace = Path::new(first["result"]["workspace_path"].as_str().unwrap());
+    let admin = std::path::PathBuf::from(support::git(
+        workspace,
+        &["rev-parse", "--absolute-git-dir"],
+    ));
+    // The isolated process can bind relative names, avoiding the OS's short
+    // Unix-socket path limit even when the fixture root has a long name.
+    let caller = std::env::current_dir().unwrap();
+    std::env::set_current_dir(&admin).unwrap();
+    let monitor = UnixListener::bind("fsmonitor--daemon.ipc").unwrap();
+    std::env::set_current_dir(&caller).unwrap();
+    assert_success(&cli(&repo.path, &["release", "--task", "socket-first"]));
+    assert!(admin.join("fsmonitor--daemon.ipc").exists());
+    assert_success(&cli(&repo.path, &["acquire", "--task", "socket-next"]));
+    std::env::set_current_dir(&admin).unwrap();
+    let unknown = UnixListener::bind("unrecognized.ipc").unwrap();
+    std::env::set_current_dir(caller).unwrap();
+    let refused = checked(&cli(&repo.path, &["release", "--task", "socket-next"]));
+    assert_eq!(refused["error"]["code"], "RECOVERY_FAILED");
+    drop(unknown);
+    fs::remove_file(admin.join("unrecognized.ipc")).unwrap();
+    assert_success(&cli(&repo.path, &["release", "--task", "socket-next"]));
+    drop(monitor);
 }

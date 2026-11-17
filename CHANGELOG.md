@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Accept Git's fsmonitor IPC socket at the root of verified worktree
+  administration, while continuing to reject unknown sockets and special files.
+  Preserve the daemon and its socket across safe handoffs.
+
 - Exercise the installed pool command in CI and run the concurrent detailed
   inspection regression on native macOS stable jobs.
 
