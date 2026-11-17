@@ -4,6 +4,9 @@
 
 ### Changed
 
+- Infer `show`'s reservation from the current managed workspace, including its
+  subdirectories, using the same validated registration as release.
+
 - List active reservations across every ready pool by default, with a POOL column
   and additive optional `pool` field. Filtering precedes global pagination.
 

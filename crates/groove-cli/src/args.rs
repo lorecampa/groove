@@ -81,7 +81,7 @@ pub struct LeaseSelector {
 
 /// Select exactly one reservation or permanent slot.
 #[derive(ClapArgs, Debug, Clone, Default)]
-#[group(required = true, multiple = false)]
+#[group(multiple = false)]
 pub struct OptionalSelector {
     /// Reservation UUID returned by acquire.
     #[arg(long = "reservation-id", value_name = "ID")]

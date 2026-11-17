@@ -236,14 +236,21 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
             page,
             sort,
         } => pool::list(context, *slots, *details, page, *sort),
-        Command::Show { selector, details } => pool::show(
-            context,
-            selector,
-            *details,
-            false,
-            &Default::default(),
-            crate::args::SlotSort::Slot,
-        ),
+        Command::Show { selector, details } => {
+            let mut selector = selector.clone();
+            if selector.lease_id.is_none() && selector.task.is_none() && selector.slot.is_none() {
+                selector.lease_id =
+                    Some(context.pool()?.lease_for_workspace(context.repo)?.lease_id);
+            }
+            pool::show(
+                context,
+                &selector,
+                *details,
+                false,
+                &Default::default(),
+                crate::args::SlotSort::Slot,
+            )
+        }
         Command::Completions { shell } => completions::run(*shell),
         Command::Snapshot(command) => snapshot::run(context, command),
         Command::Config(command) => config::run(context, command),

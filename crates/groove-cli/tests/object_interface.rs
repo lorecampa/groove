@@ -208,3 +208,40 @@ fn listing_includes_every_pool_before_global_pagination() {
     invoke(&repo, &["release", "--task", "nav"], 0);
     invoke(&repo, &["release", "--task", "api"], 0);
 }
+
+#[test]
+fn show_infers_the_reservation_from_a_workspace_and_its_subdirectories() {
+    let repo = Repo::new();
+    invoke(
+        &repo,
+        &[
+            "pool",
+            "init",
+            "frontend",
+            "--capacity",
+            "1",
+            "--ready-target",
+            "0",
+            "--idle-timeout",
+            "never",
+        ],
+        0,
+    );
+    let lease = invoke(
+        &repo,
+        &["--pool", "frontend", "acquire", "--task", "nav"],
+        0,
+    );
+    let path = std::path::Path::new(lease["result"]["workspace_path"].as_str().unwrap());
+    std::fs::create_dir(path.join("nested")).unwrap();
+    for directory in [path.to_owned(), path.join("nested")] {
+        let output = support::groove_in(&directory).arg("show").output().unwrap();
+        let shown = support::assert_success(&output);
+        assert_eq!(
+            shown["result"]["reservation"]["reservation_id"],
+            lease["result"]["reservation_id"]
+        );
+        assert_eq!(shown["result"]["active"], true);
+    }
+    invoke(&repo, &["release", "--task", "nav"], 0);
+}
