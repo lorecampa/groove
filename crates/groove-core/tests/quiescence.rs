@@ -45,7 +45,7 @@ fn refuses_workspace_user(usage: ProcessUse) {
             command
                 .args([
                     "-c",
-                    "exec 3< \"$1\"; printf ready > \"$2\"; exec sleep 30",
+                    "exec 3<> \"$1\"; printf ready > \"$2\"; exec sleep 30",
                     "fixture",
                 ])
                 .arg(lease.worktree_path.join("tracked.txt"))
@@ -135,4 +135,55 @@ fn open_workspace_file_blocks_handoff_until_stopped() {
         return;
     }
     refuses_workspace_user(ProcessUse::OpenFile);
+}
+
+#[test]
+fn read_only_observers_outside_the_workspace_do_not_block_handoff_or_deletion() {
+    if !support::in_subprocess(
+        "read_only_observers_outside_the_workspace_do_not_block_handoff_or_deletion",
+    ) {
+        return;
+    }
+    let repo = Repo::new();
+    Pool::init(
+        &repo.path,
+        PoolOptions {
+            capacity: 1,
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let pool = Pool::open(&repo.path).unwrap();
+    let lease = pool.reserve(Default::default()).unwrap();
+    let ready = repo.temp.path().join("reader-ready");
+    let mut command = support::command(repo.temp.path(), "bash");
+    command
+        .process_group(0)
+        .args([
+            "-c",
+            "exec 3< \"$1\"; printf ready > \"$2\"; exec sleep 30",
+            "fixture",
+        ])
+        .arg(lease.worktree_path.join("tracked.txt"))
+        .arg(&ready);
+    let mut child = TestChild::spawn(&mut command);
+    let deadline = Instant::now() + support::PROCESS_TIMEOUT;
+    while !ready.exists() {
+        assert!(child.try_wait().unwrap().is_none());
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    pool.ensure_quiescent(lease.lease_id, true, Duration::from_secs(5))
+        .unwrap();
+    assert_eq!(
+        fs::read(lease.worktree_path.join("tracked.txt")).unwrap(),
+        b"baseline\n"
+    );
+    pool.release_protected(&lease.slot_id, lease.lease_id)
+        .unwrap();
+    Pool::destroy(&repo.path, Default::default()).unwrap();
+    assert!(!lease.worktree_path.exists());
+    child.kill().unwrap();
+    child.wait().unwrap();
 }

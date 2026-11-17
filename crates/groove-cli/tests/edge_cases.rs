@@ -679,9 +679,8 @@ fn redirected_human_and_json_patches_apply_with_forced_color_and_custom_prefixes
 }
 
 /// An agent's own `git status` with `core.fsmonitor=true` leaves a Git filesystem
-/// monitor daemon running for the slot. Git moves the daemon's working directory
-/// out of the checkout and watches it by path, so it must neither block release as a
-/// process still using the workspace nor serve stale state to the next reservation
+/// monitor daemon running for the slot. Read-only event observers outside the
+/// checkout must neither block release nor serve stale state to the next reservation
 /// after in-place cleanup. Linux Git has no built-in monitor daemon.
 #[cfg(target_os = "macos")]
 #[test]

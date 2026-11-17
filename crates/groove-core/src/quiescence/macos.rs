@@ -98,7 +98,10 @@ pub(super) fn processes_using(root: &Path, skip_ancestors: bool) -> Result<Vec<W
     let started = std::time::Instant::now();
     let executable = fs::metadata(std::env::current_exe()?)?;
     loop {
-        let found = scan_processes(root, skip_ancestors, &executable)?;
+        let (found, readers) = scan_processes(root, skip_ancestors, &executable)?;
+        if found.is_empty() && super::retry_observed_readers(&readers, started) {
+            continue;
+        }
         // Match Linux: admitted inspections hold shared execution locks. Git
         // discovery can briefly precede that admission, so wait for children of
         // this exact executable, without exempting any observed child writer.
@@ -126,7 +129,7 @@ fn scan_processes(
     root: &Path,
     skip_ancestors: bool,
     executable: &fs::Metadata,
-) -> Result<Vec<WorkspaceProcess>> {
+) -> Result<(Vec<WorkspaceProcess>, Vec<u32>)> {
     let skip = if skip_ancestors {
         self_and_ancestors()
     } else {
@@ -139,6 +142,7 @@ fn scan_processes(
         HashSet::new()
     };
     let mut found = Vec::new();
+    let mut observed_readers = Vec::new();
     for pid in candidates {
         if pid <= 1 || skip.contains(&(pid as u32)) {
             continue;
@@ -151,7 +155,8 @@ fn scan_processes(
             continue;
         }
         let pipeline = readers.contains(&pid);
-        if let Some(uses) = process_use(pid, root, pipeline) {
+        let mut observed_reader = false;
+        if let Some(uses) = process_use(pid, root, pipeline, &mut observed_reader) {
             let command = bsd_info(pid)
                 .map(|info| {
                     let bytes: Vec<u8> = info
@@ -168,10 +173,12 @@ fn scan_processes(
                 command,
                 uses,
             });
+        } else if observed_reader {
+            observed_readers.push(pid as u32);
         }
     }
     found.sort_by_key(|p| p.pid);
-    Ok(found)
+    Ok((found, observed_readers))
 }
 
 fn pids() -> std::io::Result<Vec<libc::pid_t>> {
@@ -239,7 +246,13 @@ fn vnode_path(info: &libc::vnode_info_path) -> PathBuf {
     PathBuf::from(OsString::from_vec(bytes))
 }
 
-fn process_use(pid: i32, root: &Path, pipeline: bool) -> Option<ProcessUse> {
+fn process_use(
+    pid: i32,
+    root: &Path,
+    pipeline: bool,
+    observed_reader: &mut bool,
+) -> Option<ProcessUse> {
+    let mut cwd_outside = false;
     let mut cwd = MaybeUninit::<libc::proc_vnodepathinfo>::uninit();
     // SAFETY: cwd has the exact layout/size required by PROC_PIDVNODEPATHINFO.
     let bytes = unsafe {
@@ -257,11 +270,19 @@ fn process_use(pid: i32, root: &Path, pipeline: bool) -> Option<ProcessUse> {
         if !pipeline && vnode_path(&cwd.pvi_cdir).starts_with(root) {
             return Some(ProcessUse::WorkingDirectory);
         }
+        let path = vnode_path(&cwd.pvi_cdir);
+        cwd_outside = path.is_absolute() && !path.starts_with(root);
     }
-    if executable_path(pid).is_some_and(|path| path.starts_with(root)) {
+    let executable = executable_path(pid);
+    if executable
+        .as_ref()
+        .is_some_and(|path| path.starts_with(root))
+    {
         return Some(ProcessUse::Executable);
     }
-    open_file_use(pid, root)
+    let outside =
+        cwd_outside && executable.is_some_and(|path| path.is_absolute() && !path.starts_with(root));
+    open_file_use(pid, root, outside, observed_reader)
 }
 
 fn executable_path(pid: i32) -> Option<PathBuf> {
@@ -281,7 +302,12 @@ fn executable_path(pid: i32) -> Option<PathBuf> {
     None
 }
 
-fn open_file_use(pid: i32, root: &Path) -> Option<ProcessUse> {
+fn open_file_use(
+    pid: i32,
+    root: &Path,
+    outside: bool,
+    observed_reader: &mut bool,
+) -> Option<ProcessUse> {
     // SAFETY: a null buffer requests the number of bytes needed for descriptors.
     let bytes =
         unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0) };
@@ -330,7 +356,14 @@ fn open_file_use(pid: i32, root: &Path) -> Option<ProcessUse> {
             // SAFETY: a complete successful response initialized all fields.
             let info = unsafe { info.assume_init() };
             if vnode_path(&info.vnode).starts_with(root) {
-                return Some(ProcessUse::OpenFile);
+                // proc_info.c exposes fg_flag, not POSIX O_ACCMODE. Darwin's
+                // sys/fcntl.h defines the independently testable FWRITE bit as 2.
+                const FWRITE: u32 = 2;
+                if outside && info.file.open_flags & FWRITE == 0 {
+                    *observed_reader = true;
+                } else {
+                    return Some(ProcessUse::OpenFile);
+                }
             }
         }
     }

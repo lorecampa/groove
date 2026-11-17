@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Distinguish passive read-only observers outside checkouts from writable
+  descriptors and workspace processes. New macOS default checkout roots use
+  `.worktrees.noindex` to avoid Spotlight indexing; existing roots stay fixed.
+
 - Apply acquisition's capacity wait limit to preparing spares as well as active
   reservations; zero wait no longer consumes the Git timeout waiting on a child.
 

@@ -101,7 +101,10 @@ and outside Git administration. Relative paths resolve from the caller's directo
 
 
 State stays in `<GIT_COMMON_DIR>/groove/`; new checkout roots default to
-`~/.worktrees/<project>-<repo-id>/<pool>` on Linux and macOS. Change the parent with
+`~/.worktrees/<project>-<repo-id>/<pool>` on Linux and
+`~/.worktrees.noindex/<project>-<repo-id>/<pool>` on macOS, keeping new default
+checkouts out of Spotlight indexing. Existing and custom roots stay unchanged.
+Change the parent with
 `groove config set worktrees.root=/absolute/worktrees`, or choose an exact
 pool root with `pool init --workspace-root`. See `pool init --help` for naming and precedence.
 Existing pools retain their recorded roots, including legacy roots in `.git`.
@@ -355,7 +358,13 @@ The release/destruction process scan observes accessible same-user processes and
 release excludes the caller and its ancestors. A connected pipeline reader's cwd
 alone does not block release; the rest of the process group is checked. Linux
 also checks shared writable mappings after their file descriptors close.
-Destruction excludes none of these. Stop all writers explicitly. The scan
+Destruction excludes none of these. On both platforms, verified read-only file
+observers whose cwd and executable are outside the checkout are retried for up to
+100 ms and reported in debug tracing, without blocking handoff or deletion.
+Writable or unclassified descriptors, cwd/executables inside the checkout, and
+Linux shared writable mappings still block. No process-name exemptions apply.
+Deletion checks processes again at execution time, since a successful preview
+cannot establish that no writer started afterwards. Stop all writers explicitly. The scan
 compares visible paths. Other users, mount namespaces and alternate mount paths
 can hide workspace users. A successful scan does not establish that all writers
 stopped: callers must stop their workers, watchers and descendants before release.
