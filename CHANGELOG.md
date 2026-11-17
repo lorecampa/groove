@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Avoid building a whole-target collision inventory when restore finds no
+  ignored files, and reuse the captured index tree when staging changed nothing.
+  Safety capture, stability checks and ignored-file collision refusal remain.
+
 - Preserve resumable draft publication on macOS Bash 3.2 when all assets are
   already uploaded; guard empty array expansion under `set -u`.
 
