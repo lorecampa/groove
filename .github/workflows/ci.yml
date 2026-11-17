@@ -165,10 +165,10 @@ jobs:
           rustc --version
           git --version
           sw_vers
-      - run: cargo test --workspace --all-targets --all-features --locked --no-fail-fast
       - name: Concurrent detailed inspection and release
         if: matrix.rust == 'stable'
         run: cargo test -p groove-cli --all-features --locked --test large_repository_regressions release_waits_for_concurrent_detailed_inspection -- --ignored --nocapture
+      - run: cargo test --workspace --all-targets --all-features --locked --no-fail-fast
       - run: cargo test --workspace --doc --locked
       - run: cargo doc --workspace --no-deps --locked
         env:
