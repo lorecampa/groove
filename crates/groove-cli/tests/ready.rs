@@ -760,7 +760,7 @@ fn destruction_refuses_a_live_preparer_then_preserves_its_permanent_lock() {
         Pool::destroy(
             &repo.path,
             groove_core::DestroyOptions {
-                git_timeout: Duration::from_millis(100),
+                lock_timeout: Some(Duration::from_millis(100)),
                 ..Default::default()
             }
         )

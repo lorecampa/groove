@@ -28,6 +28,9 @@ pub struct DestroyOptions {
     pub pool_id: Option<PoolId>,
     /// Positive bound for each Git operation and administrative-lock wait.
     pub git_timeout: Duration,
+    /// Independent lifecycle/administrative lock wait; absent uses `git_timeout`
+    /// for compatibility. Zero attempts exclusion once without breaking owners.
+    pub lock_timeout: Option<Duration>,
 }
 impl Default for DestroyOptions {
     fn default() -> Self {
@@ -36,6 +39,7 @@ impl Default for DestroyOptions {
             discard_changes: false,
             pool_id: None,
             git_timeout: crate::DEFAULT_GIT_TIMEOUT,
+            lock_timeout: None,
         }
     }
 }
@@ -279,10 +283,11 @@ impl Pool {
         }
         repository::owned_dir(&repo.root)?;
         repository::owned_dir(&repo.root.join("locks"))?;
+        let lock_timeout = options.lock_timeout.unwrap_or(options.git_timeout);
         let gate = if options.dry_run {
-            lifecycle::preview_gate(&repo, options.git_timeout)?
+            lifecycle::preview_gate(&repo, lock_timeout)?
         } else {
-            lifecycle::destroy_gate(&repo, options.git_timeout)?
+            lifecycle::destroy_gate(&repo, lock_timeout)?
         };
         let previous = lifecycle::read(&repo)?;
         let intent_path = repo.root.join("initializing.json");
@@ -304,7 +309,7 @@ impl Pool {
         let _admin = SlotGuard::wait(
             &repo.admin_lock_path(),
             Some(locking::identity(&admin_file)?),
-            options.git_timeout,
+            lock_timeout,
         )?;
         if !explicit {
             let count = crate::namespace::repositories(&repo)?
