@@ -18,8 +18,7 @@ fn check(output: Output, code: i32) -> Value {
     SCHEMA
         .get_or_init(|| {
             let schema: Value =
-                serde_json::from_str(include_str!("../../../schemas/response-v2.schema.json"))
-                    .unwrap();
+                serde_json::from_str(include_str!("../schemas/response-v2.schema.json")).unwrap();
             jsonschema::validator_for(&schema).unwrap()
         })
         .validate(&value)
@@ -455,7 +454,7 @@ fn slow_checkout_progress_reports_the_current_phase() {
     init(&repo, "default", "1");
     let output = slow_git(&repo).arg("acquire").output().unwrap();
     let schema: Value =
-        serde_json::from_str(include_str!("../../../schemas/progress-v2.schema.json")).unwrap();
+        serde_json::from_str(include_str!("../schemas/progress-v2.schema.json")).unwrap();
     let validator = jsonschema::validator_for(&schema).unwrap();
     let events: Vec<Value> = std::str::from_utf8(&output.stderr)
         .unwrap()

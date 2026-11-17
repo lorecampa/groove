@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.5.0] - 2026-11-17
+
 ### Changed
 
 - Remove pool checkouts and their top-level entries concurrently after ownership
@@ -75,6 +77,9 @@
   schema version 5, recording pinned definitions and fetched pack manifests.
 
 ### Fixed
+
+- Build CLI regression tests from packaged sources by
+  using the schemas included in the crate.
 
 - Explain incompatible repository settings with their key, value and origin at
   initialization and acquisition; accept harmless main-checkout worktreeConfig.

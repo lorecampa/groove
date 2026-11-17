@@ -13,7 +13,7 @@ fn response(path: &Path, args: &[&str]) -> Value {
     let value = support::assert_success(&output);
     assert_eq!(value["api_version"], 2);
     let schema: Value =
-        serde_json::from_str(include_str!("../../../schemas/response-v2.schema.json")).unwrap();
+        serde_json::from_str(include_str!("../schemas/response-v2.schema.json")).unwrap();
     jsonschema::validator_for(&schema)
         .unwrap()
         .validate(&value)
