@@ -347,8 +347,18 @@ fn persisted_metadata_matches_published_schemas() {
 #[test]
 fn settings_and_read_commands_match_the_protocol() {
     let r = Repo::new();
-    assert_success(&cli(&r, &["pool", "create", "--capacity", "1"]));
-    let lease = check(&cli(&r, &["acquire", "--task", "live"]));
+    assert_success(&cli(
+        &r,
+        &[
+            "pool",
+            "create",
+            "--capacity",
+            "1",
+            "--idle-timeout",
+            "never",
+        ],
+    ));
+    let lease = assert_success(&cli(&r, &["acquire", "--task", "live"]));
     let id = lease["result"]["reservation_id"].as_str().unwrap();
     let configured = cli(&r, &["pool", "set", "--capacity", "3", "--cleanup", "warm"]);
     assert_success(&configured);

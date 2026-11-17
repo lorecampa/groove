@@ -71,6 +71,10 @@
 
 ### Fixed
 
+- Defer idle maintenance before taking slot exclusion when no preparation or
+  eviction is due, so a no-op background pass cannot exhaust zero-wait capacity.
+  Actual maintenance still requires descriptor ownership and revalidation.
+
 - Replace unmaintained Chrono with UTC-only `time` formatting and parsing,
   preserving millisecond log timestamps and release-date validation. Record
   dependency review evidence without adding an advisory exception.

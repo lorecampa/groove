@@ -25,6 +25,49 @@ fn run(pool: &Pool) {
     let report = pool.ready_report().unwrap();
     assert!(report.error.is_none(), "{report:?}");
 }
+
+#[test]
+fn idle_maintenance_defers_unneeded_work_but_respects_execution_owners() {
+    use std::os::fd::AsRawFd;
+    if !support::in_subprocess(
+        "idle_maintenance_defers_unneeded_work_but_respects_execution_owners",
+    ) {
+        return;
+    }
+    let repo = Repo::new();
+    let pool = pool(&repo, 1, 0);
+    let lease = pool.reserve(Default::default()).unwrap();
+    pool.release_lease(lease.lease_id).unwrap();
+    let execution = fs::File::open(repo.state().join("locks/wt-0001.execution.lock")).unwrap();
+    assert_eq!(
+        // SAFETY: this file owns the descriptor until both maintenance passes
+        // complete. flock changes descriptor exclusion, not metadata ownership.
+        unsafe { libc::flock(execution.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) },
+        0
+    );
+    let original = fs::read(lease.worktree_path.join("tracked.txt")).unwrap();
+    run(&pool);
+    assert!(
+        pool.ready_report().unwrap().failures.is_empty(),
+        "a pass with no due work must not contend with an execution owner"
+    );
+
+    pool.configure(PoolUpdate {
+        ready_target: Some(1),
+        ..Default::default()
+    })
+    .unwrap();
+    run(&pool);
+    assert!(
+        !pool.ready_report().unwrap().failures.is_empty(),
+        "actual preparation must still reject an execution owner"
+    );
+    assert_eq!(
+        fs::read(lease.worktree_path.join("tracked.txt")).unwrap(),
+        original
+    );
+    drop(execution);
+}
 #[test]
 fn sequential_releases_retain_one_prepared_checkout_and_three_ignored_caches() {
     if !support::in_subprocess(
