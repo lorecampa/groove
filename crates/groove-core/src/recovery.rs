@@ -519,7 +519,7 @@ pub(crate) fn normalize(
         fds,
     )?;
     crate::progress::set_phase("cleaning");
-    if !baseline_status(git, path, policy, fds)?.is_empty() {
+    if inventory.directories_changed || !baseline_status(git, path, policy, fds)?.is_empty() {
         git.run(
             path,
             &[

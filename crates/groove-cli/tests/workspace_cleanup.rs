@@ -195,3 +195,19 @@ fn ignored_special_files_do_not_block_plain_or_saved_release() {
         }
     }
 }
+
+#[test]
+fn empty_untracked_directories_are_removed_even_when_git_status_is_clean() {
+    for policy in ["pristine", "warm"] {
+        let repo = Repo::new();
+        initialize(&repo, policy);
+        let lease = assert_success(&cli(&repo, &["acquire"]));
+        let id = lease["result"]["reservation_id"].as_str().unwrap();
+        let empty = repo.slot(1).join("untracked-empty");
+        fs::create_dir(&empty).unwrap();
+        assert!(support::git(&repo.slot(1), &["status", "--porcelain", "--ignored"]).is_empty());
+        assert_success(&cli(&repo, &["release", "--reservation-id", id]));
+        assert_success(&cli(&repo, &["acquire"]));
+        assert!(!empty.exists(), "{policy}");
+    }
+}

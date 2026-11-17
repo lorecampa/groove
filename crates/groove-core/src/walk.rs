@@ -18,6 +18,9 @@ pub(crate) struct Options {
 }
 
 pub(crate) struct Inventory {
+    /// Directory ctime changed since verification, including the root. Git status
+    /// omits empty directories, so their residue needs a separate cleanup signal.
+    pub directories_changed: bool,
     pub directories: Vec<DirectoryState>,
     pub touched: Vec<u8>,
     pub touched_complete: bool,
@@ -26,6 +29,7 @@ pub(crate) struct Inventory {
 
 #[derive(Default)]
 struct Partial {
+    directories_changed: bool,
     directories: Vec<DirectoryState>,
     touched: Vec<u8>,
     specials: Vec<PathBuf>,
@@ -120,12 +124,14 @@ pub(crate) fn inventory(root: &Path, options: Options) -> Result<Inventory> {
     }
     let complete = shared.touched_complete.load(Ordering::Relaxed);
     let mut result = Inventory {
+        directories_changed: false,
         directories: Vec::new(),
         touched: Vec::new(),
         touched_complete: complete,
         specials: Vec::new(),
     };
     for partial in partials {
+        result.directories_changed |= partial.directories_changed;
         result.directories.extend(partial.directories);
         result.specials.extend(partial.specials);
         if complete {
@@ -219,6 +225,9 @@ fn visit(
     if options.remove_specials {
         crate::workspace_files::make_directory_writable(directory, &metadata)?;
     }
+    partial.directories_changed |= options
+        .verified
+        .is_none_or(|verified| (metadata.ctime(), metadata.ctime_nsec()) >= verified);
     let touched = ancestor_touched
         || (directory != root
             && options
