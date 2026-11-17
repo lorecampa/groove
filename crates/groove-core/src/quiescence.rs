@@ -16,6 +16,29 @@ use crate::{Error, ErrorCode, LeaseId, Pool, Result, WorkspaceGitStatus};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, fs, time::Duration};
 
+/// Discard only observations of processes the OS now proves have exited.
+/// Enumeration is not atomic: short Git children can finish while a Darwin
+/// descriptor scan is still examining other processes. Unknown/denied probes
+/// remain blockers. This does not establish ownership or exempt live writers.
+fn retain_live_observations(processes: &mut Vec<WorkspaceProcess>) {
+    processes.retain(|process| {
+        let Ok(pid) = i32::try_from(process.pid) else {
+            return true;
+        };
+        // SAFETY: signal zero sends no signal; it only probes this observed PID.
+        let exists = unsafe { libc::kill(pid, 0) };
+        let exited =
+            exists < 0 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
+        if exited {
+            tracing::debug!(
+                pid = process.pid,
+                "Workspace process exited during inspection"
+            );
+        }
+        !exited
+    });
+}
+
 /// Report passive readers and give short-lived observations time to finish.
 /// They hold no writable descriptor, cwd or executable inside the checkout.
 fn retry_observed_readers(readers: &[u32], started: std::time::Instant) -> bool {

@@ -29,6 +29,17 @@ fn init(repo: &Repo) {
 #[test]
 #[ignore = "200 real-process acquire/release cycles with concurrent inspection"]
 fn release_waits_for_concurrent_detailed_inspection() {
+    // Preserve process classification diagnostics if native scanning races fail.
+    let cli = |repo: &Repo, args: &[&str]| {
+        support::assert_success(
+            &support::groove_in(&repo.path)
+                .arg("-vv")
+                .args(args)
+                .output()
+                .unwrap(),
+        )["result"]
+            .clone()
+    };
     let repo = Repo::new();
     init(&repo);
     cli(&repo, &["acquire", "--task", "initial"]);

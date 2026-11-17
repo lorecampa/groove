@@ -31,6 +31,63 @@ fn acquire(repo: &Repo, task: &str) -> String {
         .to_owned()
 }
 
+#[cfg(feature = "test-hooks")]
+#[test]
+fn release_rechecks_process_liveness_after_scanning() {
+    use std::{io::Write, os::unix::net::UnixListener};
+    for exit_after_scan in [false, true] {
+        let repo = Repo::new();
+        ok(&cli(
+            &repo,
+            &["pool", "init", "--capacity", "1", "--idle-timeout", "never"],
+        ));
+        let workspace = acquire(&repo, "scan-race");
+        let mut writer =
+            support::TestChild::spawn(support::command(Path::new(&workspace), "sleep").arg("60"));
+        let socket = repo.temp.path().join("scan.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let mut releaser = support::TestChild::spawn(
+            support::groove_in(&repo.path)
+                .args(["release", "--task", "scan-race"])
+                .env("GROOVE_TEST_CHECKPOINT", "workspace-processes-scanned")
+                .env("GROOVE_TEST_SOCKET", &socket),
+        );
+        let mut scan = releaser
+            .checkpoint(
+                &listener,
+                "workspace-processes-scanned",
+                support::PROCESS_TIMEOUT,
+            )
+            .unwrap();
+        if exit_after_scan {
+            writer.kill().unwrap();
+            writer.wait().unwrap();
+        }
+        scan.write_all(b"continue").unwrap();
+        drop(scan);
+        let result = releaser.wait_with_output().unwrap();
+        if !exit_after_scan {
+            writer.kill().unwrap();
+            writer.wait().unwrap();
+            assert_eq!(error(&result)["code"], "WORKSPACE_IN_USE");
+            assert_eq!(
+                ok(&cli(&repo, &["list"]))["reservations"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                1
+            );
+            ok(&cli(&repo, &["release", "--task", "scan-race"]));
+        } else {
+            ok(&result);
+            assert!(ok(&cli(&repo, &["list"]))["reservations"]
+                .as_array()
+                .unwrap()
+                .is_empty());
+        }
+    }
+}
+
 #[test]
 fn unreadable_work_is_preserved_by_release_and_destruction() {
     use std::os::unix::fs::PermissionsExt;

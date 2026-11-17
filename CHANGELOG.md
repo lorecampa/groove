@@ -71,6 +71,11 @@
 
 ### Fixed
 
+- Recheck advisory process observations before refusing handoff: a child that
+  exited during a process scan no longer causes a stale workspace-in-use error.
+  Live and permission-denied processes remain blockers; descriptor ownership
+  and writer exclusion are unchanged.
+
 - Avoid building a whole-target collision inventory when restore finds no
   ignored files, and reuse the captured index tree when staging changed nothing.
   Safety capture, stability checks and ignored-file collision refusal remain.

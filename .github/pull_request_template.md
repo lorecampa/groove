@@ -17,7 +17,7 @@ tradeoffs. Link related issues; use "Closes #123" only if this resolves the issu
 
 <!--
 List exact commands run, observed results and relevant regression coverage.
-Run `bash scripts/check.sh push` for code changes. Hosted CI is not automatic.
+Run `bash scripts/check.sh push` for code changes. Hosted CI runs on pull requests.
 State failures, skipped checks and platform limitations; serial-only success
 does not establish default/concurrent scheduling. For docs-only changes, explain
 what you checked and why runtime tests were unnecessary.
