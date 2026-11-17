@@ -88,7 +88,7 @@ fn scope_context_help(
 
 fn decorate(mut command: clap::Command, path: &str) -> clap::Command {
     let text = format!(
-        "{}\nHelp topics: groove help json|exit-codes|durations|recovery|environment\n",
+        "{}\nAdd --json to --help for the output contract.\nHelp topics: exit-codes, durations, recovery, environment.\n",
         concise_help(path)
     );
     command = command.after_long_help(text.clone()).after_help(text);
@@ -112,7 +112,7 @@ fn decorate(mut command: clap::Command, path: &str) -> clap::Command {
 
 fn concise_help(path: &str) -> &'static str {
     match path {
-        "help" => "EXAMPLES:\n  groove help json acquire\n  groove help recovery release\n  groove help pool create\n",
+        "help" => "EXAMPLES:\n  groove acquire --help --json\n  groove help recovery release\n  groove help pool create\n",
         "path" => "EXAMPLES:\n  groove path fix-nav\n  groove path  # infer from the current workspace\n",
         "upgrade" => "EXAMPLES:\n  groove upgrade --check\n  groove upgrade --dry-run --with-plugins\n  groove upgrade --to 0.6.0\n",
         "" => include_str!("../help/short/overview.txt"),
@@ -150,6 +150,24 @@ fn concise_help(path: &str) -> &'static str {
 
 /// Installed reference topics and ordinary command help, without repository I/O.
 pub fn help_topic(parts: &[String]) -> groove_core::Result<String> {
+    if parts.first().is_some_and(|topic| topic == "json") {
+        return Err(groove_core::Error::new(
+            ErrorCode::InvalidArgument,
+            "Use groove COMMAND --help --json for its output contract",
+        ));
+    }
+    reference_help(parts)
+}
+
+pub fn json_contract(path: &[String]) -> groove_core::Result<String> {
+    reference_help(
+        &std::iter::once("json".into())
+            .chain(path.iter().cloned())
+            .collect::<Vec<_>>(),
+    )
+}
+
+fn reference_help(parts: &[String]) -> groove_core::Result<String> {
     let invalid = |message| groove_core::Error::new(ErrorCode::InvalidArgument, message);
     let topic = parts.first().map(String::as_str).unwrap_or("");
     match topic {

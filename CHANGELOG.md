@@ -1,9 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
 - Keep command help focused on usage, options and examples. Installed help topics
-  now own JSON contracts (`help json [COMMAND]`), exit codes, durations, recovery
+  cover exit codes, durations, recovery
   (`help recovery [COMMAND]`) and environment behavior. `help COMMAND` shows the
-  same concise command reference without opening a repository.
+  same concise command reference without opening a repository. Add `--json` to
+  `COMMAND --help` for the JSON contract in the existing `result.text` envelope.
+- Resolve snapshot UUID prefixes of at least eight characters; filter snapshot
+  lists with `--pinned`. Multi-snapshot deletion validates all selectors first and
+  requires confirmation, with `--dry-run` and `--yes`. API v2 single deletions
+  retain `deleted`; multiple deletions add optional `deleted_snapshots`, and previews
+  reuse the existing snapshots result. Reservation lists sort by task, pool or
+  acquisition time; `pool show NAME --slot SLOT` inspects an individual slot.
 
 - Scope pool selection and Git timeout overrides to commands. Transitional legacy
   spellings remain hidden and emit warnings. Add `-C`, `-p`, consistent short flags,
@@ -43,10 +54,6 @@
 - Additive CLI rollout: pool settings accept `KEY=VALUE`; pool/config keys accept
   kebab-case and legacy underscores. Context flags are advertised only by the
   commands that use them. Existing global parsing remains during this phase.
-
-## Unreleased
-
-### Changed
 
 - Infer `show`'s reservation from the current managed workspace, including its
   subdirectories, using the same validated registration as release.

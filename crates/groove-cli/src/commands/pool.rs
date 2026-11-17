@@ -2,7 +2,7 @@
 
 use super::{lease::lease_output, Context};
 use crate::{
-    args::{Cleanup, OptionalSelector, PageArgs, PoolSort, SlotSort},
+    args::{Cleanup, OptionalSelector, PageArgs, PoolSort, ReservationSort, SlotSort, SortOrder},
     output::{fields, table, Output},
 };
 use groove_core::{LeaseInfo, Pool, PoolInspection, PoolOptions, Result, SlotId, SlotInspection};
@@ -315,7 +315,7 @@ pub fn list(
     slots: bool,
     details: bool,
     page: &PageArgs,
-    sort: SlotSort,
+    sort: ReservationSort,
 ) -> Result<Output> {
     if slots || details {
         let pool = context.pool()?;
@@ -324,7 +324,14 @@ pub fn list(
         } else {
             pool.inspect()?
         };
-        sort_slots(&mut inspection.slots, sort);
+        sort_slots(
+            &mut inspection.slots,
+            if matches!(sort, ReservationSort::Task) {
+                SlotSort::Task
+            } else {
+                SlotSort::Slot
+            },
+        );
         let (slots, pagination) = page.apply(inspection.slots);
         inspection.slots = slots;
         let text = slot_table(&inspection);
@@ -348,16 +355,24 @@ pub fn list(
                 .map(|lease| (name.clone(), lease)),
         );
     }
-    leases.sort_by(|a, b| match sort {
-        SlotSort::Slot => a.1.slot_id.cmp(&b.1.slot_id).then_with(|| a.0.cmp(&b.0)),
-        SlotSort::Task => {
-            a.1.task
-                .cmp(&b.1.task)
-                .then_with(|| a.0.cmp(&b.0))
-                .then_with(|| a.1.slot_id.cmp(&b.1.slot_id))
-        }
+    leases.sort_by(|a, b| {
+        (match sort {
+            ReservationSort::Slot => a.1.slot_id.cmp(&b.1.slot_id).then_with(|| a.0.cmp(&b.0)),
+            ReservationSort::Task => a.1.task.cmp(&b.1.task),
+            ReservationSort::Pool => a.0.cmp(&b.0).then_with(|| a.1.task.cmp(&b.1.task)),
+            ReservationSort::Acquired => a.1.acquired_at_unix_ms.cmp(&b.1.acquired_at_unix_ms),
+        })
+        .then_with(|| a.1.lease_id.to_string().cmp(&b.1.lease_id.to_string()))
     });
-    let (leases, pagination) = page.apply(leases);
+    let order = if matches!(sort, ReservationSort::Acquired) {
+        SortOrder::Desc
+    } else {
+        SortOrder::Asc
+    };
+    if matches!(order, SortOrder::Desc) {
+        leases.reverse();
+    }
+    let (leases, pagination) = page.apply_ordered(leases, order);
     let text = if leases.is_empty() {
         "No active reservations on this page.".to_owned()
     } else {

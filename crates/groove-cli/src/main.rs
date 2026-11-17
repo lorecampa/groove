@@ -207,6 +207,29 @@ fn reject(raw: &[std::ffi::OsString], error: &clap::Error) -> u8 {
         error.kind(),
         ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
     ) {
+        if matches!(partial.format, Format::Json) && error.kind() == ErrorKind::DisplayHelp {
+            let arguments: Vec<_> = raw
+                .iter()
+                .filter(|arg| *arg != "--help" && *arg != "-h")
+                .collect();
+            let mut path = Vec::new();
+            if let Ok(matches) = crate::contract::command()
+                .ignore_errors(true)
+                .try_get_matches_from(arguments)
+            {
+                let mut selected = &matches;
+                while let Some((name, child)) = selected.subcommand() {
+                    path.push(name.to_owned());
+                    selected = child;
+                }
+            }
+            let mut text = error.render().to_string();
+            if let Ok(contract) = crate::contract::json_contract(&path) {
+                text.push('\n');
+                text.push_str(&contract);
+            }
+            return output::emit_help(partial.format, request_id, &text);
+        }
         if matches!(partial.format, Format::Human)
             && requested_color(raw) != clap::ColorChoice::Never
         {

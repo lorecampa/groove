@@ -179,6 +179,10 @@ impl Args {
                 )?;
             }
             Command::Show { selector, .. } => {
+                if selector.slot.is_some() {
+                    self.deprecations
+                        .push("show --slot is deprecated; use pool show NAME --slot SLOT");
+                }
                 normalize_selector(
                     &mut selector.reservation,
                     &mut selector.task,
@@ -191,9 +195,16 @@ impl Args {
                 description,
                 ..
             }) => {
+                if !description.is_empty() {
+                    self.deprecations.push("Positional snapshot descriptions are deprecated; use snapshot save -m MESSAGE");
+                }
                 if let Some(message) = message.take() {
                     *description = message;
                 }
+            }
+            Command::List { slots, details, .. } if *slots || *details => {
+                self.deprecations
+                    .push("list --slots/--details are deprecated; use pool show NAME");
             }
             _ => {}
         }
@@ -243,10 +254,10 @@ pub struct LeaseSelector {
     #[arg(value_name = "RESERVATION")]
     pub reservation: Option<String>,
     /// Reservation UUID returned by acquire.
-    #[arg(long = "reservation-id", value_name = "ID")]
+    #[arg(long = "reservation-id", value_name = "ID", hide = true)]
     pub lease_id: Option<LeaseId>,
     /// Task label of exactly one active reservation.
-    #[arg(long)]
+    #[arg(long, hide = true)]
     pub task: Option<String>,
 }
 
@@ -258,13 +269,13 @@ pub struct OptionalSelector {
     #[arg(value_name = "RESERVATION")]
     pub reservation: Option<String>,
     /// Reservation UUID returned by acquire.
-    #[arg(long = "reservation-id", value_name = "ID")]
+    #[arg(long = "reservation-id", value_name = "ID", hide = true)]
     pub lease_id: Option<LeaseId>,
     /// Task label of exactly one active reservation.
-    #[arg(long)]
+    #[arg(long, hide = true)]
     pub task: Option<String>,
     /// Permanent slot, such as wt-0001.
-    #[arg(long)]
+    #[arg(long, hide = true)]
     pub slot: Option<SlotId>,
 }
 
@@ -286,9 +297,9 @@ impl From<Cleanup> for groove_core::CleanupPolicy {
 
 #[derive(Subcommand)]
 pub enum Command {
-    /// Show command help or the json, exit-codes, durations, recovery and environment topics.
+    /// Show command help or the exit-codes, durations, recovery and environment topics.
     Help {
-        /// Command path or topic, for example pool create or json acquire.
+        /// Command path or topic, for example pool create or recovery.
         #[arg(value_name = "COMMAND|TOPIC")]
         topic: Vec<String>,
     },
@@ -319,7 +330,8 @@ pub enum Command {
         /// Unique reservation label, selectable with --task.
         #[arg(
             long,
-            long_help = "Unique name for this reservation (1..256 bytes, no control characters); later commands select it with --task."
+            hide = true,
+            long_help = "Deprecated task selector; use positional TASK (1..128 ASCII letters, digits, dots, underscores or hyphens)."
         )]
         task: Option<String>,
         /// Idempotency key for safe acquisition retries.
@@ -364,21 +376,21 @@ pub enum Command {
         )]
         force: bool,
     },
-    /// List active reservations, or every slot.
+    /// List active reservations across repository pools.
     #[command(after_long_help = help!("list"))]
     List {
         #[command(flatten)]
         pool: PoolSelection,
-        /// Sort by slot ID or task label, with slot ID breaking ties.
-        #[arg(long, value_enum, default_value = "slot")]
-        sort: SlotSort,
+        /// Sort by task, pool or acquisition time; reservation UUID breaks ties.
+        #[arg(long, value_enum, default_value = "task")]
+        sort: ReservationSort,
         #[command(flatten)]
         page: PageArgs,
         /// List every slot with its status and suggested next action.
-        #[arg(long)]
+        #[arg(long, hide = true)]
         slots: bool,
         /// Include bounded local Git status for each slot (implies --slots).
-        #[arg(long)]
+        #[arg(long, hide = true)]
         details: bool,
     },
     /// Show exactly one reservation or slot.
@@ -463,10 +475,23 @@ pub enum SlotSort {
     Task,
 }
 
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum ReservationSort {
+    /// Task label (ascending).
+    Task,
+    /// Pool name, then task label (ascending).
+    Pool,
+    /// Acquisition time (newest first).
+    Acquired,
+    /// Deprecated slot ordering.
+    #[value(hide = true)]
+    Slot,
+}
+
 /// Output window shared by collection commands.
 #[derive(ClapArgs, Debug, Clone, Default)]
 pub struct PageArgs {
-    /// Sort direction, including tie-breakers; default: desc for created, asc otherwise.
+    /// Sort direction, including tie-breakers; default: desc for created/acquired, asc otherwise.
     #[arg(long, value_enum)]
     pub order: Option<SortOrder>,
     /// Return at most this many entries (default: 50); ordering is command-specific.
@@ -540,6 +565,9 @@ pub enum SnapshotCommand {
     /// List snapshots across all linked worktrees (default: newest first).
     #[command(after_long_help = help!("snapshot-list"))]
     List {
+        /// Only snapshots pinned for saved release or recovery.
+        #[arg(long)]
+        pinned: bool,
         /// Sort snapshots by creation time or snapshot ID; ties use snapshot ID.
         #[arg(long, value_enum, default_value = "created")]
         sort: TimeSort,
@@ -605,11 +633,18 @@ pub enum SnapshotCommand {
     },
     /// Delete one snapshot.
     Delete {
-        /// Snapshot ID.
-        id: String,
+        /// Snapshot UUIDs or unique prefixes of at least eight characters.
+        #[arg(required = true, value_name = "SNAPSHOT")]
+        ids: Vec<String>,
         /// Also delete a snapshot pinned for saved release or interrupted recovery.
         #[arg(long = "pinned", visible_alias = "force")]
         force: bool,
+        /// Preview the selected snapshots without deleting them.
+        #[arg(short = 'n', long, conflicts_with = "yes")]
+        dry_run: bool,
+        /// Confirm deletion of multiple snapshots without prompting.
+        #[arg(short = 'y', long)]
+        yes: bool,
     },
 }
 
@@ -694,6 +729,9 @@ pub enum PoolCommand {
     Show {
         /// Pool to inspect; also accepts the legacy --pool selection.
         name: Option<PoolName>,
+        /// Inspect one permanent slot, such as wt-0001.
+        #[arg(long)]
+        slot: Option<SlotId>,
         /// Include bounded Git status for every slot.
         #[arg(long)]
         details: bool,

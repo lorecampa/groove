@@ -1,4 +1,8 @@
 EXAMPLE:
   groove snapshot delete ID
+  groove snapshot delete ID OTHER_ID --dry-run
+  groove snapshot delete ID OTHER_ID --yes
 
 Deletes the checkpoint reference. --pinned also allows deleting a pinned snapshot.
+Multiple checkpoints require confirmation; without a terminal, pass --yes.
+IDs may be unique UUID prefixes of at least eight characters.

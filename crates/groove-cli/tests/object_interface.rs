@@ -17,11 +17,116 @@ fn invoke(repo: &Repo, args: &[&str], code: i32) -> Value {
 }
 
 #[test]
+fn snapshot_prefixes_and_bulk_deletion_preserve_unconfirmed_checkpoints() {
+    let repo = Repo::new();
+    std::fs::write(repo.path.join("tracked.txt"), "saved bytes\n").unwrap();
+    let first = invoke(&repo, &["snapshot", "save", "-m", "first"], 0);
+    let first = first["result"]["snapshot"]["id"].as_str().unwrap();
+    let second = invoke(&repo, &["snapshot", "save", "-m", "second"], 0);
+    let second = second["result"]["snapshot"]["id"].as_str().unwrap();
+    let prefix = &first[..8];
+    assert_eq!(
+        invoke(&repo, &["snapshot", "show", prefix], 0)["result"]["snapshot"]["id"],
+        first
+    );
+    invoke(&repo, &["snapshot", "show", &first[..7]], 2);
+    invoke(&repo, &["snapshot", "diff", prefix, &second[..8]], 0);
+    let destination = repo.temp.path().join("restored");
+    invoke(
+        &repo,
+        &[
+            "snapshot",
+            "restore",
+            prefix,
+            "--to",
+            destination.to_str().unwrap(),
+        ],
+        0,
+    );
+    assert_eq!(
+        std::fs::read(destination.join("tracked.txt")).unwrap(),
+        b"saved bytes\n"
+    );
+    invoke(&repo, &["snapshot", "delete", prefix, "00000000", "-y"], 2);
+    invoke(&repo, &["snapshot", "show", first], 0);
+    invoke(&repo, &["snapshot", "delete", prefix, &second[..8]], 2);
+    let preview = invoke(
+        &repo,
+        &["snapshot", "delete", prefix, &second[..8], "-n"],
+        0,
+    );
+    assert_eq!(preview["result"]["snapshots"].as_array().unwrap().len(), 2);
+    invoke(&repo, &["snapshot", "show", first], 0);
+    invoke(&repo, &["snapshot", "show", second], 0);
+    let deleted = invoke(
+        &repo,
+        &["snapshot", "delete", prefix, &second[..8], "-y"],
+        0,
+    );
+    assert_eq!(
+        deleted["result"]["deleted_snapshots"],
+        serde_json::json!([first, second])
+    );
+    invoke(&repo, &["snapshot", "show", first], 2);
+    invoke(&repo, &["snapshot", "show", second], 2);
+}
+
+#[test]
+fn reservation_sorting_and_pool_slot_inspection_keep_their_object_scope() {
+    let repo = Repo::new();
+    for pool in ["alpha", "zeta"] {
+        invoke(
+            &repo,
+            &[
+                "pool",
+                "create",
+                pool,
+                "--capacity",
+                "1",
+                "--idle-timeout",
+                "never",
+            ],
+            0,
+        );
+    }
+    let older = invoke(&repo, &["acquire", "z-task", "-p", "alpha"], 0);
+    invoke(&repo, &["acquire", "a-task", "-p", "zeta"], 0);
+    for (sort, expected) in [
+        ("task", "a-task"),
+        ("pool", "z-task"),
+        ("acquired", "a-task"),
+    ] {
+        let page = invoke(&repo, &["list", "--sort", sort, "--limit", "1"], 0);
+        assert_eq!(
+            page["result"]["reservations"][0]["task"], expected,
+            "{page}"
+        );
+    }
+    let reversed = invoke(
+        &repo,
+        &[
+            "list", "--sort", "acquired", "--order", "asc", "--limit", "1",
+        ],
+        0,
+    );
+    assert_eq!(reversed["result"]["reservations"][0]["task"], "z-task");
+    let slot = older["result"]["slot_id"].as_str().unwrap();
+    let inspected = invoke(&repo, &["pool", "show", "alpha", "--slot", slot], 0);
+    assert_eq!(inspected["result"]["slot"]["slot_id"], slot, "{inspected}");
+    invoke(&repo, &["release", "z-task"], 0);
+    invoke(&repo, &["release", "a-task"], 0);
+}
+
+#[test]
 fn concise_help_keeps_examples_and_reference_topics_remain_installed() {
     let repo = Repo::new();
     for command in ["acquire", "release", "show", "list", "upgrade"] {
-        let help = invoke(&repo, &[command, "--help"], 0);
-        let text = help["result"]["text"].as_str().unwrap();
+        let help = support::groove_human_in(&repo.path)
+            .args([command, "--help"])
+            .output()
+            .unwrap();
+        assert!(help.status.success());
+        let text = String::from_utf8(help.stdout).unwrap();
         assert!(text.contains("EXAMPLE"), "{text}");
         assert!(
             text.lines().count() < 120,
@@ -30,11 +135,16 @@ fn concise_help_keeps_examples_and_reference_topics_remain_installed() {
         );
         assert!(!text.contains("OUTPUT TYPES"), "{text}");
     }
-    for topic in ["json", "exit-codes", "durations", "recovery", "environment"] {
+    for topic in ["exit-codes", "durations", "recovery", "environment"] {
         let help = invoke(&repo, &["help", topic], 0);
         assert!(!help["result"]["text"].as_str().unwrap().is_empty());
     }
-    let contract = invoke(&repo, &["help", "json", "acquire"], 0);
+    let contract = invoke(&repo, &["acquire", "--help"], 0);
+    assert!(contract["result"]["text"]
+        .as_str()
+        .unwrap()
+        .contains("OUTPUT TYPES"));
+    invoke(&repo, &["help", "json"], 2);
     assert!(contract["result"]["text"]
         .as_str()
         .unwrap()

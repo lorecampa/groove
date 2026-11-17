@@ -204,6 +204,7 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
                 )
             }
             PoolCommand::Show {
+                slot,
                 details,
                 disk_usage,
                 page,
@@ -211,7 +212,10 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
                 ..
             } => pool::show(
                 context,
-                &Default::default(),
+                &crate::args::OptionalSelector {
+                    slot: slot.clone(),
+                    ..Default::default()
+                },
                 *details,
                 *disk_usage,
                 page,

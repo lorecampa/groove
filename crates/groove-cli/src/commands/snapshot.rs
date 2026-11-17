@@ -41,6 +41,40 @@ fn snapshot_output(snapshot: Snapshot) -> Result<Output> {
     Output::text(json!({ "snapshot": snapshot }), text)
 }
 
+fn resolve_id(service: &Snapshots, selector: &str) -> Result<String> {
+    if let Ok(id) = uuid::Uuid::parse_str(selector) {
+        return Ok(id.to_string());
+    }
+    let prefix = selector.to_ascii_lowercase();
+    if prefix.len() < 8
+        || prefix.len() > 36
+        || !prefix
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() || byte == b'-')
+    {
+        return Err(groove_core::Error::new(
+            groove_core::ErrorCode::InvalidArgument,
+            "SNAPSHOT must be a UUID or unique prefix of at least eight characters",
+        ));
+    }
+    let matches: Vec<_> = service
+        .list()?
+        .into_iter()
+        .filter(|snapshot| snapshot.id.starts_with(&prefix))
+        .collect();
+    match matches.as_slice() {
+        [snapshot] => Ok(snapshot.id.clone()),
+        [] => Err(groove_core::Error::new(
+            groove_core::ErrorCode::InvalidArgument,
+            format!("No snapshot matches '{selector}'"),
+        )),
+        _ => Err(groove_core::Error::new(
+            groove_core::ErrorCode::InvalidArgument,
+            format!("Snapshot prefix '{selector}' is ambiguous; use more characters"),
+        )),
+    }
+}
+
 pub fn run(context: &Context<'_>, command: &SnapshotCommand) -> Result<Output> {
     let service = Snapshots::open(context.repo, context.git_timeout)?;
     match command {
@@ -54,8 +88,9 @@ pub fn run(context: &Context<'_>, command: &SnapshotCommand) -> Result<Output> {
             session: session.clone(),
             max_file_bytes: *max_file_bytes,
         })?),
-        SnapshotCommand::List { page, sort } => {
+        SnapshotCommand::List { page, sort, pinned } => {
             let mut snapshots = service.list()?;
+            snapshots.retain(|snapshot| !pinned || snapshot.pinned);
             let default_order = match sort {
                 TimeSort::Created => SortOrder::Desc,
                 TimeSort::Id => {
@@ -119,14 +154,19 @@ pub fn run(context: &Context<'_>, command: &SnapshotCommand) -> Result<Output> {
             }
             super::snapshot_prune::run(&service, *older_than_ms, *keep_last, !dry_run)
         }
-        SnapshotCommand::Show { id } => snapshot_output(service.show(id)?),
+        SnapshotCommand::Show { id } => snapshot_output(service.show(&resolve_id(&service, id)?)?),
         SnapshotCommand::Diff {
             id,
             other,
             max_file_bytes,
         } => {
             use base64::Engine;
-            let bytes = service.diff_bytes_with_limit(id, other.as_deref(), *max_file_bytes)?;
+            let id = resolve_id(&service, id)?;
+            let other = other
+                .as_ref()
+                .map(|id| resolve_id(&service, id))
+                .transpose()?;
+            let bytes = service.diff_bytes_with_limit(&id, other.as_deref(), *max_file_bytes)?;
             let result = match std::str::from_utf8(&bytes) {
                 Ok(patch) => json!({ "patch": patch }),
                 Err(_) => json!({
@@ -141,7 +181,11 @@ pub fn run(context: &Context<'_>, command: &SnapshotCommand) -> Result<Output> {
             to,
             max_file_bytes,
         } => {
-            let restored = service.restore_with_limit(id, to.as_deref(), *max_file_bytes)?;
+            let restored = service.restore_with_limit(
+                &resolve_id(&service, id)?,
+                to.as_deref(),
+                *max_file_bytes,
+            )?;
             let text = format!(
                 "Restored {} into {}.",
                 restored.snapshot_id,
@@ -153,9 +197,69 @@ pub fn run(context: &Context<'_>, command: &SnapshotCommand) -> Result<Output> {
                 .unwrap_or_default();
             Output::text(restored, text)
         }
-        SnapshotCommand::Delete { id, force } => {
-            service.delete(id, *force)?;
-            Output::text(json!({ "deleted": id }), format!("Deleted snapshot {id}."))
+        SnapshotCommand::Delete {
+            ids,
+            force,
+            dry_run,
+            yes,
+        } => {
+            let mut snapshots = Vec::new();
+            let mut seen = std::collections::BTreeSet::new();
+            for selector in ids {
+                let id = resolve_id(&service, selector)?;
+                if seen.insert(id.clone()) {
+                    let snapshot = service.show(&id)?;
+                    if snapshot.pinned && !force && !dry_run {
+                        return Err(groove_core::Error::new(
+                            groove_core::ErrorCode::InvalidArgument,
+                            format!("Snapshot {id} is pinned; use --pinned to delete it"),
+                        ));
+                    }
+                    snapshots.push(snapshot);
+                }
+            }
+            if *dry_run {
+                let text = snapshots
+                    .iter()
+                    .map(describe)
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let page = crate::args::PageArgs {
+                    unlimited: true,
+                    ..Default::default()
+                };
+                let (snapshots, pagination) = page.apply(snapshots);
+                return Output::text(
+                    json!({"snapshots": snapshots}),
+                    format!("Would delete:\n{text}"),
+                )?
+                .paginated(pagination);
+            }
+            if snapshots.len() > 1 {
+                super::confirmation::confirm(*yes, "Delete these snapshots?")?;
+            }
+            let mut deleted = Vec::new();
+            for snapshot in snapshots {
+                service.delete(&snapshot.id, *force).map_err(|mut error| {
+                    if !deleted.is_empty() {
+                        error.message = format!(
+                            "Deleted {}; failed next deletion: {}",
+                            deleted.join(", "),
+                            error.message
+                        );
+                    }
+                    error
+                })?;
+                deleted.push(snapshot.id);
+            }
+            let mut result = json!({"deleted": deleted[0]});
+            if deleted.len() > 1 {
+                result["deleted_snapshots"] = json!(deleted);
+            }
+            Output::text(
+                result,
+                format!("Deleted snapshots: {}.", deleted.join(", ")),
+            )
         }
     }
 }

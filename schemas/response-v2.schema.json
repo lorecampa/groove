@@ -1132,6 +1132,7 @@
         "deleted"
       ],
       "properties": {
+        "deleted_snapshots": { "type": "array", "items": { "$ref": "#/$defs/uuid" } },
         "deleted": {
           "$ref": "#/$defs/uuid"
         }
@@ -1653,7 +1654,7 @@
       "slot_result"
     ],
     "snapshot delete": [
-      "snapshot_delete_result"
+      "snapshot_delete_result", "snapshots_result"
     ],
     "snapshot diff": [
       "snapshot_diff_result"
@@ -1688,7 +1689,7 @@
       "pools_result"
     ],
     "pool show": [
-      "pool_show_result"
+      "pool_show_result", "slot_result"
     ],
     "pool set": [
       "pool_result"
