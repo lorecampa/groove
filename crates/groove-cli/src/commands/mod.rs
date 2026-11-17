@@ -35,6 +35,35 @@ impl Context<'_> {
 }
 
 /// Locate an explicit reservation selector without silently choosing default.
+pub fn resolve_pool(repo: &Path, timeout: Duration) -> Result<groove_core::PoolName> {
+    if let Some(pool) = Pool::owning_pool(repo, timeout)? {
+        return Ok(pool);
+    }
+    let pools: Vec<_> = Pool::list_pools(repo, timeout)?
+        .into_iter()
+        .filter(|pool| pool.phase != groove_core::PoolPhase::Deleted)
+        .collect();
+    match pools.as_slice() {
+        [pool] => Ok(pool.name.clone()),
+        [] => Err(groove_core::Error::new(
+            groove_core::ErrorCode::NotInitialized,
+            "No repository pools exist; create one with pool create NAME --capacity N",
+        )),
+        _ => Err(groove_core::Error::new(
+            groove_core::ErrorCode::InvalidArgument,
+            format!(
+                "Select a pool explicitly; repository pools: {}",
+                pools
+                    .iter()
+                    .map(|pool| pool.name.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        )),
+    }
+}
+
+/// Locate an explicit reservation selector without silently choosing default.
 pub fn reservation_pool(
     repo: &Path,
     selected: Option<&groove_core::PoolName>,
@@ -197,6 +226,7 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
                 context,
                 values,
                 groove_core::PoolUpdate {
+                    git_timeout: None,
                     capacity: *capacity,
                     cleanup_policy: cleanup.map(Into::into),
                     ready_target: *ready_target,

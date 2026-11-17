@@ -177,6 +177,7 @@ impl Pool {
         // resumptions must fail, even when the ready manifest was never published.
         let intent = repo.root.join("initializing.json");
         let expected = InitIntent {
+            git_timeout: options.default_git_timeout,
             ready: options.ready.clone(),
             schema_version: state::SCHEMA_VERSION,
             capacity: options.capacity,
@@ -193,6 +194,8 @@ impl Pool {
                     "cleanup"
                 } else if recorded.worktree_root != expected.worktree_root {
                     "workspace-root"
+                } else if recorded.git_timeout != expected.git_timeout {
+                    "git-timeout"
                 } else if recorded.ready.as_ref().map(|ready| ready.ready_target)
                     != expected.ready.as_ref().map(|ready| ready.ready_target)
                 {
@@ -314,6 +317,7 @@ impl Pool {
         state::sync_dir(&repo.root.join("locks"))?;
         state::sync_dir(&repo.root)?;
         let config = Config {
+            git_timeout: options.default_git_timeout,
             ready_lock: if options.ready.is_some() {
                 Some(create_lock(&repo.root.join("locks/ready.lock"))?)
             } else {
@@ -954,6 +958,8 @@ impl Pool {
 #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct InitIntent {
+    #[serde(default)]
+    pub git_timeout: crate::ReadyGitTimeout,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ready: Option<crate::ReadySettings>,
     pub schema_version: u32,

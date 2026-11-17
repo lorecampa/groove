@@ -341,6 +341,7 @@ impl Pool {
                 ));
             }
             Config {
+                git_timeout: intent.git_timeout,
                 ready_lock: if exists(&repo.root.join("locks/ready.lock"))? {
                     Some(locking::identity(&locking::open(
                         &repo.root.join("locks/ready.lock"),

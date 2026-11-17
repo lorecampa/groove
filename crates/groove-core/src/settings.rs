@@ -29,6 +29,7 @@ impl Pool {
 
     fn settings_snapshot(&self) -> PoolSettings {
         PoolSettings {
+            git_timeout: self.config.git_timeout,
             ready: self.config.ready.clone(),
             pool_name: self.repo.name.clone(),
             capacity: self.config.capacity,
@@ -84,6 +85,7 @@ impl Pool {
             crate::lifecycle::validate_config_locks(&self.repo, config)?;
         }
         let capacity = update.capacity.unwrap_or(current.config.capacity);
+        let git_timeout = update.git_timeout.unwrap_or(current.config.git_timeout);
         let mut ready = current.config.ready.clone();
         if update.ready_target.is_some()
             || update.idle_timeout.is_some()
@@ -119,6 +121,7 @@ impl Pool {
             ));
         }
         if capacity == current.config.capacity
+            && git_timeout == current.config.git_timeout
             && cleanup == current.config.cleanup_policy
             && ready == current.config.ready
         {
@@ -250,6 +253,7 @@ impl Pool {
         }
         current.config.slots = identities;
         current.config.capacity = capacity;
+        current.config.git_timeout = git_timeout;
         if ready.is_some() && current.config.ready_lock.is_none() {
             let file = locking::open(&self.repo.root.join("locks/ready.lock"), true)?;
             file.sync_all()?;

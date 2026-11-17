@@ -1,4 +1,5 @@
 EXAMPLES:
+  groove pool create frontend --capacity 3 --git-timeout 10m
   groove pool init --capacity 4
   groove pool init --capacity 4 --workspace-root /absolute/empty/root
   groove pool init --resume --capacity 4

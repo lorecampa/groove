@@ -97,7 +97,12 @@ fn main() -> ExitCode {
 fn dispatch(raw: &[std::ffi::OsString]) -> ExitCode {
     match crate::contract::command()
         .try_get_matches_from(raw)
-        .and_then(|matches| Args::from_arg_matches(&matches))
+        .and_then(|matches| {
+            let mut args = Args::from_arg_matches(&matches)?;
+            args.git_timeout_explicit = matches.value_source("git_timeout_ms")
+                == Some(clap::parser::ValueSource::CommandLine);
+            Ok(args)
+        })
         .and_then(|args| {
             args.normalize()
                 .map_err(|message| clap::Error::raw(ErrorKind::InvalidValue, message))
@@ -113,7 +118,7 @@ fn dispatch(raw: &[std::ffi::OsString]) -> ExitCode {
                         .push("pool destroy is deprecated; use pool delete");
                 }
             }
-            ExitCode::from(run(&args))
+            ExitCode::from(run(&mut args))
         }
         Err(error) => ExitCode::from(reject(raw, &error)),
     }
@@ -155,7 +160,7 @@ fn reject(raw: &[std::ffi::OsString], error: &clap::Error) -> u8 {
     output::emit_error(partial.format, request_id, &error, &terminal, None, None)
 }
 
-fn run(args: &Args) -> u8 {
+fn run(args: &mut Args) -> u8 {
     let terminal = terminal::Terminal::new(terminal::Verbosity {
         verbose: args.verbose,
         quiet: args.quiet,
@@ -167,7 +172,7 @@ fn run(args: &Args) -> u8 {
     run_command(args, &terminal)
 }
 
-fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {
+fn run_command(args: &mut Args, terminal: &terminal::Terminal) -> u8 {
     let format = requested_format(args.json);
     let request_id = args.request_id.as_deref();
     if args.pool.is_some()
@@ -310,6 +315,7 @@ fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {
                 | Command::Upgrade(_)
                 | Command::Snapshot(_)
                 | Command::Pool(args::PoolCommand::List { .. })
+                | Command::Pool(args::PoolCommand::Init { .. })
                 | Command::List {
                     slots: false,
                     details: false,
@@ -317,8 +323,21 @@ fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {
                 }
         )
     {
-        match groove_core::Pool::owning_pool(&args.repo, Duration::from_millis(args.git_timeout_ms))
-        {
+        let timeout = Duration::from_millis(args.git_timeout_ms);
+        let inferred = if matches!(
+            args.command,
+            Command::Acquire { .. }
+                | Command::Pool(
+                    args::PoolCommand::Get { .. }
+                        | args::PoolCommand::Set { .. }
+                        | args::PoolCommand::Show { .. }
+                )
+        ) {
+            commands::resolve_pool(&args.repo, timeout).map(Some)
+        } else {
+            groove_core::Pool::owning_pool(&args.repo, timeout)
+        };
+        match inferred {
             Ok(pool) => pool,
             Err(error) => {
                 tracing::error!(event = "command.failed", file_only = true, code = %error.code,
@@ -332,10 +351,44 @@ fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {
     };
     let selected_pool = explicit_pool.or(inferred_pool.as_ref());
     tracing::info!(event = "pool.selected", pool = %selected_pool.cloned().unwrap_or_default(), "Selected pool");
+    let effective_timeout = if args.git_timeout_explicit {
+        Ok(Duration::from_millis(args.git_timeout_ms))
+    } else if matches!(args.command, Command::Pool(args::PoolCommand::Init { .. })) {
+        preferences::load().map(|preferences| preferences.pool_defaults.git_timeout.duration())
+    } else if let Some(name) = selected_pool.filter(|_| {
+        !matches!(
+            args.command,
+            Command::Pool(args::PoolCommand::Destroy { .. })
+        )
+    }) {
+        groove_core::Pool::open_retained_named(
+            &args.repo,
+            name,
+            Duration::from_millis(args.git_timeout_ms),
+        )
+        .and_then(|pool| pool.settings())
+        .map(|settings| settings.git_timeout.duration())
+    } else {
+        Ok(Duration::from_millis(args.git_timeout_ms))
+    };
+    let effective_timeout = match effective_timeout {
+        Ok(timeout) => timeout,
+        Err(error) => {
+            return output::emit_error(
+                format,
+                request_id,
+                &error,
+                terminal,
+                Some(args),
+                selected_pool,
+            )
+        }
+    };
+    args.git_timeout_ms = effective_timeout.as_millis() as u64;
     let context = commands::Context {
         repo: &args.repo,
         selected_pool,
-        git_timeout: Duration::from_millis(args.git_timeout_ms),
+        git_timeout: effective_timeout,
     };
     let elapsed_ms = || u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
     let update_check = updates::start(args);

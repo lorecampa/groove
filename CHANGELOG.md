@@ -1,5 +1,11 @@
 # Changelog
 
+- Persist `git-timeout` per pool, seed new pools from `pool-defaults.git-timeout`,
+  and use it for foreground operations and background work unless overridden.
+  Existing pools default to two minutes. Acquisition and pool show/get/set now
+  resolve an omitted name from the owning workspace or the sole existing pool;
+  ambiguous selection lists the pools and requires an explicit choice.
+
 - `pool create`/`pool delete` replace `init`/`destroy` (deprecated aliases remain),
   and `--root` replaces `--workspace-root`. Pool deletion requires an explicit
   name. Pool deletion and snapshot pruning share `-n/--dry-run`, `-y/--yes` and

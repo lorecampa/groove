@@ -90,6 +90,27 @@ exec "$GROOVE_REAL_GIT" "$@"
 }
 
 #[test]
+fn foreground_acquisition_uses_the_saved_pool_budget_unless_overridden() {
+    let repo = Repo::new();
+    init(&repo, "frontend", "1");
+    cli(&repo.path, &["pool", "set", "frontend", "git-timeout=1s"]);
+    let failed = slow_git(&repo).args(["acquire", "short"]).output().unwrap();
+    let failed = check(failed, 6);
+    assert_eq!(failed["error"]["code"], "POOL_UNHEALTHY");
+    assert!(failed["error"]["hint"].as_str().unwrap().contains("1s"));
+    let acquired = slow_git(&repo)
+        .args(["acquire", "long", "--git-timeout", "10s"])
+        .output()
+        .unwrap();
+    check(acquired, 0);
+    assert_eq!(
+        cli(&repo.path, &["pool", "get", "git-timeout"])["value"],
+        "1s"
+    );
+    cli(&repo.path, &["release", "long"]);
+}
+
+#[test]
 fn ready_git_timeout_is_optional_normalized_and_pool_local() {
     let repo = Repo::new();
     assert!(init(&repo, "default", "1")

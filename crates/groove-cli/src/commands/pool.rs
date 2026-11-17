@@ -18,6 +18,7 @@ pub fn get(context: &Context<'_>, key: &str) -> Result<Output> {
         "idle-timeout" => "idle_timeout",
         "ready-base" => "ready_base",
         "ready-git-timeout" => "ready_git_timeout",
+        "git-timeout" => "git_timeout",
         "workspace-root" | "root" => "worktree_root",
         _ => {
             return Err(groove_core::Error::new(
@@ -204,6 +205,7 @@ pub fn init(
         context.repo,
         &context.pool_name(),
         PoolOptions {
+            default_git_timeout: format!("{}ms", context.git_timeout.as_millis()).parse()?,
             ready: Some(ready),
             resume,
             capacity,
@@ -523,6 +525,7 @@ pub fn set(
             "ready-base" => assign!(ready_base, value.clone()),
             "idle-timeout" => assign!(idle_timeout, value.parse()?),
             "ready-git-timeout" => assign!(ready_git_timeout, value.parse()?),
+            "git-timeout" => assign!(git_timeout, value.parse()?),
             "root" | "workspace-root" => return Err(invalid("Pool root is read-only".into())),
             _ => return Err(invalid(format!("Unknown setting: {key}"))),
         }
@@ -533,6 +536,7 @@ pub fn set(
         && update.ready_base.is_none()
         && update.idle_timeout.is_none()
         && update.ready_git_timeout.is_none()
+        && update.git_timeout.is_none()
     {
         return Err(invalid("Supply at least one KEY=VALUE setting".into()));
     }

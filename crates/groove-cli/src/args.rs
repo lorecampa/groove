@@ -63,6 +63,8 @@ pub struct Args {
     /// Positive Git and lock timeout, e.g. 2m or 30s.
     #[arg(long = "git-timeout", value_name = "DURATION", global = true, help_heading = "Global options", default_value = "2m", value_parser = parse_positive_duration)]
     pub git_timeout_ms: u64,
+    #[arg(skip)]
+    pub git_timeout_explicit: bool,
     #[command(subcommand)]
     pub command: Command,
     #[arg(skip)]

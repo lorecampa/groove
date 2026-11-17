@@ -17,6 +17,73 @@ fn invoke(repo: &Repo, args: &[&str], code: i32) -> Value {
 }
 
 #[test]
+fn pool_selection_is_explicit_owned_or_unique_and_git_budgets_round_trip() {
+    let repo = Repo::new();
+    invoke(&repo, &["config", "set", "pool-defaults.git-timeout=7m"], 0);
+    invoke(
+        &repo,
+        &[
+            "pool",
+            "create",
+            "frontend",
+            "--capacity",
+            "1",
+            "--idle-timeout",
+            "never",
+        ],
+        0,
+    );
+    assert_eq!(
+        invoke(&repo, &["pool", "get", "git-timeout"], 0)["result"]["value"],
+        "7m"
+    );
+    invoke(&repo, &["pool", "set", "git-timeout=90s"], 0);
+    assert_eq!(
+        invoke(&repo, &["pool", "get", "frontend", "git_timeout"], 0)["result"]["value"],
+        "90s"
+    );
+    let lease = invoke(&repo, &["acquire", "owned"], 0);
+    invoke(
+        &repo,
+        &[
+            "pool",
+            "create",
+            "backend",
+            "--capacity",
+            "1",
+            "--idle-timeout",
+            "never",
+            "--git-timeout",
+            "3m",
+        ],
+        0,
+    );
+    for args in [
+        vec!["acquire", "ambiguous"],
+        vec!["pool", "show"],
+        vec!["pool", "get", "capacity"],
+        vec!["pool", "set", "capacity=2"],
+    ] {
+        let error = invoke(&repo, &args, 2);
+        let message = error["error"]["message"].as_str().unwrap();
+        assert!(
+            message.contains("frontend") && message.contains("backend"),
+            "{message}"
+        );
+    }
+    let workspace = std::path::Path::new(lease["result"]["workspace_path"].as_str().unwrap());
+    std::fs::create_dir(workspace.join("subdir")).unwrap();
+    let owned = support::groove_in(&workspace.join("subdir"))
+        .args(["pool", "get", "git-timeout"])
+        .output()
+        .unwrap();
+    assert!(owned.status.success(), "{owned:?}");
+    let value: Value = serde_json::from_slice(&owned.stdout).unwrap();
+    assert_eq!(value["result"]["value"], "90s");
+    invoke(&repo, &["release", "owned"], 0);
+}
+
+#[test]
 fn deletion_requires_explicit_confirmation_and_messages_save_snapshots() {
     let repo = Repo::new();
     invoke(
@@ -402,7 +469,7 @@ fn pool_objects_accept_positional_names_and_legacy_flags_without_ambiguity() {
         1
     );
     assert_eq!(
-        invoke(&repo, &["pool", "get", "capacity"], 0)["result"]["value"],
+        invoke(&repo, &["pool", "get", "default", "capacity"], 0)["result"]["value"],
         1
     );
     invoke(&repo, &["pool", "set", "frontend", "--capacity", "2"], 0);
