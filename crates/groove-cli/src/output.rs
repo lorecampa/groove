@@ -254,16 +254,16 @@ fn error_hint(
 ) -> Option<String> {
     let hint = match error.code {
         ErrorCode::UnsavedChanges if args.is_some_and(|args| matches!(args.command, crate::args::Command::Pool(crate::args::PoolCommand::Destroy { .. }))) => Some(
-            "Export any wanted residual files from the reported path before deletion, including ignored caches (snapshots exclude them). Then preview `groove pool destroy --force --dry-run` and repeat without --dry-run to acknowledge their loss. Released tasks cannot save new files through a release retry.",
+            "Export any wanted residual files from the reported path before deletion, including ignored caches (snapshots exclude them). Then preview `groove pool delete --force --dry-run` and repeat with --yes instead of --dry-run to acknowledge their loss. Released tasks cannot save new files through a release retry.",
         ),
         ErrorCode::InvalidLease if error.retryable => Some(
             "Another operation holds a reservation lock. Retry with the original reservation ID after contention clears. Never remove locks or protection.",
         ),
         ErrorCode::PoolExhausted | ErrorCode::AcquireTimeout => Some(
-            "Run `groove list --slots` to inspect reservations. Wait for an owner to finish, or retry acquire with `--wait 30s`. Reservations never expire automatically.",
+            "Run `groove pool show` to inspect slots. Wait for an owner to finish, or retry acquire with `--wait 30s`. Reservations never expire automatically.",
         ),
         ErrorCode::NotInitialized => Some(
-            "Check `--repo`. For a new pool, run `groove pool init --capacity 4` in that repository; for interrupted initialization, see `groove pool init --help` before using --resume.",
+            "Check `--repo`. For a new pool, run `groove pool create --capacity 4` in that repository; for interrupted initialization, see `groove pool create --help` before using --resume.",
         ),
         ErrorCode::InvalidRevision => Some(
             "Check that the requested revision exists locally and resolves to a commit. Retry with `--base` naming an existing commit, branch or tag.",
@@ -272,20 +272,20 @@ fn error_hint(
             "Run `groove list` to find the active task and reservation ID, then check your selector. A released or reassigned reservation cannot select its successor.",
         ),
         ErrorCode::InvalidLease => Some(
-            "Inspect `groove list --slots` and `groove show` with your selector. Legacy execution records must be resolved using the previous Groove version before upgrading. Never delete lock or protection files.",
+            "Inspect `groove pool show` and `groove show` with your selector. Legacy execution records must be resolved using the previous Groove version before upgrading. Never delete lock or protection files.",
         ),
         ErrorCode::UnsavedChanges => Some(
-            "Preserve the changes before releasing. Stop all writers, then use `groove release --save` with the same --task or --reservation-id to save a snapshot and release the workspace.",
+            "Preserve the changes before releasing. Stop all writers, then use `groove release --save` with the original reservation UUID to save a snapshot and release the workspace.",
         ),
         ErrorCode::WorkspaceInUse => Some(
             "Stop the reported processes and all other workspace writers, then retry.",
         ),
         ErrorCode::PoolUnhealthy | ErrorCode::RecoveryFailed => Some(
-            "Run `groove list --slots` and inspect the reported slot failures. Resolve the underlying filesystem or Git problem before retrying; for a slow Git operation, increase --git-timeout. Never remove lock or protection files to force reuse.",
+            "Run `groove pool show` and inspect the reported slot failures. Resolve the underlying filesystem or Git problem before retrying; for a slow Git operation, increase the command's --timeout or the pool's git-timeout. Never remove lock or protection files to force reuse.",
         ),
         _ => None,
     }?;
-    // Keep global selection flags inside each suggested command so copying it
+    // Keep explicit selection inside each suggested command so copying it
     // cannot silently initialize or inspect a different pool/repository.
     let Some(args) = args else {
         return Some(hint.to_owned());
@@ -303,8 +303,7 @@ fn error_hint(
         .cloned()
         .unwrap_or_default();
     let selection = format!(
-        " --pool {} --repo {}",
-        pool.as_str(),
+        " --repo {}",
         shell_words::quote(&args.repo.to_string_lossy())
     );
     Some(
@@ -312,7 +311,22 @@ fn error_hint(
             .enumerate()
             .map(|(index, part)| {
                 let part = if index % 2 == 1 && part.starts_with("groove ") {
-                    format!("{part}{selection}")
+                    if let Some(pool_command) = part.strip_prefix("groove pool ") {
+                        let (command, options) =
+                            pool_command.split_once(' ').unwrap_or((pool_command, ""));
+                        format!(
+                            "groove pool {command} {} {options}{selection}",
+                            pool.as_str()
+                        )
+                    } else if let Some(id) = error
+                        .details
+                        .lease_id
+                        .filter(|_| part.starts_with("groove release "))
+                    {
+                        format!("{part} {id}{selection}")
+                    } else {
+                        format!("{part}{selection}")
+                    }
                 } else {
                     part.to_owned()
                 };
@@ -336,6 +350,12 @@ pub fn emit_help(format: Format, request_id: Option<&str>, text: &str) -> u8 {
         Format::Human => write_text(&printable(text, true)),
     };
     output_status(written, 0)
+}
+
+/// Only parser-generated help may carry trusted ANSI styles. Arbitrary output
+/// still goes through control-character escaping; JSON help always stays plain.
+pub fn emit_styled_help(text: &str) -> u8 {
+    output_status(write_text(text), 0)
 }
 
 fn write_json(response: &Value) -> io::Result<()> {

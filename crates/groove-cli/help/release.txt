@@ -1,20 +1,20 @@
 EXAMPLES:
+  groove release fix-nav
   groove release --save                          # inside an acquired workspace
-  groove release --save --task fix-parser
-  groove release --save --reservation-id UUID --description 'parser fix'
-  groove release --reservation-id UUID             # work already preserved elsewhere
-  groove release --force --task fix-parser    # discard unsaved changes
+  groove release fix-parser -m 'parser fix'
+  groove release UUID --save -m 'parser fix'
+  groove release UUID                         # work already preserved elsewhere
+  groove release fix-parser --force            # discard unsaved changes
 
 RESERVATION SELECTION:
 Inside a registered, acquired Groove workspace (including subdirectories), omit
 the selector to release that workspace's active reservation. The repository and
 owning pool are inferred; --repo can select a workspace path from elsewhere.
-Explicit --task or --reservation-id takes precedence. An explicit --pool must
-match the workspace when inferring a reservation; there is no cross-pool fallback.
-Outside an acquired workspace, supply --task or --reservation-id. Released slots,
+An explicit RESERVATION (task label or UUID) takes precedence and searches all
+pools. Outside an acquired workspace, supply RESERVATION. Released slots,
 ordinary linked worktrees and copied/moved paths do not infer historical receipts.
 Errors after selection include details.reservation_id for an explicit retry.
-Retry using the original ID and --pool: bare release resolves the reservation
+Retry using the original UUID: bare release resolves the reservation
 active at invocation time and a slot can later be reused by a different task.
 
 Returns the workspace to the pool. Background preparation or the next acquisition discards its contents
@@ -25,7 +25,7 @@ created in the checkout are free to use elsewhere; files remain until preparatio
 --save saves and pins a snapshot of staged, working and non-ignored untracked
 files before release. A snapshot failure keeps the reservation protected. Recover
 saved work with `groove snapshot restore ID --to PATH`. Nothing is pushed.
---description (default: 'workspace saved') and --max-file-size require --save;
+--message implies --save; its default is 'workspace saved'. --max-file-size requires --save;
 --max-file-size defaults to 104857600 bytes, and 0 removes the limit.
 Ignored files and empty directories are excluded. Special files (pipes, sockets,
 devices) outside ignored paths block normal release and snapshot capture; export
@@ -33,11 +33,12 @@ or remove them first. Ignored special files are excluded like ignored regular fi
 Forced release without --save allows cleanup to discard them before reuse.
 Export required ignored artifacts separately before releasing.
 Detailed read-only inspections use shared descriptor admission; release waits for
-them up to --git-timeout. WORKSPACE_IN_USE is retryable: stop all actual
-writers before retrying. On Linux, other commands running the same Groove
-executable are exempt from release's process scan; their Git children can still
-block release while using the workspace.
-Parallel saves wait for snapshot access up to --git-timeout (default 2m).
+them up to --timeout. WORKSPACE_IN_USE is retryable: stop all actual
+writers before retrying. Other commands running the same Groove executable use
+descriptor admission; their pre-admission Git children are retried briefly.
+Unrelated Git writers still block release.
+Parallel saved releases wait for snapshot access up to the foreground timeout
+(default: the pool's saved git-timeout).
 A timeout keeps the reservation protected; retry with the same reservation ID.
 After a saved retry completes release, superseded checkpoints are unpinned but
 remain recoverable until deleted. Interrupted pin cleanup resumes on that retry.
@@ -48,16 +49,19 @@ commits with a branch or snapshot before normal release.
 Shared branches, tags, stash and snapshot refs preserve commits; private
 refs/worktree/* and refs/bisect/* in the slot do not count.
 Both forms refuse with WORKSPACE_IN_USE if other processes have
-their working directory, executable or open files in the workspace. The caller,
+their working directory, executable or writable open files in the workspace. The caller,
 and its ancestors are ignored. A connected pipeline reader's working directory
 alone does not block release; other processes in the same group are checked.
 On Linux, shared writable file mappings also block release after descriptor closure.
+Read-only observers whose cwd and executable are outside the workspace are
+reported through tracing after a short bounded retry; they do not count as writers.
 The process check only sees your processes and is best effort.
 Permissions, other mount namespaces and alternate mount paths can hide writers;
 an empty scan never replaces the requirement to stop them yourself.
 Git status warnings fail inspection, including when Git exits successfully;
 unreadable untracked directories never authorize release as a clean workspace.
---force skips these checks; with --save it still saves and pins the snapshot.
+--force skips only unsaved-change checks; active writers still block release.
+With --save it still saves and pins the snapshot. -m/--message implies --save.
 It never bypasses descriptor ownership or legacy execution protection.
 
 If the checkout was deleted (rm -rf, git worktree remove), normal release and
@@ -65,13 +69,13 @@ release --save fail with RECOVERY_FAILED because nothing can be inspected or
 saved. release --force without --save discards the reservation; the next
 acquisition rebuilds it.
 
-Retry a lost response with the original --reservation-id, --save setting and --pool
-selection. With --save, a still-reserved checkout is saved again on retry; capture
+Retry a lost response with the original reservation UUID and --save setting.
+With --save, a still-reserved checkout is saved again on retry; capture
 failure keeps its reservation protected. Completed releases reuse their snapshot
 even after slot reuse or pool deletion, but fail if it was deleted or is no longer
 pinned. Older checkpoints remain pinned until explicitly deleted. Without --save,
 retries can become stale after reassignment. Task labels
-can be reused after release; retrying by --task could select a newer reservation.
+can be reused after release; retrying by label could select a newer reservation.
 Stale reservation IDs can never release a later task's workspace.
 
 For pools with an automatic ready policy, release also triggers background spare

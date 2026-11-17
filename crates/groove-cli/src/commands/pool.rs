@@ -2,7 +2,7 @@
 
 use super::{lease::lease_output, Context};
 use crate::{
-    args::{Cleanup, OptionalSelector, PageArgs, PoolSort, SlotSort},
+    args::{Cleanup, OptionalSelector, PageArgs, PoolSort, ReservationSort, SlotSort, SortOrder},
     output::{fields, table, Output},
 };
 use groove_core::{LeaseInfo, Pool, PoolInspection, PoolOptions, Result, SlotId, SlotInspection};
@@ -10,14 +10,16 @@ use serde_json::json;
 use std::path::PathBuf;
 
 pub fn get(context: &Context<'_>, key: &str) -> Result<Output> {
-    let field = match key {
+    let normalized = key.replace('_', "-");
+    let field = match normalized.as_str() {
         "capacity" => "capacity",
         "cleanup" => "cleanup_policy",
         "ready-target" => "ready_target",
         "idle-timeout" => "idle_timeout",
         "ready-base" => "ready_base",
         "ready-git-timeout" => "ready_git_timeout",
-        "workspace-root" => "worktree_root",
+        "git-timeout" => "git_timeout",
+        "workspace-root" | "root" => "worktree_root",
         _ => {
             return Err(groove_core::Error::new(
                 groove_core::ErrorCode::InvalidArgument,
@@ -204,6 +206,7 @@ pub fn init(
         context.repo,
         &context.pool_name(),
         PoolOptions {
+            default_git_timeout: format!("{}ms", context.git_timeout.as_millis()).parse()?,
             ready: Some(ready),
             resume,
             capacity,
@@ -313,34 +316,72 @@ pub fn list(
     slots: bool,
     details: bool,
     page: &PageArgs,
-    sort: SlotSort,
+    sort: ReservationSort,
 ) -> Result<Output> {
-    let pool = context.pool()?;
     if slots || details {
+        let pool = context.pool()?;
         let mut inspection = if details {
             pool.inspect_detailed(context.git_timeout)?
         } else {
             pool.inspect()?
         };
-        sort_slots(&mut inspection.slots, sort);
+        sort_slots(
+            &mut inspection.slots,
+            if matches!(sort, ReservationSort::Task) {
+                SlotSort::Task
+            } else {
+                SlotSort::Slot
+            },
+        );
         let (slots, pagination) = page.apply(inspection.slots);
         inspection.slots = slots;
         let text = slot_table(&inspection);
         return Output::text(json!({ "inspection": inspection }), text)?.paginated(pagination);
     }
-    let mut leases = pool.protected_leases()?;
-    leases.sort_by(|a, b| match sort {
-        SlotSort::Slot => a.slot_id.cmp(&b.slot_id),
-        SlotSort::Task => a.task.cmp(&b.task).then_with(|| a.slot_id.cmp(&b.slot_id)),
+    let names = if let Some(name) = context.selected_pool {
+        vec![name.clone()]
+    } else {
+        Pool::list_pools(context.repo, context.git_timeout)?
+            .into_iter()
+            .filter(|pool| pool.phase == groove_core::PoolPhase::Ready)
+            .map(|pool| pool.name)
+            .collect()
+    };
+    let mut leases = Vec::new();
+    for name in names {
+        let pool = Pool::open_named_with_timeout(context.repo, &name, context.git_timeout)?;
+        leases.extend(
+            pool.protected_leases()?
+                .into_iter()
+                .map(|lease| (name.clone(), lease)),
+        );
+    }
+    leases.sort_by(|a, b| {
+        (match sort {
+            ReservationSort::Slot => a.1.slot_id.cmp(&b.1.slot_id).then_with(|| a.0.cmp(&b.0)),
+            ReservationSort::Task => a.1.task.cmp(&b.1.task),
+            ReservationSort::Pool => a.0.cmp(&b.0).then_with(|| a.1.task.cmp(&b.1.task)),
+            ReservationSort::Acquired => a.1.acquired_at_unix_ms.cmp(&b.1.acquired_at_unix_ms),
+        })
+        .then_with(|| a.1.lease_id.to_string().cmp(&b.1.lease_id.to_string()))
     });
-    let (leases, pagination) = page.apply(leases);
+    let order = if matches!(sort, ReservationSort::Acquired) {
+        SortOrder::Desc
+    } else {
+        SortOrder::Asc
+    };
+    if matches!(order, SortOrder::Desc) {
+        leases.reverse();
+    }
+    let (leases, pagination) = page.apply_ordered(leases, order);
     let text = if leases.is_empty() {
         "No active reservations on this page.".to_owned()
     } else {
         let rows: Vec<Vec<String>> = leases
             .iter()
-            .map(|lease| {
+            .map(|(pool, lease)| {
                 vec![
+                    pool.to_string(),
                     lease.slot_id.to_string(),
                     task_label(Some(lease)),
                     lease.lease_id.to_string(),
@@ -348,8 +389,17 @@ pub fn list(
                 ]
             })
             .collect();
-        table(&["SLOT", "TASK", "RESERVATION", "PATH"], &rows)
+        table(&["POOL", "SLOT", "TASK", "RESERVATION", "PATH"], &rows)
     };
+    let leases: Result<Vec<_>> = leases
+        .into_iter()
+        .map(|(pool, lease)| {
+            let mut value = serde_json::to_value(lease)?;
+            value["pool"] = json!(pool);
+            Ok(value)
+        })
+        .collect();
+    let leases = leases?;
     Output::text(json!({ "leases": leases }), text)?.paginated(pagination)
 }
 
@@ -437,7 +487,75 @@ pub fn show(
     Output::text(value, text)?.paginated(pagination)
 }
 
-pub fn set(context: &Context<'_>, update: groove_core::PoolUpdate) -> Result<Output> {
+pub fn set(
+    context: &Context<'_>,
+    values: &[crate::args::PoolSettingArgument],
+    mut update: groove_core::PoolUpdate,
+) -> Result<Output> {
+    use crate::args::PoolSettingArgument;
+    let invalid =
+        |message| groove_core::Error::new(groove_core::ErrorCode::InvalidArgument, message);
+    let mut seen = std::collections::BTreeSet::new();
+    for (index, argument) in values.iter().enumerate() {
+        let (key, value) = match argument {
+            PoolSettingArgument::Name(_) if index == 0 => continue,
+            PoolSettingArgument::Name(_) => {
+                return Err(invalid("Pool name must precede settings".into()))
+            }
+            PoolSettingArgument::Setting(key, value) => (key.replace('_', "-"), value),
+        };
+        if !seen.insert(key.clone()) {
+            return Err(invalid(format!("Setting supplied more than once: {key}")));
+        }
+        macro_rules! assign {
+            ($field:ident, $parsed:expr) => {{
+                if update.$field.is_some() {
+                    return Err(invalid(format!(
+                        "Setting supplied by both flag and assignment: {key}"
+                    )));
+                }
+                update.$field = Some($parsed);
+            }};
+        }
+        match key.as_str() {
+            "capacity" => assign!(
+                capacity,
+                value
+                    .parse()
+                    .map_err(|_| invalid(format!("Invalid capacity: {value}")))?
+            ),
+            "cleanup" => assign!(
+                cleanup_policy,
+                match value.as_str() {
+                    "warm" => groove_core::CleanupPolicy::Warm,
+                    "pristine" => groove_core::CleanupPolicy::Pristine,
+                    _ => return Err(invalid(format!("Invalid cleanup: {value}"))),
+                }
+            ),
+            "ready-target" => assign!(
+                ready_target,
+                value
+                    .parse()
+                    .map_err(|_| invalid(format!("Invalid ready-target: {value}")))?
+            ),
+            "ready-base" => assign!(ready_base, value.clone()),
+            "idle-timeout" => assign!(idle_timeout, value.parse()?),
+            "ready-git-timeout" => assign!(ready_git_timeout, value.parse()?),
+            "git-timeout" => assign!(git_timeout, value.parse()?),
+            "root" | "workspace-root" => return Err(invalid("Pool root is read-only".into())),
+            _ => return Err(invalid(format!("Unknown setting: {key}"))),
+        }
+    }
+    if update.capacity.is_none()
+        && update.cleanup_policy.is_none()
+        && update.ready_target.is_none()
+        && update.ready_base.is_none()
+        && update.idle_timeout.is_none()
+        && update.ready_git_timeout.is_none()
+        && update.git_timeout.is_none()
+    {
+        return Err(invalid("Supply at least one KEY=VALUE setting".into()));
+    }
     let result = context.pool()?.configure(update)?;
     let headline = if result.updated {
         "Pool settings updated."

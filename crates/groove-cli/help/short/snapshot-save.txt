@@ -1,5 +1,5 @@
 EXAMPLE:
-  groove snapshot save 'before refactor'
+  groove snapshot save -m 'before refactor'
 
 Stop all writers first. Saves staged, working and non-ignored untracked files.
 Ignored files are excluded. Special files are refused; export or remove them first.

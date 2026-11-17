@@ -58,16 +58,16 @@ every request.
 From a Git repository with at least one commit:
 
 ```sh
-groove pool init --capacity 4
-groove acquire --task fix-parser
+groove pool create frontend --capacity 4
+groove acquire fix-parser -p frontend
 # Work and run tests directly in the printed checkout path.
-groove release --save --task fix-parser
+groove release fix-parser --save -m 'parser fix'
 ```
 
 New pools put checkouts in `~/.worktrees/<project>-<repo-id>/<pool>` on Linux and
-macOS. Set a different parent with
+`~/.worktrees.noindex/<project>-<repo-id>/<pool>` on macOS. Set a different parent with
 `groove config set worktrees.root=/absolute/worktrees`, or choose an exact
-pool location with `pool init --workspace-root`. Existing pools keep their locations.
+pool location with `pool create NAME --root`. Existing pools keep their locations.
 
 Acquisition returns a checkout path with detached HEAD. Work in that path, stop
 all writers, then run `groove release --save` to pin a local snapshot and free the
@@ -82,8 +82,10 @@ a snapshot; background preparation or the next acquisition can discard its
 contents. Nothing is merged or pushed automatically.
 
 Pools can separate workflow capacity, cleanup and caches. Use `groove pool list` to
-list them and pass the same `--pool NAME` on each pool command. Omitting it selects
-the current workspace's owning pool, or `default` outside managed workspaces.
+list them. Select a pool at acquisition with `-p NAME`; task commands find labels
+or reservation UUIDs across all pools. Labels are unique within the repository.
+For acquisition and pool show/get/set, an omitted pool means the current workspace's
+owning pool or the only pool. Otherwise Groove asks for an explicit name.
 Pools share Git branches, objects and configuration; they are not
 security sandboxes. See [operations](docs/operations.md) for repository compatibility
 and ownership boundaries.
@@ -96,12 +98,13 @@ recovery instructions:
 ```sh
 groove --help
 groove acquire --help
-groove pool destroy --help
+groove pool delete --help
+groove acquire --help --json
 ```
 
 For scripts, add `--json` to each command. Every response, including
 errors and help, is one versioned JSON object. Check `ok` and the exit status
-before using `result.workspace_path`. Use a idempotency key to retry acquisition and
+before using `result.workspace_path`. Use an idempotency key to retry acquisition and
 retain the reservation ID for subsequent retries; see the [portable skill](skills/groove/SKILL.md).
 
 ## Limitations
@@ -114,7 +117,7 @@ retain the reservation ID for subsequent retries; see the [portable skill](skill
 - [Agent skill](skills/groove/SKILL.md): workspace selection, retries and handoff.
 - [Operations](docs/operations.md): pools, deletion, shared state and supported repositories.
 - [Snapshots](docs/snapshots.md): capture, recovery and retention.
-- `groove COMMAND --help`: inputs, JSON output contracts and recovery for integrations.
+- `groove COMMAND --help --json`: installed JSON contracts for integrations.
 - [Contributing](CONTRIBUTING.md): development and validation.
 - [Security](SECURITY.md): supported versions and private vulnerability reporting.
 

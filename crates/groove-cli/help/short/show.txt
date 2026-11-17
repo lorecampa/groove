@@ -1,5 +1,5 @@
 EXAMPLES:
-  groove show --task fix-parser
-  groove show --reservation-id UUID --details
-  groove show --slot wt-0001
-Select exactly one reservation or slot. Use pool show for the whole pool.
+  groove show fix-parser
+  groove show UUID --details
+  groove show  # infer from the current workspace
+Use pool show NAME for the slot table.

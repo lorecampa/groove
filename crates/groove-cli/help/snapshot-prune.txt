@@ -1,10 +1,11 @@
 EXAMPLES:
-  groove snapshot prune --older-than 30d
-  groove snapshot prune --older-than 30d --keep-last 20 --apply
+  groove snapshot prune --older-than 30d --dry-run
+  groove snapshot prune --older-than 30d --keep-last 20 --yes
   groove snapshot prune --older-than 7d --keep-last 0 --dry-run
 
-Preview is the default; --dry-run makes it explicit. --apply recomputes the policy
-and deletes eligible snapshot references. A prior preview is informational, not
+--dry-run previews. Otherwise a terminal asks for confirmation; noninteractive
+deletion requires --yes. The deprecated --apply alias also confirms deletion.
+Deletion recomputes the policy. A prior preview is informational, not
 a frozen deletion plan. --older-than is required and accepts integer durations
 in ms, s, m, h or d. 0s selects any snapshot older than the evaluation time.
 
@@ -18,7 +19,7 @@ Pins are always preserved; there is no --force override. Snapshots from durably
 protected workspaces are conservatively retained to protect saved releases
 between capture and pinning. Failed or interrupted in-place restores leave their
 safety snapshots pinned; recover that work before explicitly deleting a pin with
-snapshot delete --force. Corrupt protection or pin records fail closed.
+snapshot delete --pinned. Corrupt protection or pin records fail closed.
 Historical sources whose registrations are missing are also retained while any
 durable reservation exists, because their ownership cannot be established safely.
 

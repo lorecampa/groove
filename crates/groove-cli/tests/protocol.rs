@@ -35,7 +35,7 @@ fn unwinding_panics_return_an_error_envelope_and_keep_protection() {
         &repo,
         &[
             "pool",
-            "init",
+            "create",
             "--capacity",
             "1",
             "--ready-target",
@@ -201,7 +201,7 @@ fn command_output_types_used_by_help_validate_real_responses() {
         assert!(errors.is_empty(), "{name}: {errors:?}");
         result
     };
-    verify("pool init", &["pool", "init", "--capacity", "1"]);
+    verify("pool init", &["pool", "create", "--capacity", "1"]);
     let lease = verify("acquire", &["acquire", "--task", "contract"]);
     let id = lease["result"]["reservation_id"].as_str().unwrap();
     verify("list", &["list"]);
@@ -212,7 +212,7 @@ fn command_output_types_used_by_help_validate_real_responses() {
     verify("snapshot list", &["snapshot", "list"]);
     verify(
         "snapshot prune",
-        &["snapshot", "prune", "--older-than", "30d"],
+        &["snapshot", "prune", "--older-than", "30d", "--dry-run"],
     );
     verify(
         "snapshot storage",
@@ -239,7 +239,7 @@ fn every_output_path_is_one_json_response() {
         (vec!["--version"], 0, Some(env!("CARGO_PKG_VERSION"))),
         (vec![], 2, None),
         (vec!["unknown"], 2, None),
-        (vec!["pool", "init", "--capacity", "0"], 2, None),
+        (vec!["pool", "create", "--capacity", "0"], 2, None),
         (vec!["acquire", "--lease-channel-fd", "3"], 2, None),
         (vec!["release", "--reservation-id", "no"], 2, None),
         (vec!["release"], 2, None),
@@ -267,18 +267,18 @@ fn every_output_path_is_one_json_response() {
             b"baseline\n"
         );
     }
-    let output = cli(&r, &["pool", "init", "--capacity", "2"]);
+    let output = cli(&r, &["pool", "create", "--capacity", "2"]);
     assert_success(&output);
     let v = check(&output);
     assert_eq!(v["request_id"], Value::Null);
     assert_eq!(v["result"]["created"], true);
     let output = cli(
         &r,
-        &["--request-id", "again", "pool", "init", "--capacity", "2"],
+        &["--request-id", "again", "pool", "create", "--capacity", "2"],
     );
     assert_eq!(check(&output)["error"]["code"], "CONFIG_CONFLICT");
     assert_eq!(output.status.code(), Some(4));
-    let output = cli(&r, &["-v", "pool", "init", "--capacity", "3"]);
+    let output = cli(&r, &["-v", "pool", "create", "--capacity", "3"]);
     assert_eq!(output.status.code(), Some(4));
     assert_eq!(check(&output)["error"]["code"], "CONFIG_CONFLICT");
     assert!(String::from_utf8_lossy(&output.stderr).contains("CONFIG_CONFLICT"));
@@ -292,7 +292,7 @@ fn concurrent_init_creates_exactly_one_pool() {
             support::groove_in(&r.path)
                 .arg("--repo")
                 .arg(&r.path)
-                .args(["pool", "init", "--capacity", "2"])
+                .args(["pool", "create", "--capacity", "2"])
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
                 .spawn()
@@ -318,7 +318,7 @@ fn concurrent_init_creates_exactly_one_pool() {
 #[test]
 fn persisted_metadata_matches_published_schemas() {
     let r = Repo::new();
-    assert_success(&cli(&r, &["pool", "init", "--capacity", "1"]));
+    assert_success(&cli(&r, &["pool", "create", "--capacity", "1"]));
     let pool = groove_core::Pool::open(&r.path).unwrap();
     let mut lease = pool.acquire(Default::default()).unwrap();
     for (file, text) in [
@@ -349,7 +349,14 @@ fn settings_and_read_commands_match_the_protocol() {
     let r = Repo::new();
     assert_success(&cli(
         &r,
-        &["pool", "init", "--capacity", "1", "--idle-timeout", "never"],
+        &[
+            "pool",
+            "create",
+            "--capacity",
+            "1",
+            "--idle-timeout",
+            "never",
+        ],
     ));
     let lease = assert_success(&cli(&r, &["acquire", "--task", "live"]));
     let id = lease["result"]["reservation_id"].as_str().unwrap();
@@ -386,7 +393,7 @@ fn settings_and_read_commands_match_the_protocol() {
         vec!["config", "--global"],
         vec!["show", "--snapshot", id],
         vec!["list", "--snapshots"],
-        vec!["pool", "init", "--capacity", "1", "--backend", "git"],
+        vec!["pool", "create", "--capacity", "1", "--backend", "git"],
         vec![
             "exec",
             "--reservation-id",
@@ -446,7 +453,7 @@ fn published_slot_schema_agrees_with_validated_rust_ids() {
 fn logging_flags_preserve_protocol_and_failures_are_best_effort() {
     let r = Repo::new();
     let logs = r.path.join("test-logs");
-    let output = cli(&r, &["pool", "init", "--capacity", "1"]);
+    let output = cli(&r, &["pool", "create", "--capacity", "1"]);
     assert_success(&output);
     json_progress::assert_only(&output, "pool init");
     let entries: Vec<_> = std::fs::read_dir(&logs)
@@ -535,7 +542,7 @@ fn command_help_is_available_without_a_repository_or_valid_config() {
         &["pool"],
         &["pool", "list"],
         &["pool", "destroy"],
-        &["pool", "init"],
+        &["pool", "create"],
         &["acquire"],
         &["release"],
         &["show"],
@@ -588,8 +595,8 @@ fn command_help_is_available_without_a_repository_or_valid_config() {
                 assert!(help.contains("-h for concise help"), "{command:?}: {help}");
             }
             if *command == ["release"] {
-                assert!(help.contains("groove release --reservation-id UUID"));
-                assert!(help.contains("groove release --save"));
+                assert!(help.contains("groove release"));
+                assert!(help.contains("--save"));
                 assert!(!help.contains("--writers-stopped"));
                 assert!(help.contains("next acquisition"));
             }
@@ -599,7 +606,7 @@ fn command_help_is_available_without_a_repository_or_valid_config() {
         .current_dir(temp.path())
         .env("XDG_CONFIG_HOME", &config_home)
         .env("GROOVE_LOG_ENABLED", "false")
-        .args(["snapshot", "help", "restore"])
+        .args(["help", "recovery", "snapshot", "restore"])
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -618,7 +625,12 @@ fn concise_and_detailed_help_preserve_safety_and_json_output() {
         (&["acquire"], &["detached HEAD", "lost response"]),
         (
             &["release"],
-            &["Stop ALL writers", "ignored", "--force", "work can be lost"],
+            &[
+                "Stop ALL writers",
+                "ignored",
+                "--force",
+                "discards contents",
+            ],
         ),
         (
             &["pool", "destroy"],
@@ -639,7 +651,7 @@ fn concise_and_detailed_help_preserve_safety_and_json_output() {
         ),
         (
             &["snapshot", "delete"],
-            &["Deletes", "--force", "pinned snapshot"],
+            &["Deletes", "--pinned", "pinned snapshot"],
         ),
         (&["config"], &["every repository"]),
     ];
@@ -700,7 +712,7 @@ fn concise_and_detailed_help_preserve_safety_and_json_output() {
 #[test]
 fn release_save_options_require_save_and_rejections_keep_the_reservation() {
     let repo = Repo::new();
-    assert_success(&cli(&repo, &["pool", "init", "--capacity", "1"]));
+    assert_success(&cli(&repo, &["pool", "create", "--capacity", "1"]));
     let lease = assert_success(&cli(&repo, &["acquire", "--task", "unfinished"]));
     let id = lease["result"]["reservation_id"].as_str().unwrap();
     let workspace = std::path::Path::new(lease["result"]["workspace_path"].as_str().unwrap());
@@ -773,7 +785,7 @@ fn human_output_is_the_default_and_json_is_opt_in() {
             .output()
             .unwrap()
     };
-    let init = human(&["pool", "init", "--capacity", "1"]);
+    let init = human(&["pool", "create", "--capacity", "1"]);
     assert!(init.status.success());
     let text = String::from_utf8(init.stdout).unwrap();
     assert!(text.starts_with("Initialized a pool of 1 slot."), "{text}");
@@ -921,8 +933,13 @@ fn common_failures_have_the_same_advice_in_human_and_json_output() {
         assert!(human.stdout.is_empty());
         assert!(String::from_utf8_lossy(&human.stderr).contains(&format!("Hint: {hint}")));
     };
-    expect_hint(&["list"], "NOT_INITIALIZED", 4, "groove pool init");
-    assert_success(&cli(&r, &["pool", "init", "--capacity", "1"]));
+    expect_hint(
+        &["pool", "show", "default"],
+        "NOT_INITIALIZED",
+        4,
+        "groove pool create",
+    );
+    assert_success(&cli(&r, &["pool", "create", "--capacity", "1"]));
     assert_success(&cli(&r, &["acquire", "--task", "busy"]));
     expect_hint(&["acquire"], "POOL_EXHAUSTED", 3, "--wait");
     expect_hint(
@@ -956,7 +973,14 @@ fn selected_show_runs_git_status_only_in_the_selected_workspace() {
     let r = Repo::new();
     assert_success(&cli(
         &r,
-        &["pool", "init", "--capacity", "2", "--idle-timeout", "never"],
+        &[
+            "pool",
+            "create",
+            "--capacity",
+            "2",
+            "--idle-timeout",
+            "never",
+        ],
     ));
     let first = check(&cli(&r, &["acquire", "--task", "first"]));
     let second = assert_success(&cli(&r, &["acquire", "--task", "second"]));
@@ -1039,7 +1063,7 @@ fn selected_show_runs_git_status_only_in_the_selected_workspace() {
 #[test]
 fn terminal_verbosity_and_file_logging_are_independent() {
     let r = Repo::new();
-    assert_success(&cli(&r, &["pool", "init", "--capacity", "1"]));
+    assert_success(&cli(&r, &["pool", "create", "--capacity", "1"]));
     for (flag, levels) in [
         (None, vec![]),
         (Some("-q"), vec![]),
@@ -1117,7 +1141,7 @@ fn terminal_verbosity_and_file_logging_are_independent() {
 #[test]
 fn persistent_trace_can_be_enabled_while_terminal_is_quiet() {
     let r = Repo::new();
-    assert_success(&cli(&r, &["pool", "init", "--capacity", "1"]));
+    assert_success(&cli(&r, &["pool", "create", "--capacity", "1"]));
     assert_success(&cli(&r, &["config", "set", "logging.level=trace"]));
     assert_eq!(
         check(&cli(&r, &["config", "show"]))["result"]["config"]["logging"]["level"],
@@ -1160,7 +1184,7 @@ fn copied_advice_keeps_pool_selection_and_destroy_does_not_suggest_saving_releas
         .as_str()
         .unwrap()
         .split('`')
-        .find(|part| part.starts_with("groove pool init"))
+        .find(|part| part.starts_with("groove pool create"))
         .unwrap();
     let argv = shell_words::split(command).unwrap();
     let initialized = support::groove_in(&repo.path)
@@ -1172,7 +1196,7 @@ fn copied_advice_keeps_pool_selection_and_destroy_does_not_suggest_saving_releas
     let initialized = assert_success(&initialized);
     assert_eq!(initialized["result"]["pool_name"], "review");
     assert_eq!(
-        check(&cli(&repo, &["list"]))["error"]["code"],
+        check(&cli(&repo, &["list", "-p", "default"]))["error"]["code"],
         "NOT_INITIALIZED"
     );
     let lease = assert_success(&cli(&repo, &["--pool", "review", "acquire"]));
@@ -1206,7 +1230,7 @@ fn copied_advice_keeps_pool_selection_and_destroy_does_not_suggest_saving_releas
 #[test]
 fn listing_windows_preserve_order_and_reject_zero_limits() {
     let repo = Repo::new();
-    assert_success(&cli(&repo, &["pool", "init", "--capacity", "1"]));
+    assert_success(&cli(&repo, &["pool", "create", "--capacity", "1"]));
     let lease = assert_success(&cli(&repo, &["acquire"]));
     for n in 0..3 {
         assert_success(
@@ -1357,7 +1381,7 @@ fn snapshot_defaults_bound_real_output_and_unlimited_restores_complete_listing()
 #[test]
 fn pool_and_slot_views_sort_before_paging_and_preserve_capacity() {
     let repo = Repo::new();
-    assert_success(&cli(&repo, &["pool", "init", "--capacity", "51"]));
+    assert_success(&cli(&repo, &["pool", "create", "--capacity", "51"]));
     let mut acquired = Vec::new();
     for label in ["z-last", "a-first"] {
         let lease = assert_success(&cli(&repo, &["acquire", "--task", label]));
@@ -1420,7 +1444,7 @@ fn pool_and_slot_views_sort_before_paging_and_preserve_capacity() {
             "--pool",
             "zzz",
             "pool",
-            "init",
+            "create",
             "--capacity",
             "1",
             "--ready-target",
@@ -1429,7 +1453,7 @@ fn pool_and_slot_views_sort_before_paging_and_preserve_capacity() {
             "never",
         ],
     ));
-    assert_success(&cli(&repo, &["--pool", "zzz", "pool", "destroy"]));
+    assert_success(&cli(&repo, &["pool", "delete", "zzz", "--yes"]));
     for (sort, first) in [("name", "default"), ("state", "zzz")] {
         let pools = check(&cli(
             &repo,
@@ -1457,7 +1481,6 @@ fn removed_spellings_and_unused_pool_selection_are_v2_usage_errors() {
         vec!["init", "--capacity", "1"],
         vec!["pools"],
         vec!["destroy"],
-        vec!["show"],
         vec!["config", "global", "show"],
         vec!["acquire", "--request-key", "old"],
         vec!["acquire", "--wait-ms", "0"],
@@ -1468,7 +1491,7 @@ fn removed_spellings_and_unused_pool_selection_are_v2_usage_errors() {
         ],
         vec![
             "pool",
-            "init",
+            "create",
             "--capacity",
             "1",
             "--worktree-root",
@@ -1497,7 +1520,7 @@ fn path_only_and_plain_release_use_the_v2_presentation_contract() {
         &repo,
         &[
             "pool",
-            "init",
+            "create",
             "--capacity",
             "1",
             "--ready-target",

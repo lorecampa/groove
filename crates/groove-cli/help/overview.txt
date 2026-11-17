@@ -1,20 +1,21 @@
 WORKFLOW:
-  groove pool init --capacity 4
-  groove acquire --task fix-parser            # prints the path; work there
+  groove pool create frontend --capacity 4
+  groove acquire fix-parser -p frontend       # prints the path; work there
   # Work and run commands directly in the printed checkout path.
-  groove release --save --task fix-parser     # snapshot, then free the slot
+  groove release fix-parser -m 'parser fix'   # snapshot, then free the slot
 
 INSPECTION AND SETTINGS:
   groove pool list                     pool namespaces and lifecycle states
   groove pool list --disk-usage         compare pool storage sizes
-  groove --pool frontend pool init --capacity 3 --cleanup warm
+  groove pool create backend --capacity 3 --cleanup warm
                                    create a separate workflow pool
-  groove list                      active reservations
-  groove list --slots              every slot, with status and next action
-  groove show --task NAME          one reservation in detail
+  groove list                      active reservations across every pool
+  groove pool show frontend        every slot, with status and next action
+  groove show TASK                  one reservation in detail
+  groove path TASK                  just the workspace path
   groove snapshot list             local checkpoints
-  groove pool set --capacity 8   grow the pool
-  groove pool destroy --dry-run         preview deletion of an idle pool
+  groove pool set frontend capacity=8   grow the pool
+  groove pool delete frontend --dry-run  preview deletion of an idle pool
   groove completions bash          print a shell completion script
 
 Stop ALL writers, then release --save (snapshot, then release) or release. To keep
@@ -23,14 +24,20 @@ Reservations survive exits and crashes until explicitly released: there is no
 expiry, daemon or implicit task execution. No command pushes or merges.
 Worktrees share Git objects, refs and configuration; they are not security
 sandboxes.
-Explicit --pool NAME wins; otherwise pool commands select the current workspace's
-owning pool (also via --repo), falling back to default outside managed workspaces.
-Task labels/keys and capacity are pool-local; snapshots and branches are shared.
-Destroy requires an explicit selection when several pools exist; see pool list --help.
+Choose a pool at acquisition with -p/--pool, or name it positionally for pool
+administration. Without a selection, acquire and pool show/get/set use the owning
+workspace's pool (also via --repo), then the repository's only pool. Several pools
+outside a workspace require an explicit selection; there is no hidden default.
+Task labels are unique across the repository. Release/show/path resolve a label or
+reservation UUID across every pool, or infer it from the current workspace.
+Idempotency keys and capacity remain pool-local; snapshots and branches are shared.
+Pool deletion always requires a name. --dry-run previews; --yes confirms deletion
+without a terminal. -f/--force discards unsaved work and never bypasses writers.
 
 Linux or macOS 13+, Git 2.40+, local storage (APFS on macOS).
-Run groove COMMAND --help for examples,
-defaults and recovery rules.
+Use -h for concise help and --help for examples, defaults, output contracts and
+recovery rules. --json changes only stdout formatting: help, results and errors
+become one versioned JSON response. Help detail still follows -h versus --help.
 
 Slow queries show a spinner on interactive stderr. JSON and quiet mode disable
 animation.
@@ -45,15 +52,16 @@ does not bypass ownership, mount or path checks. See docs/operations.md.
 
 DURATIONS AND SIZES:
   --wait 0s scans once; --wait 30s waits up to thirty seconds for capacity.
-  --git-timeout 2m is the default positive timeout for Git and lock waits.
+  pool create --git-timeout stores the foreground Git budget (default 2m).
+  acquire/release --timeout overrides it for one command. Snapshot --lock-timeout
+  independently bounds snapshot lock waits (default 2m).
   Durations require an integer and ms, s, m or h; bare numbers are invalid.
   --max-file-size defaults to 100M. Bytes or K/M/G (powers of 1024) are accepted,
   including KB/KiB suffixes, case-insensitively. Zero means unlimited.
-  Snapshot, config, pool list and completions commands reject --pool.
 
 UPGRADES:
   groove upgrade --check            check stable CLI availability without installing
   groove upgrade --with-plugins     update CLI and supported installed agent plugins
 Interactive pool commands can show a daily update notice on stderr. Disable with
 GROOVE_NO_UPDATE_NOTIFIER=1 or `groove config set updates.check=false`.
-Upgrade works outside repositories and rejects --pool; see upgrade --help.
+Upgrade works outside repositories; see upgrade --help.

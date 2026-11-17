@@ -253,7 +253,11 @@ last_response=$scratch/error.json
 invoke --pool scale-check acquire --base refs/heads/does-not-exist > "$scratch/error.json" 2> "$scratch/error.err" || status=$?
 [[ $status != 0 ]] || fail 'invalid revision unexpectedly acquired a workspace'
 (( $(wc -c < "$scratch/error.json") <= max_error_bytes )) || fail 'error response exceeds size limit'
-call destroy --pool scale-check pool destroy --force
+if "$binary" pool delete --help > /dev/null 2>&1; then
+    call destroy pool delete scale-check --force --yes
+else
+    call destroy --pool scale-check pool destroy --force
+fi
 for path in "$scratch"/worktrees/wt-*; do [[ ! -d $path ]] || fail 'destroy left a checkout'; done
 {
     printf '%-24s %12s\n' Operation Milliseconds

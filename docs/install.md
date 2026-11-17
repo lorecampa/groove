@@ -207,7 +207,7 @@ See [Claude memory](https://code.claude.com/docs/en/memory) and
 Initialize a pool separately if the project does not have one:
 
 ```sh
-groove --pool default pool init --capacity 4
+groove pool create default --capacity 4
 ```
 
 Choose the capacity and reuse existing settings. Installing a skill does not

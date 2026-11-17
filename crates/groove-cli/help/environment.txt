@@ -1,0 +1,15 @@
+ENVIRONMENT
+NO_COLOR disables automatic color; --color always/never explicitly selects it.
+HOME and XDG_CONFIG_HOME locate preferences; config path prints the exact file.
+XDG_STATE_HOME locates diagnostic logs. GROOVE_LOG_ENABLED and GROOVE_LOG_DIR
+override logging preferences. GROOVE_NO_UPDATE_NOTIFIER=1 disables update notices.
+VISUAL, then EDITOR, selects the editor for config edit (default vi).
+
+GROOVE_ALLOW_UNSUPPORTED_FILESYSTEM=1 bypasses filesystem-type qualification only.
+Use it only after verifying local flock, atomic rename and fsync semantics. It
+never bypasses ownership, mount or path checks. Linux and macOS APFS are supported.
+
+Pool selection never reads GROOVE_POOL or a shared default. An explicit name wins,
+then the current workspace's pool, then the only existing pool. Several pools
+require an explicit choice. Reservations resolve across every repository pool.
+Task labels are repository-wide; request keys remain pool-local.

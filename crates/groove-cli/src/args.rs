@@ -16,6 +16,8 @@ const DEFAULT_MAX_FILE_BYTES: &str = "100M";
 #[derive(Parser)]
 #[command(
     name = "groove",
+    propagate_version = true,
+    disable_help_subcommand = true,
     version = concat!(env!("CARGO_PKG_VERSION"), " (revision ", env!("GROOVE_BUILD_REVISION"), ")"),
     about = "Reusable Git worktree pools and local checkpoints for parallel coding tasks",
     after_long_help = help!("overview")
@@ -24,6 +26,7 @@ pub struct Args {
     /// Repository path.
     #[arg(
         long,
+        short = 'C',
         global = true,
         help_heading = "Global options",
         default_value = ".",
@@ -33,11 +36,19 @@ pub struct Args {
     /// Pool namespace (owning workspace's pool, otherwise default).
     #[arg(
         long,
-        global = true,
-        help_heading = "Global options",
+        hide = true,
         long_help = "Pool namespace: explicit --pool wins, otherwise use the pool owning the current workspace (or --repo), then default. Ownership is validated from Groove state and Git registration. Use an explicit name for destroy from the main checkout when several pools exist."
     )]
     pub pool: Option<PoolName>,
+    /// Color output automatically, always, or never (auto honors NO_COLOR).
+    #[arg(
+        long,
+        global = true,
+        value_enum,
+        default_value = "auto",
+        help_heading = "Global options"
+    )]
+    pub color: ColorMode,
     /// Print one versioned JSON response.
     #[arg(
         long,
@@ -61,36 +72,232 @@ pub struct Args {
     #[arg(short, long, global = true, help_heading = "Global options")]
     pub quiet: bool,
     /// Positive Git and lock timeout, e.g. 2m or 30s.
-    #[arg(long = "git-timeout", value_name = "DURATION", global = true, help_heading = "Global options", default_value = "2m", value_parser = parse_positive_duration)]
+    #[arg(long = "git-timeout", value_name = "DURATION", hide = true, default_value = "2m", value_parser = parse_positive_duration)]
     pub git_timeout_ms: u64,
+    #[arg(skip)]
+    pub git_timeout_explicit: bool,
     #[command(subcommand)]
     pub command: Command,
+    #[arg(skip)]
+    pub deprecations: Vec<&'static str>,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum ColorMode {
+    Auto,
+    Always,
+    Never,
+}
+
+#[derive(ClapArgs)]
+pub struct PoolSelection {
+    /// Pool to use; otherwise select the owning workspace's pool or the only pool.
+    #[arg(short = 'p', long = "pool", value_name = "NAME")]
+    pub command_pool: Option<PoolName>,
+}
+
+#[derive(ClapArgs)]
+pub struct GitTimeoutArgs {
+    /// Override this command's Git budget; defaults to the selected pool's git-timeout.
+    #[arg(long = "timeout", visible_alias = "git-timeout", value_name = "DURATION", value_parser = parse_positive_duration)]
+    pub command_timeout: Option<u64>,
+}
+
+impl Args {
+    /// Normalize the transitional aliases once, before routing across pools.
+    pub fn normalize(mut self) -> Result<Self, String> {
+        if self.pool.is_some() {
+            self.deprecations.push("Global --pool is deprecated; select a pool on acquire or name the pool positionally");
+        }
+        if self.git_timeout_explicit {
+            self.deprecations
+                .push("Global --git-timeout is deprecated; use the command's --timeout");
+        }
+        let command_pool = match &self.command {
+            Command::Acquire { pool, .. } | Command::List { pool, .. } => pool.command_pool.clone(),
+            _ => None,
+        };
+        if let Some(pool) = command_pool {
+            if self.pool.as_ref().is_some_and(|legacy| legacy != &pool) {
+                return Err("Conflicting pool selections".into());
+            }
+            self.pool = Some(pool);
+        }
+        let command_timeout = match &self.command {
+            Command::Acquire { timeout, .. } | Command::Release { timeout, .. } => {
+                timeout.command_timeout
+            }
+            Command::Pool(PoolCommand::Init { saved_timeout, .. }) => *saved_timeout,
+            _ => None,
+        };
+        if let Some(timeout) = command_timeout {
+            if self.git_timeout_explicit && self.git_timeout_ms != timeout {
+                return Err("Conflicting Git timeout overrides".into());
+            }
+            self.git_timeout_ms = timeout;
+            self.git_timeout_explicit = true;
+        }
+        match &mut self.command {
+            Command::Acquire {
+                positional_task,
+                task,
+                ..
+            } => {
+                if task.is_some() {
+                    self.deprecations
+                        .push("--task is deprecated; use acquire TASK");
+                }
+                *task = positional_task.take().or(task.take());
+                if let Some(task) = task {
+                    validate_task(task)?;
+                }
+            }
+            Command::Release {
+                lease,
+                save,
+                message,
+                description,
+                ..
+            } => {
+                if let Some(message) = message.take() {
+                    *save = true;
+                    *description = message;
+                }
+                normalize_selector(
+                    &mut lease.reservation,
+                    &mut lease.task,
+                    &mut lease.lease_id,
+                    &mut self.deprecations,
+                )?;
+            }
+            Command::Path { selector: lease } => {
+                normalize_selector(
+                    &mut lease.reservation,
+                    &mut lease.task,
+                    &mut lease.lease_id,
+                    &mut self.deprecations,
+                )?;
+            }
+            Command::Show { selector, .. } => {
+                if selector.slot.is_some() {
+                    self.deprecations
+                        .push("show --slot is deprecated; use pool show NAME --slot SLOT");
+                }
+                normalize_selector(
+                    &mut selector.reservation,
+                    &mut selector.task,
+                    &mut selector.lease_id,
+                    &mut self.deprecations,
+                )?;
+            }
+            Command::Snapshot(SnapshotArgs {
+                command:
+                    SnapshotCommand::Save {
+                        message,
+                        description,
+                        ..
+                    },
+                ..
+            }) => {
+                if !description.is_empty() {
+                    self.deprecations.push("Positional snapshot descriptions are deprecated; use snapshot save -m MESSAGE");
+                }
+                if let Some(message) = message.take() {
+                    *description = message;
+                }
+            }
+            Command::List { slots, details, .. } if *slots || *details => {
+                self.deprecations
+                    .push("list --slots/--details are deprecated; use pool show NAME");
+            }
+            Command::Pool(PoolCommand::Set {
+                capacity,
+                cleanup,
+                ready_target,
+                idle_timeout,
+                ready_base,
+                ready_git_timeout,
+                ..
+            }) if capacity.is_some()
+                || cleanup.is_some()
+                || ready_target.is_some()
+                || idle_timeout.is_some()
+                || ready_base.is_some()
+                || ready_git_timeout.is_some() =>
+            {
+                self.deprecations
+                    .push("pool set setting flags are deprecated; use KEY=VALUE");
+            }
+            _ => {}
+        }
+        Ok(self)
+    }
+}
+
+fn validate_task(task: &str) -> Result<(), String> {
+    if task.is_empty()
+        || task.len() > 128
+        || !task
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+        || uuid::Uuid::parse_str(task).is_ok()
+    {
+        return Err("TASK must contain 1..128 ASCII letters, digits, dots, underscores or hyphens and must not look like a UUID".into());
+    }
+    Ok(())
+}
+
+fn normalize_selector(
+    reservation: &mut Option<String>,
+    task: &mut Option<String>,
+    id: &mut Option<LeaseId>,
+    warnings: &mut Vec<&'static str>,
+) -> Result<(), String> {
+    if task.is_some() || id.is_some() {
+        warnings.push("--task and --reservation-id are deprecated; use a positional RESERVATION");
+    }
+    if let Some(value) = reservation.take() {
+        match value.parse::<LeaseId>() {
+            Ok(value) => *id = Some(value),
+            Err(_) => {
+                validate_task(&value)?;
+                *task = Some(value);
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Selects a reservation explicitly, or infers it for release inside its workspace.
 #[derive(ClapArgs, Debug, Clone)]
 #[group(multiple = false)]
 pub struct LeaseSelector {
+    /// Task label or reservation UUID; omit inside the reservation's workspace.
+    #[arg(value_name = "RESERVATION")]
+    pub reservation: Option<String>,
     /// Reservation UUID returned by acquire.
-    #[arg(long = "reservation-id", value_name = "ID")]
+    #[arg(long = "reservation-id", value_name = "ID", hide = true)]
     pub lease_id: Option<LeaseId>,
     /// Task label of exactly one active reservation.
-    #[arg(long)]
+    #[arg(long, hide = true)]
     pub task: Option<String>,
 }
 
 /// Select exactly one reservation or permanent slot.
 #[derive(ClapArgs, Debug, Clone, Default)]
-#[group(required = true, multiple = false)]
+#[group(multiple = false)]
 pub struct OptionalSelector {
+    /// Task label or reservation UUID; omit inside the reservation's workspace.
+    #[arg(value_name = "RESERVATION")]
+    pub reservation: Option<String>,
     /// Reservation UUID returned by acquire.
-    #[arg(long = "reservation-id", value_name = "ID")]
+    #[arg(long = "reservation-id", value_name = "ID", hide = true)]
     pub lease_id: Option<LeaseId>,
     /// Task label of exactly one active reservation.
-    #[arg(long)]
+    #[arg(long, hide = true)]
     pub task: Option<String>,
     /// Permanent slot, such as wt-0001.
-    #[arg(long)]
+    #[arg(long, hide = true)]
     pub slot: Option<SlotId>,
 }
 
@@ -112,6 +319,12 @@ impl From<Cleanup> for groove_core::CleanupPolicy {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Show command help or the exit-codes, durations, recovery and environment topics.
+    Help {
+        /// Command path or topic, for example pool create or recovery.
+        #[arg(value_name = "COMMAND|TOPIC")]
+        topic: Vec<String>,
+    },
     /// Upgrade the installed CLI, optionally including existing agent skill plugins.
     #[command(after_long_help = help!("upgrade"))]
     Upgrade(UpgradeArgs),
@@ -121,8 +334,16 @@ pub enum Command {
     /// Reserve a clean checkout of a commit until it is released.
     #[command(after_long_help = help!("acquire"))]
     Acquire {
+        #[command(flatten)]
+        pool: PoolSelection,
+        #[command(flatten)]
+        timeout: GitTimeoutArgs,
+        /// Task label (1..128 ASCII letters, digits, dots, underscores or hyphens).
+        #[arg(value_name = "TASK", conflicts_with = "task")]
+        positional_task: Option<String>,
         /// Starting commit, branch or tag; checkout HEAD is detached.
         #[arg(
+            short = 'b',
             long,
             default_value = "HEAD",
             long_help = "Commit, branch or tag whose files the checkout starts from (HEAD detached there)."
@@ -131,58 +352,72 @@ pub enum Command {
         /// Unique reservation label, selectable with --task.
         #[arg(
             long,
-            long_help = "Unique name for this reservation (1..256 bytes, no control characters); later commands select it with --task."
+            hide = true,
+            long_help = "Deprecated task selector; use positional TASK (1..128 ASCII letters, digits, dots, underscores or hyphens)."
         )]
         task: Option<String>,
         /// Idempotency key for safe acquisition retries.
         #[arg(
             long = "idempotency-key",
+            visible_alias = "key",
             value_name = "KEY",
             long_help = "Idempotency key: retrying the same key/base/task returns the same reservation."
         )]
         request_key: Option<String>,
         /// Wait for a free slot, e.g. 30s; 0s scans once.
-        #[arg(long = "wait", value_name = "DURATION", default_value = "0s", value_parser = parse_duration)]
+        #[arg(short = 'w', long = "wait", value_name = "DURATION", default_value = "0s", value_parser = parse_duration)]
         wait_ms: u64,
         /// Print exactly the workspace path in human output.
-        #[arg(long)]
+        #[arg(long, visible_alias = "print-path")]
         path_only: bool,
     },
     /// Return a workspace to the pool; optionally save a pinned snapshot first.
-    #[command(after_long_help = help!("release"))]
+    #[command(after_long_help = help!("release"), group(clap::ArgGroup::new("saving").multiple(true).args(["save", "message"])))]
     Release {
+        #[command(flatten)]
+        timeout: GitTimeoutArgs,
         #[command(flatten)]
         lease: LeaseSelector,
         /// Save and pin a snapshot before release; a save failure keeps the reservation.
-        #[arg(long)]
+        #[arg(short = 's', long)]
         save: bool,
+        /// Snapshot description; implies --save.
+        #[arg(short = 'm', long, conflicts_with = "description")]
+        message: Option<String>,
         /// Description recorded with the pinned snapshot.
-        #[arg(long, requires = "save", default_value = "workspace saved")]
+        #[arg(
+            long,
+            hide = true,
+            requires = "save",
+            default_value = "workspace saved"
+        )]
         description: String,
         /// File size limit, e.g. 100M; 0 means unlimited.
-        #[arg(long = "max-file-size", value_name = "SIZE", value_parser = parse_size, requires = "save", default_value = DEFAULT_MAX_FILE_BYTES, long_help = "Largest changed file to capture, e.g. 100M; 0 removes the limit.")]
+        #[arg(long = "max-file-size", value_name = "SIZE", value_parser = parse_size, requires = "saving", default_value = DEFAULT_MAX_FILE_BYTES, long_help = "Largest changed file to capture, e.g. 100M; 0 removes the limit.")]
         max_file_bytes: u64,
-        /// Skip change/process checks; unsaved work can be lost.
+        /// Discard unsaved work; never bypasses active writers.
         #[arg(
             short = 'f',
             long,
-            long_help = "Skip unsaved-change and process checks (with --save, still save changes). Without --save, unsaved contents are discarded on the next acquisition."
+            long_help = "Discard unsaved changes (with --save, still save changes). Active writers always block release. Without --save, unsaved contents are discarded on the next acquisition."
         )]
         force: bool,
     },
-    /// List active reservations, or every slot.
+    /// List active reservations across repository pools.
     #[command(after_long_help = help!("list"))]
     List {
-        /// Sort by slot ID or task label, with slot ID breaking ties.
-        #[arg(long, value_enum, default_value = "slot")]
-        sort: SlotSort,
+        #[command(flatten)]
+        pool: PoolSelection,
+        /// Sort by task, pool or acquisition time; reservation UUID breaks ties.
+        #[arg(long, value_enum, default_value = "task")]
+        sort: ReservationSort,
         #[command(flatten)]
         page: PageArgs,
         /// List every slot with its status and suggested next action.
-        #[arg(long)]
+        #[arg(long, hide = true)]
         slots: bool,
         /// Include bounded local Git status for each slot (implies --slots).
-        #[arg(long)]
+        #[arg(long, hide = true)]
         details: bool,
     },
     /// Show exactly one reservation or slot.
@@ -193,6 +428,11 @@ pub enum Command {
         /// Include bounded local Git status.
         #[arg(long)]
         details: bool,
+    },
+    /// Print only the selected reservation's workspace path.
+    Path {
+        #[command(flatten)]
+        selector: LeaseSelector,
     },
     /// Print a shell completion script for commands, options and fixed values.
     #[command(after_long_help = help!("completions"))]
@@ -224,13 +464,13 @@ pub struct UpgradeArgs {
     #[arg(long, conflicts_with = "dry_run")]
     pub check: bool,
     /// Show source, destination and literal installer commands without executing them.
-    #[arg(long)]
+    #[arg(short = 'n', long)]
     pub dry_run: bool,
     /// Also update installed, enabled user Groove plugins in Codex and Claude Code.
     #[arg(long)]
     pub with_plugins: bool,
     /// Select an exact stable CLI release; downgrades and prereleases are rejected.
-    #[arg(long, value_name = "VERSION")]
+    #[arg(long = "to", visible_alias = "target-version", value_name = "VERSION")]
     pub target_version: Option<String>,
     /// Deadline per installer process (positive duration, e.g. 30m); HTTP checks have separate short limits.
     #[arg(long, default_value = "30m", value_parser = parse_duration)]
@@ -271,10 +511,23 @@ pub enum SlotSort {
     Task,
 }
 
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum ReservationSort {
+    /// Task label (ascending).
+    Task,
+    /// Pool name, then task label (ascending).
+    Pool,
+    /// Acquisition time (newest first).
+    Acquired,
+    /// Deprecated slot ordering.
+    #[value(hide = true)]
+    Slot,
+}
+
 /// Output window shared by collection commands.
 #[derive(ClapArgs, Debug, Clone, Default)]
 pub struct PageArgs {
-    /// Sort direction, including tie-breakers; default: desc for created, asc otherwise.
+    /// Sort direction, including tie-breakers; default: desc for created/acquired, asc otherwise.
     #[arg(long, value_enum)]
     pub order: Option<SortOrder>,
     /// Return at most this many entries (default: 50); ordering is command-specific.
@@ -333,6 +586,9 @@ pub enum SnapshotCommand {
     /// Save staged and working files without changing HEAD or the index.
     Save {
         /// Description of the checkpoint.
+        #[arg(short = 'm', long, conflicts_with = "description")]
+        message: Option<String>,
+        /// Description of the checkpoint.
         #[arg(default_value = "")]
         description: String,
         /// Task or session identifier recorded with the snapshot.
@@ -345,6 +601,9 @@ pub enum SnapshotCommand {
     /// List snapshots across all linked worktrees (default: newest first).
     #[command(after_long_help = help!("snapshot-list"))]
     List {
+        /// Only snapshots pinned for saved release or recovery.
+        #[arg(long)]
+        pinned: bool,
         /// Sort snapshots by creation time or snapshot ID; ties use snapshot ID.
         #[arg(long, value_enum, default_value = "created")]
         sort: TimeSort,
@@ -368,10 +627,13 @@ pub enum SnapshotCommand {
         #[arg(long, value_name = "N", default_value_t = 20)]
         keep_last: usize,
         /// Delete eligible snapshot refs; never overrides pins or runs Git GC.
-        #[arg(long, conflicts_with = "dry_run")]
+        #[arg(long, conflicts_with = "dry_run", hide = true)]
         apply: bool,
-        /// Explicitly preview without deleting anything (the default).
-        #[arg(long, conflicts_with = "apply")]
+        /// Confirm deletion without an interactive prompt.
+        #[arg(short = 'y', long, conflicts_with = "dry_run")]
+        yes: bool,
+        /// Preview without deleting anything.
+        #[arg(short = 'n', long, conflicts_with = "apply")]
         dry_run: bool,
     },
     /// Show one snapshot's metadata.
@@ -407,19 +669,28 @@ pub enum SnapshotCommand {
     },
     /// Delete one snapshot.
     Delete {
-        /// Snapshot ID.
-        id: String,
+        /// Snapshot UUIDs or unique prefixes of at least eight characters.
+        #[arg(required = true, value_name = "SNAPSHOT")]
+        ids: Vec<String>,
         /// Also delete a snapshot pinned for saved release or interrupted recovery.
-        #[arg(short = 'f', long)]
+        #[arg(long = "pinned", visible_alias = "force")]
         force: bool,
+        /// Preview the selected snapshots without deleting them.
+        #[arg(short = 'n', long, conflicts_with = "yes")]
+        dry_run: bool,
+        /// Confirm deletion of multiple snapshots without prompting.
+        #[arg(short = 'y', long)]
+        yes: bool,
     },
 }
 
 #[derive(Subcommand)]
 pub enum PoolCommand {
     /// Print one pool setting (capacity, cleanup, ready-target, idle-timeout, ready-base, ready-git-timeout, workspace-root).
-    #[command(after_long_help = help!("pool-get"))]
+    #[command(after_long_help = help!("pool-get"), allow_missing_positional = true)]
     Get {
+        /// Pool to inspect; also accepts the legacy --pool selection.
+        name: Option<PoolName>,
         /// Setting to read; unknown keys are rejected.
         key: String,
     },
@@ -439,11 +710,16 @@ pub enum PoolCommand {
         disk_usage: bool,
     },
     /// Delete an idle pool's checkouts and legacy caches, retaining snapshots.
-    #[command(after_long_help = help!("pool-destroy"))]
+    #[command(name = "delete", visible_alias = "destroy", after_long_help = help!("pool-destroy"))]
     Destroy {
+        /// Pool to delete; also accepts the legacy --pool selection.
+        name: Option<PoolName>,
         /// Validate and preview deletion without removing data or changing lifecycle state.
         #[arg(short = 'n', long)]
         dry_run: bool,
+        /// Confirm deletion without an interactive prompt.
+        #[arg(short = 'y', long, conflicts_with = "dry_run")]
+        yes: bool,
         /// Discard residual edits, ignored files and broken checkouts; never bypasses owners or reservations.
         #[arg(short = 'f', long = "force")]
         discard_changes: bool,
@@ -452,8 +728,13 @@ pub enum PoolCommand {
         pool_id: Option<PoolId>,
     },
     /// Create a pool of reusable worktree slots for this repository.
-    #[command(after_long_help = help!("pool-init"))]
+    #[command(name = "create", visible_alias = "init", after_long_help = help!("pool-init"))]
     Init {
+        /// Save the pool's default foreground Git budget (default: pool-defaults.git-timeout, 2m).
+        #[arg(long = "git-timeout", value_name = "DURATION", value_parser = parse_positive_duration)]
+        saved_timeout: Option<u64>,
+        /// Name of the pool to create (default: default).
+        name: Option<PoolName>,
         /// Desired ready, unreserved checkouts (default: pool_defaults.ready_target, 0).
         #[arg(long)]
         ready_target: Option<usize>,
@@ -473,7 +754,7 @@ pub enum PoolCommand {
         #[arg(long, value_enum, default_value = "pristine")]
         cleanup: Cleanup,
         /// Exact, initially empty checkout root (overrides worktrees.root and ~/.worktrees).
-        #[arg(long = "workspace-root", value_name = "DIR")]
+        #[arg(long = "root", visible_alias = "workspace-root", value_name = "DIR")]
         worktree_root: Option<PathBuf>,
         /// Resume an interrupted init with its original settings.
         #[arg(long)]
@@ -482,6 +763,11 @@ pub enum PoolCommand {
     /// Show pool settings, slots and background preparation.
     #[command(after_long_help = help!("pool-show"))]
     Show {
+        /// Pool to inspect; also accepts the legacy --pool selection.
+        name: Option<PoolName>,
+        /// Inspect one permanent slot, such as wt-0001.
+        #[arg(long)]
+        slot: Option<SlotId>,
         /// Include bounded Git status for every slot.
         #[arg(long)]
         details: bool,
@@ -496,27 +782,68 @@ pub enum PoolCommand {
     },
     /// Grow capacity and/or change cleanup for future acquisitions.
     #[command(after_long_help = help!("pool-set"), group(clap::ArgGroup::new("settings").required(true).multiple(true)
-        .args(["capacity", "cleanup", "ready_target", "idle_timeout", "ready_base", "ready_git_timeout"])))]
+        .args(["values", "capacity", "cleanup", "ready_target", "idle_timeout", "ready_base", "ready_git_timeout"])))]
     Set {
+        /// Optional pool name followed by KEY=VALUE settings (for example capacity=4).
+        #[arg(value_name = "NAME|KEY=VALUE")]
+        values: Vec<PoolSettingArgument>,
         /// Desired ready, unreserved checkouts; cannot exceed resulting capacity. Zero disables replenishment.
-        #[arg(long)]
+        #[arg(long, hide = true)]
         ready_target: Option<usize>,
         /// Idle duration for excess checkouts (positive s/m/h/d), or never to disable eviction.
-        #[arg(long)]
+        #[arg(long, hide = true)]
         idle_timeout: Option<groove_core::IdleTimeout>,
         /// Local revision for spare preparation; no implicit fetch or project commands.
-        #[arg(long)]
+        #[arg(long, hide = true)]
         ready_base: Option<String>,
         /// Background Git timeout (positive ms/s/m/h); unset inherits --git-timeout.
-        #[arg(long, value_name = "DURATION")]
+        #[arg(long, hide = true, value_name = "DURATION")]
         ready_git_timeout: Option<groove_core::ReadyGitTimeout>,
         /// New capacity (1..=4096); shrinking is rejected.
-        #[arg(long, value_parser = parse_capacity)]
+        #[arg(long, hide = true, value_parser = parse_capacity)]
         capacity: Option<usize>,
         /// Cleanup policy for future acquisitions.
-        #[arg(long, value_enum)]
+        #[arg(long, hide = true, value_enum)]
         cleanup: Option<Cleanup>,
     },
+}
+
+impl PoolCommand {
+    pub fn name(&self) -> Option<&PoolName> {
+        match self {
+            Self::Get { name, .. }
+            | Self::Destroy { name, .. }
+            | Self::Init { name, .. }
+            | Self::Show { name, .. } => name.as_ref(),
+            Self::Set { values, .. } => values.iter().find_map(|value| match value {
+                PoolSettingArgument::Name(name) => Some(name),
+                PoolSettingArgument::Setting(_, _) => None,
+            }),
+            Self::List { .. } => None,
+        }
+    }
+}
+
+/// Pool settings retain their typed namespace separately from assignment strings.
+#[derive(Clone, Debug)]
+pub enum PoolSettingArgument {
+    Name(PoolName),
+    Setting(String, String),
+}
+
+impl std::str::FromStr for PoolSettingArgument {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        if let Some((key, value)) = value.split_once('=') {
+            Ok(Self::Setting(key.into(), value.into()))
+        } else {
+            value
+                .parse()
+                .map(Self::Name)
+                .map_err(|error: groove_core::Error| error.to_string())
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -550,19 +877,21 @@ impl Command {
     /// Stable command name for logs.
     pub fn name(&self) -> &'static str {
         match self {
+            Self::Help { .. } => "help",
             Self::Upgrade(_) => "upgrade",
             Self::Pool(command) => match command {
                 PoolCommand::Get { .. } => "pool get",
-                PoolCommand::Init { .. } => "pool init",
+                PoolCommand::Init { .. } => "pool create",
                 PoolCommand::List { .. } => "pool list",
                 PoolCommand::Show { .. } => "pool show",
                 PoolCommand::Set { .. } => "pool set",
-                PoolCommand::Destroy { .. } => "pool destroy",
+                PoolCommand::Destroy { .. } => "pool delete",
             },
             Self::Acquire { .. } => "acquire",
             Self::Release { .. } => "release",
             Self::List { .. } => "list",
             Self::Show { .. } => "show",
+            Self::Path { .. } => "path",
             Self::Completions { .. } => "completions",
             Self::Snapshot(_) => "snapshot",
             Self::Config(_) => "config",
@@ -896,8 +1225,8 @@ mod scalar_tests {
     }
 
     #[test]
-    fn show_requires_exactly_one_selector_and_pool_show_has_collection_options() {
-        assert!(Args::try_parse_from(["groove", "show"]).is_err());
+    fn show_allows_inference_or_one_selector_and_pool_show_has_collection_options() {
+        assert!(Args::try_parse_from(["groove", "show"]).is_ok());
         for (flag, value) in [
             ("--task", "label"),
             ("--slot", "wt-0001"),

@@ -141,7 +141,11 @@ fn assert_deletion_crash_preserves_results_and_inodes(name: &str) {
             (path, ino)
         })
         .collect();
-    let (mut command, listener) = checkpoint_command(&repo, name, &["pool", "destroy", "--force"]);
+    let (mut command, listener) = checkpoint_command(
+        &repo,
+        name,
+        &["pool", "delete", "default", "--yes", "--force"],
+    );
     kill_at_checkpoint(&mut command, listener, name);
     assert_eq!(
         Pool::open(&repo.path).unwrap_err().code,
@@ -281,8 +285,11 @@ fn deletion_excludes_new_operations_and_covers_finish_metadata_after_unlock() {
         for lease in pool.protected_leases().unwrap() {
             pool.release_lease(lease.lease_id).unwrap();
         }
-        let (mut command, listener) =
-            checkpoint_command_after_removing_socket(&repo, "pool-deleting", &["pool", "destroy"]);
+        let (mut command, listener) = checkpoint_command_after_removing_socket(
+            &repo,
+            "pool-deleting",
+            &["pool", "delete", "default", "--yes"],
+        );
         let mut child = support::TestChild::spawn(&mut command);
         let mut stream = child
             .checkpoint(&listener, "pool-deleting", support::PROCESS_TIMEOUT)
@@ -359,7 +366,8 @@ fn deletion_retries_after_unregistering_and_after_a_reported_io_failure() {
         .unwrap();
         let p = Pool::open(&repo.path).unwrap();
         drop(p.acquire(Default::default()).unwrap());
-        let (mut command, listener) = checkpoint_command(&repo, point, &["pool", "destroy"]);
+        let (mut command, listener) =
+            checkpoint_command(&repo, point, &["pool", "delete", "default", "--yes"]);
         let mut child = support::TestChild::spawn(&mut command);
         let mut stream = child
             .checkpoint(&listener, point, support::PROCESS_TIMEOUT)
@@ -606,7 +614,7 @@ fn interrupted_named_deletion_never_disables_a_siblings_workers_or_results() {
     let (mut command, listener) = checkpoint_command(
         &repo,
         "pool-deleting",
-        &["--pool", "frontend", "pool", "destroy"],
+        &["pool", "delete", "frontend", "--yes"],
     );
     let mut child = support::TestChild::spawn(&mut command);
     let stream = child

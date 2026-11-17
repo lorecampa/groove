@@ -37,6 +37,7 @@ impl Default for Updates {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PoolDefaults {
+    pub git_timeout: groove_core::ReadyGitTimeout,
     pub ready_target: usize,
     pub idle_timeout: groove_core::IdleTimeout,
 }
@@ -226,7 +227,8 @@ fn setting_key(key: &str) -> Result<(&str, &str)> {
         .filter(|(section, field)| {
             (*section == "logging" && KEYS.contains(field))
                 || (*section == "worktrees" && *field == "root")
-                || (*section == "pool_defaults" && ["ready_target", "idle_timeout"].contains(field))
+                || (*section == "pool_defaults"
+                    && ["ready_target", "idle_timeout", "git_timeout"].contains(field))
                 || (*section == "experimental" && *field == "features")
                 || (*section == "updates" && *field == "check")
         })

@@ -14,7 +14,76 @@ fn schema() -> Value {
 
 /// Build the actual parser, including schema-derived output help on every command.
 pub fn command() -> clap::Command {
-    decorate(Args::command(), "", &schema())
+    let command = Args::command();
+    let context: Vec<_> = command
+        .get_arguments()
+        .filter(|argument| matches!(argument.get_id().as_str(), "pool" | "git_timeout_ms"))
+        .cloned()
+        .collect();
+    scope_context_help(decorate(command, "", &schema()), "", &context)
+}
+
+// Transitional context aliases belong to their commands, never the global set.
+// Native command arguments take precedence and advertise the canonical spelling.
+fn scope_context_help(
+    mut command: clap::Command,
+    path: &str,
+    context: &[clap::Arg],
+) -> clap::Command {
+    for argument in context {
+        let pool = argument.get_id() == "pool";
+        let visible = if pool {
+            matches!(
+                path,
+                "acquire"
+                    | "release"
+                    | "show"
+                    | "list"
+                    | "pool create"
+                    | "pool show"
+                    | "pool get"
+                    | "pool set"
+                    | "pool delete"
+            )
+        } else {
+            matches!(
+                path.split(' ').next(),
+                Some("acquire" | "release" | "show" | "list" | "pool" | "snapshot")
+            )
+        };
+        if command.get_arguments().any(|native| {
+            native.get_id() != argument.get_id()
+                && (native.get_long() == argument.get_long()
+                    || native.get_all_aliases().is_some_and(|aliases| {
+                        argument
+                            .get_long()
+                            .is_some_and(|long| aliases.contains(&long))
+                    }))
+        }) {
+            continue;
+        }
+        let argument = argument.clone().hide(true).global(false);
+        if command
+            .get_arguments()
+            .any(|existing| existing.get_id() == argument.get_id())
+        {
+            let id = argument.get_id().clone();
+            command = command.mut_arg(id, |_| argument);
+        } else if visible {
+            command = command.arg(argument);
+        }
+    }
+    let children: Vec<_> = command.get_subcommands().cloned().collect();
+    for child in children {
+        let name = child.get_name().to_owned();
+        let child_path = if path.is_empty() {
+            name.clone()
+        } else {
+            format!("{path} {name}")
+        };
+        command = command.mut_subcommand(name, |_| scope_context_help(child, &child_path, context));
+    }
+    command
 }
 
 fn decorate(mut command: clap::Command, path: &str, schema: &Value) -> clap::Command {
@@ -112,14 +181,17 @@ fn decorate(mut command: clap::Command, path: &str, schema: &Value) -> clap::Com
 
 fn concise_help(path: &str) -> &'static str {
     match path {
+        "help" => "EXAMPLES:\n  groove acquire --help --json\n  groove help recovery release\n  groove help pool create\n",
+        "path" => "EXAMPLES:\n  groove path fix-nav\n  groove path  # infer from the current workspace\n",
+        "upgrade" => "EXAMPLES:\n  groove upgrade --check\n  groove upgrade --dry-run --with-plugins\n  groove upgrade --to 0.6.0\n",
         "" => include_str!("../help/short/overview.txt"),
         "pool" => include_str!("../help/short/pool.txt"),
-        "pool init" => include_str!("../help/short/pool-init.txt"),
+        "pool create" => include_str!("../help/short/pool-init.txt"),
         "pool show" => include_str!("../help/short/pool-show.txt"),
         "pool set" => include_str!("../help/short/pool-set.txt"),
         "acquire" => include_str!("../help/short/acquire.txt"),
         "release" => include_str!("../help/short/release.txt"),
-        "pool destroy" => include_str!("../help/short/pool-destroy.txt"),
+        "pool delete" => include_str!("../help/short/pool-destroy.txt"),
         "pool list" => include_str!("../help/short/pool-list.txt"),
         "list" => include_str!("../help/short/list.txt"),
         "show" => include_str!("../help/short/show.txt"),
@@ -142,6 +214,76 @@ fn concise_help(path: &str) -> &'static str {
         "config edit" => include_str!("../help/short/config-edit.txt"),
         "config unset" => include_str!("../help/short/config-unset.txt"),
         _ => "",
+    }
+}
+
+/// Installed reference topics and ordinary command help, without repository I/O.
+pub fn help_topic(parts: &[String]) -> groove_core::Result<String> {
+    if parts.first().is_some_and(|topic| topic == "json") {
+        return Err(groove_core::Error::new(
+            ErrorCode::InvalidArgument,
+            "Use groove COMMAND --help for its output contract",
+        ));
+    }
+    reference_help(parts)
+}
+
+fn reference_help(parts: &[String]) -> groove_core::Result<String> {
+    let invalid = |message| groove_core::Error::new(ErrorCode::InvalidArgument, message);
+    let topic = parts.first().map(String::as_str).unwrap_or("");
+    match topic {
+        "exit-codes" => {
+            let mut text = "Exit codes are stable categories; branch on error.code for the specific failure.\n".to_owned();
+            for value in schema()["$defs"]["error"]["properties"]["code"]["enum"]
+                .as_array()
+                .expect("validated error codes")
+            {
+                let library_name = match value.as_str() {
+                    Some("INVALID_RESERVATION") => Value::String("INVALID_LEASE".into()),
+                    Some("RESERVATION_MISMATCH") => Value::String("LEASE_MISMATCH".into()),
+                    _ => value.clone(),
+                };
+                if let Ok(code) = serde_json::from_value::<ErrorCode>(library_name) {
+                    text.push_str(&format!(
+                        "{}: {}\n",
+                        output::error_status(code),
+                        output::cli_error_code(code)
+                    ));
+                }
+            }
+            text.push_str("0: success\n7: stdout could not be written\nSignals may terminate a process before it emits JSON.\n");
+            Ok(text)
+        }
+        "durations" => Ok(include_str!("../help/durations.txt").into()),
+        "environment" => Ok(format!(
+            "{}\nPreference defaults (TOML storage):\n{}",
+            include_str!("../help/environment.txt"),
+            toml::to_string_pretty(&preferences::Config::default())
+                .expect("default preferences serialize")
+        )),
+        "recovery" if parts.len() == 1 => Ok(include_str!("../help/recovery.txt").into()),
+        _ => {
+            let recovery = topic == "recovery";
+            let mut command = if recovery { Args::command() } else { command() };
+            command.build();
+            let path = if recovery { &parts[1..] } else { parts };
+            for component in path {
+                command = command.find_subcommand(component).cloned().ok_or_else(|| {
+                    invalid(format!(
+                        "Unknown command or help topic: {}",
+                        parts.join(" ")
+                    ))
+                })?;
+            }
+            if recovery {
+                Ok(command
+                    .get_after_long_help()
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| include_str!("../help/recovery.txt").into()))
+            } else {
+                Ok(command.render_long_help().to_string())
+            }
+        }
     }
 }
 
@@ -298,6 +440,13 @@ mod tests {
                 format!("{prefix} {}", command.get_name())
             };
             paths.insert(name.clone());
+            for alias in command.get_all_aliases() {
+                paths.insert(if prefix.is_empty() {
+                    alias.to_owned()
+                } else {
+                    format!("{prefix} {alias}")
+                });
+            }
             if command.get_subcommands().next().is_none() {
                 assert!(
                     mapping.contains_key(&name),

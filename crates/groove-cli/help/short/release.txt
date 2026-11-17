@@ -1,10 +1,10 @@
 EXAMPLES:
   groove release --save                   # inside an acquired workspace
-  groove release --save --task fix-parser # explicit selection from elsewhere
-  groove release --reservation-id UUID
+  groove release fix-parser -m 'parser fix'
+  groove release UUID
 
 Stop ALL writers and preserve work first. Background preparation or the next acquisition
 discards contents, including ignored files under pristine cleanup. Export ignored artifacts.
 Preserve detached commits on a branch or snapshot before releasing.
 --save pins a snapshot; save failure keeps the reservation.
---force skips unsaved-change and process checks; without --save, work can be lost.
+--force discards unsaved work; active writers always block release.

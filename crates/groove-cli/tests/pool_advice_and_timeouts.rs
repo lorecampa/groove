@@ -90,6 +90,27 @@ exec "$GROOVE_REAL_GIT" "$@"
 }
 
 #[test]
+fn foreground_acquisition_uses_the_saved_pool_budget_unless_overridden() {
+    let repo = Repo::new();
+    init(&repo, "frontend", "1");
+    cli(&repo.path, &["pool", "set", "frontend", "git-timeout=1s"]);
+    let failed = slow_git(&repo).args(["acquire", "short"]).output().unwrap();
+    let failed = check(failed, 6);
+    assert_eq!(failed["error"]["code"], "POOL_UNHEALTHY");
+    assert!(failed["error"]["hint"].as_str().unwrap().contains("1s"));
+    let acquired = slow_git(&repo)
+        .args(["acquire", "long", "--git-timeout", "10s"])
+        .output()
+        .unwrap();
+    check(acquired, 0);
+    assert_eq!(
+        cli(&repo.path, &["pool", "get", "git-timeout"])["value"],
+        "1s"
+    );
+    cli(&repo.path, &["release", "long"]);
+}
+
+#[test]
 fn a_clean_released_checkout_does_not_depend_on_running_git_clean() {
     let repo = Repo::new();
     init(&repo, "default", "1");
@@ -498,19 +519,15 @@ fn copied_release_advice_keeps_the_inferred_pool_selection() {
     );
     assert_eq!(error["error"]["code"], "UNSAVED_CHANGES");
     let hint = error["error"]["hint"].as_str().unwrap();
-    assert!(hint.contains("--pool review"), "{hint}");
-    assert!(!hint.contains("--pool default"), "{hint}");
+    assert!(hint.contains("original reservation UUID"), "{hint}");
+    assert!(!hint.contains("--pool"), "{hint}");
     let command = hint
         .split('`')
         .find(|part| part.starts_with("groove release --save"))
         .unwrap();
     let words = shell_words::split(command).unwrap();
     let saved = check(
-        support::groove_in(slot)
-            .args(&words[1..])
-            .args(["--task", "edit"])
-            .output()
-            .unwrap(),
+        support::groove_in(slot).args(&words[1..]).output().unwrap(),
         0,
     );
     assert_eq!(saved["result"]["snapshot"]["pinned"], true);
@@ -527,11 +544,11 @@ fn destruction_accepts_saved_release_files_but_refuses_later_edits_and_ignored_f
     support::git(slot, &["add", "new.txt"]);
     let saved = cli(&repo.path, &["release", "--save", "--task", "work"]);
     assert_eq!(saved["snapshot"]["pinned"], true);
-    cli(&repo.path, &["pool", "destroy", "--dry-run"]);
+    cli(&repo.path, &["pool", "delete", "default", "--dry-run"]);
     fs::write(slot.join("tracked.txt"), "later edit\n").unwrap();
     let error = check(
         support::groove_in(&repo.path)
-            .args(["pool", "destroy", "--dry-run"])
+            .args(["pool", "delete", "default", "--dry-run"])
             .output()
             .unwrap(),
         5,
@@ -546,7 +563,7 @@ fn destruction_accepts_saved_release_files_but_refuses_later_edits_and_ignored_f
     fs::write(slot.join("ignored/cache"), "excluded\n").unwrap();
     let error = check(
         support::groove_in(&repo.path)
-            .args(["pool", "destroy", "--dry-run"])
+            .args(["pool", "delete", "default", "--dry-run"])
             .output()
             .unwrap(),
         5,
@@ -562,7 +579,7 @@ fn destruction_accepts_saved_release_files_but_refuses_later_edits_and_ignored_f
     );
     fs::remove_dir_all(slot.join("ignored")).unwrap();
     assert_eq!(
-        cli(&repo.path, &["pool", "destroy"])["destruction"]["deleted"],
+        cli(&repo.path, &["pool", "delete", "default", "--yes"])["destruction"]["deleted"],
         true
     );
     assert!(!slot.exists());
@@ -764,7 +781,10 @@ fn destruction_repairs_nested_read_only_directories() {
     fs::set_permissions(slot.join("ignored"), fs::Permissions::from_mode(0o500)).unwrap();
     cli(&repo.path, &["release", "--task", "readonly", "--force"]);
     assert_eq!(
-        cli(&repo.path, &["pool", "destroy", "--force"])["destruction"]["deleted"],
+        cli(
+            &repo.path,
+            &["pool", "delete", "default", "--yes", "--force"]
+        )["destruction"]["deleted"],
         true
     );
     assert!(!slot.exists());
@@ -784,7 +804,7 @@ fn destruction_removes_all_three_checkouts_and_exact_registrations() {
     for task in ["one", "two", "three"] {
         cli(&repo.path, &["release", "--task", task]);
     }
-    let result = cli(&repo.path, &["pool", "destroy"]);
+    let result = cli(&repo.path, &["pool", "delete", "default", "--yes"]);
     assert_eq!(result["destruction"]["deleted"], true);
     assert_eq!(result["destruction"]["slots"].as_array().unwrap().len(), 3);
     for (slot, admin) in paths {

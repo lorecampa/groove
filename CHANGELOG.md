@@ -2,6 +2,73 @@
 
 ## Unreleased
 
+### Changed
+
+- Keep `-h` concise and `--help` detailed, with command-specific output contracts.
+  `--json` changes stdout formatting only: both help forms use the existing
+  `result.text` envelope without changing their content. Installed help topics
+  cover exit codes, durations, recovery and environment behavior; `help COMMAND`
+  shows the detailed command reference without opening a repository.
+- Resolve snapshot UUID prefixes of at least eight characters; filter snapshot
+  lists with `--pinned`. Multi-snapshot deletion validates all selectors first and
+  requires confirmation, with `--dry-run` and `--yes`. API v2 single deletions
+  retain `deleted`; multiple deletions add optional `deleted_snapshots`, and previews
+  reuse the existing snapshots result. Reservation lists sort by task, pool or
+  acquisition time; `pool show NAME --slot SLOT` inspects an individual slot.
+
+- Scope pool selection and Git timeout overrides to commands. Transitional legacy
+  spellings remain hidden and emit warnings. Add `-C`, `-p`, consistent short flags,
+  `--color` (auto honors NO_COLOR), and `upgrade --to` with a deprecated
+  `--target-version` alias. Help/version and correlation/output flags work throughout
+  the command tree; JSON help never contains ANSI styles.
+
+- Persist `git-timeout` per pool, seed new pools from `pool-defaults.git-timeout`,
+  and use it for foreground operations and background work unless overridden.
+  Existing pools default to two minutes. Acquisition and pool show/get/set now
+  resolve an omitted name from the owning workspace or the sole existing pool;
+  ambiguous selection lists the pools and requires an explicit choice.
+
+- `pool create`/`pool delete` replace `init`/`destroy` (deprecated aliases remain),
+  and `--root` replaces `--workspace-root`. Pool deletion requires an explicit
+  name. Pool deletion and snapshot pruning share `-n/--dry-run`, `-y/--yes` and
+  interactive confirmation; non-TTY execution requires `--yes`.
+- `release -m/--message` implies saving; snapshot save accepts the same message
+  syntax. Snapshot deletion uses `--pinned` to acknowledge pins. `--force` on
+  release discards unsaved work but always checks for active writers.
+
+- Task labels are now repository-wide, coordinated by permanent repository label
+  locks and a reconciled advisory registry. Existing duplicate labels remain
+  protected and require explicit release by UUID before reuse with distinct names.
+  Request keys remain pool-local. Upgrade all writers together; never remove old
+  per-pool or repository lock files. Core task validation now matches the CLI's
+  ASCII, 128-character, non-UUID label grammar.
+
+- Task commands accept positional labels/UUIDs and `path` prints a reservation's
+  checkout path. Unnamed CLI acquisitions receive generated labels, stable across
+  retries with the same key. `--task` and `--reservation-id` remain accepted with
+  deprecation warnings for this release. New labels use 1–128 ASCII letters,
+  digits, dots, underscores or hyphens and cannot resemble UUIDs. JSON stays at
+  api_version 2: `path` reuses the reservation result and existing commands retain
+  their envelope, result types and exit categories.
+
+- Additive CLI rollout: pool settings accept `KEY=VALUE`; pool/config keys accept
+  kebab-case and legacy underscores. Context flags are advertised only by the
+  commands that use them. Existing global parsing remains during this phase.
+
+- Infer `show`'s reservation from the current managed workspace, including its
+  subdirectories, using the same validated registration as release.
+
+- List active reservations across every ready pool by default, with a POOL column
+  and additive optional `pool` field. Filtering precedes global pagination.
+
+- Resolve task and reservation-ID selectors across pools when `--pool` is omitted.
+  Explicit misses report other matching pools; duplicate labels require an
+  unambiguous UUID. Saved-release retries also locate retained receipts.
+
+- Accept positional pool names on `pool init`, `show`, `get`, `set` and `destroy`.
+  Legacy `--pool` remains accepted; conflicting explicit names are rejected.
+  These additive selectors retain JSON API version 2 and its existing result types.
+
 ### Fixed
 
 - Buffer metadata JSON fragments before writing, without changing stored bytes,

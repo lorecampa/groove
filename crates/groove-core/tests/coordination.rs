@@ -23,7 +23,7 @@ fn pool(repo: &Repo, capacity: usize) -> Pool {
 fn options(key: &str) -> ReservationOptions {
     ReservationOptions {
         request_key: Some(key.into()),
-        task: Some("review task".into()),
+        task: Some("review-task".into()),
         ..Default::default()
     }
 }
@@ -78,7 +78,7 @@ fn task_keys_survive_restart_reject_conflicts_and_never_reassign_completed_reque
         fs::read_to_string(first.worktree_path.join("tracked.txt")).unwrap(),
         "saved task state"
     );
-    assert_eq!(again.task.as_deref(), Some("review task"));
+    assert_eq!(again.task.as_deref(), Some("review-task"));
     assert!(again.acquired_at_unix_ms.is_some());
     let mut conflict = options("operation-1");
     conflict.acquire.base = "HEAD~0".into();

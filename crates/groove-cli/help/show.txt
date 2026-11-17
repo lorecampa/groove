@@ -1,10 +1,14 @@
 EXAMPLES:
-  groove show --task fix-parser
-  groove show --reservation-id UUID --details
-  groove show --slot wt-0001
+  groove show fix-nav
+  groove path fix-nav
+  groove show                              # infer from the current workspace
+  groove show UUID --details
+  groove pool show frontend --slot wt-0001
 
-Exactly one selector is required: --task, --reservation-id or --slot.
-Show one reservation (or its release receipt) and its slot, or one permanent slot.
+RESERVATION is a task label or reservation UUID, searched across every pool.
+When omitted, the current acquired workspace (including subdirectories) selects
+its active reservation. --repo can select that workspace from elsewhere.
+Show one reservation (or its release receipt) and its slot.
 Historical reservation output includes active=false; successful inspection does
 not prove an active assignment. Slots retain reservation history, marked with
 reservation_active=false. Only active task labels appear in the current task column.

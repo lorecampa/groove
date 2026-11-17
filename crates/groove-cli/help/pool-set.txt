@@ -1,26 +1,32 @@
 EXAMPLES:
   groove pool show
-  groove pool set --capacity 8 --cleanup warm
+  groove pool set frontend capacity=8 cleanup=warm
+  groove pool set ready-target=0 idle-timeout=never
+  groove pool set frontend git-timeout=10m
 
-Pool settings are a fixed typed set of flags; preferences use an extensible key space in a file.
+Settings accept KEY=VALUE and legacy flags. Keys use kebab-case; underscore
+spellings remain accepted. A key may appear only once per update. root is read-only.
+git-timeout is the saved foreground Git budget, default 2m. A command timeout
+override never changes it. ready-git-timeout overrides it for background work.
 
-`pool show`/`pool set` read or change the selected pool (see --pool).
+NAME selects the pool. Without NAME, select the owning workspace's pool or the
+repository's only pool; otherwise report the available names and require NAME.
 Growth preserves existing reservations and locks; shrinking is unsupported.
 Cleanup changes apply to future acquisitions; in-flight preparation may finish
 with the old policy.
 Updates publish atomically and unchanged values report updated: false.
 
 READY CHECKOUTS:
-  groove pool set --ready-target 2 --idle-timeout 7d --ready-base main
-  groove pool set --ready-target 0 --idle-timeout never
+  groove pool set ready-target=2 idle-timeout=7d ready-base=main
+  groove pool set ready-target=0 idle-timeout=never
 
-ready_target is the desired count of prepared, unreserved checkouts. It must not
+ready-target is the desired count of prepared, unreserved checkouts. It must not
 exceed capacity in the complete candidate update. Zero disables replenishment;
-idle_timeout=never disables eviction. Durations are positive whole s/m/h/d values.
-ready_base is a local revision; HEAD resolves to the calling checkout's branch or
-commit when set. Global pool_defaults only seed new pools.
+idle-timeout=never disables eviction. Durations are positive whole s/m/h/d values.
+ready-base is a local revision; HEAD resolves to the calling checkout's branch or
+commit when set. Global pool-defaults only seed new pools.
 
-Successful pool init/pool set/acquire/release operations start a short-lived worker.
+Successful pool create/pool set/acquire/release operations start a short-lived worker.
 It prepares available slots and evicts excess idle checkouts while preserving
 the ready target where capacity allows. Already-prepared checkouts for the current
 reservation count before newer releases, so another release is left untouched after
@@ -41,6 +47,6 @@ In-flight background work may finish using previously observed settings.
 Legacy pools remain lazy until explicitly configured. Pools without a lifecycle
 generation must be explicitly recreated before enabling automatic work.
 
---ready-git-timeout DURATION persists the background worker's per-Git-operation
-budget (positive ms/s/m/h). Unset inherits the triggering command's --git-timeout.
+ready-git-timeout=DURATION persists the background worker's per-Git-operation
+budget (positive ms/s/m/h). Unset inherits the pool's saved git-timeout.
 Large repositories should persist the value their acquires need, e.g. 45m.

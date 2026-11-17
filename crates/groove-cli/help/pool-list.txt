@@ -2,12 +2,13 @@ EXAMPLES:
   groove pool list
   groove pool list --all
   groove pool list --disk-usage
-  groove --pool frontend pool init --capacity 3 --cleanup warm
-  groove --pool backend pool init --capacity 2 --cleanup pristine
-  groove --pool frontend acquire --task fix-navigation
-  groove --pool frontend pool destroy --dry-run
+  groove pool create frontend --capacity 3 --cleanup warm
+  groove pool create backend --capacity 2 --cleanup pristine
+  groove acquire fix-navigation -p frontend
+  groove pool delete frontend --dry-run
 
-Omitting --pool selects default; it never selects a different available pool.
+Acquisition selects an explicit pool, the owning workspace's pool, or the only
+pool in that order. Several pools outside a workspace require an explicit name.
 Names are 1..64 lowercase ASCII letters, digits, '_' or '-', starting with a
 letter. Pool names are portable across case-sensitive and case-insensitive disks.
 All linked worktrees share this catalog. Use --all to include deleted pools.
@@ -28,12 +29,13 @@ concurrent changes can shift offset pages. Disk usage scans only the returned pa
 history. Large pools can take time to scan. Sizes are logical file bytes; shared
 Git objects and snapshots are excluded. Interrupted pools show '-' (storage:null).
 
-Capacity, cleanup, checkout roots, task labels, idempotency keys, caches, history and
+Capacity, cleanup, checkout roots, idempotency keys, caches, history and
 saved-release receipts are scoped to each pool. Keys stay tombstoned across reinit of
 that same pool. Snapshots, branches, Git objects and repository configuration are
-shared. Pools are not security sandboxes; slot numbers are pool-local.
+shared. Task labels are unique across the repository. Pools are not security
+sandboxes; slot numbers are pool-local.
 
-Destroy requires an explicit --pool NAME when several non-deleted pools exist.
+Deletion always requires an explicit pool name.
 --pool-id checks a generation inside that namespace; it does not select a pool.
 The original default pool keeps its existing directory and permanent locks.
 Named pools live beneath <GIT_COMMON_DIR>/groove/pools/<name>/; their checkout

@@ -1,0 +1,10 @@
+DURATIONS AND SIZES
+Durations use a whole integer followed by ms, s, m or h. Bare numbers are invalid.
+--wait accepts zero (0s scans once) and limits waiting for capacity. Git operations
+on a slot acquired by this caller use the separate positive --timeout budget.
+Pool git-timeout defaults to 2m; a command override does not change the saved value.
+idle-timeout and snapshot --older-than also accept d for days. idle-timeout accepts
+never; snapshot --older-than accepts zero. No duration expires a reservation.
+
+--max-file-size defaults to 100M. Bytes or K/M/G (powers of 1024) are accepted,
+including KB/KiB suffixes, case-insensitively. Zero means unlimited.

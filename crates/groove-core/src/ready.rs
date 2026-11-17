@@ -10,6 +10,11 @@ use std::{fmt, str::FromStr, time::Duration};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct ReadyGitTimeout(Duration);
+impl Default for ReadyGitTimeout {
+    fn default() -> Self {
+        Self(crate::DEFAULT_GIT_TIMEOUT)
+    }
+}
 impl ReadyGitTimeout {
     /// Return the positive per-Git-operation timeout.
     pub fn duration(self) -> Duration {

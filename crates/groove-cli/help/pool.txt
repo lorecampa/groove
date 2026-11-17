@@ -1,12 +1,15 @@
 EXAMPLES:
-  groove pool init --capacity 4
+  groove pool create frontend --capacity 4
   groove pool list --all
-  groove --pool default pool show --details
-  groove pool set --capacity 8 --cleanup warm
-  groove pool destroy --force --dry-run
+  groove pool show frontend --details
+  groove pool set frontend capacity=8 cleanup=warm
+  groove pool delete frontend --force --dry-run
 
-Pools bound reusable workspace capacity for this repository. --pool selects a
-namespace (default: default), except pool list, which lists the repository catalog
-and rejects --pool. Settings updates preserve active reservations and permanent
+Pools bound reusable workspace capacity for this repository. Each administrative
+command names its pool positionally. Creation defaults to the name default;
+deletion always requires an explicit name. Show/get/set without a name select
+the owning workspace's pool, then the repository's only pool, otherwise report
+the available names and require a selection. Pool list shows the repository catalog.
+Settings updates preserve active reservations and permanent
 locks. Deletion requires stopped writers and never bypasses durable reservations.
 Run each subcommand's --help for its defaults, effects and recovery rules.

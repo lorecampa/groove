@@ -116,11 +116,16 @@ fn spawn(args: &Args, selected_pool: Option<&groove_core::PoolName>) -> Result<(
             inherited.push(fd);
         }
     }
-    let worker_timeout_ms = pool
-        .settings()?
+    let settings = pool.settings()?;
+    let foreground = if args.git_timeout_explicit {
+        args.git_timeout_ms
+    } else {
+        settings.git_timeout.duration().as_millis() as u64
+    };
+    let worker_timeout_ms = settings
         .ready
         .and_then(|r| r.ready_git_timeout)
-        .map_or(args.git_timeout_ms, |t| t.duration().as_millis() as u64);
+        .map_or(foreground, |t| t.duration().as_millis() as u64);
     let mut command = Process::new(std::env::current_exe()?);
     command
         .arg("--internal-ready-worker")

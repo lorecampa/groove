@@ -20,6 +20,8 @@ pub(crate) const SCHEMA_VERSION: u32 = 1;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Config {
+    #[serde(default)]
+    pub git_timeout: crate::ReadyGitTimeout,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ready_lock: Option<Identity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

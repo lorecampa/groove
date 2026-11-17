@@ -1,4 +1,4 @@
 EXAMPLES:
-  groove pool set --capacity 8 --cleanup warm
-  groove pool set --ready-target 0 --idle-timeout never
+  groove pool set frontend capacity=8 cleanup=warm
+  groove pool set frontend ready-target=0 idle-timeout=never git-timeout=10m
 Updates preserve reservations and locks; shrinking is unsupported.

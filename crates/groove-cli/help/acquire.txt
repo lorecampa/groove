@@ -1,7 +1,8 @@
 EXAMPLES:
-  groove acquire --task fix-parser
-  groove acquire --task fix-parser --idempotency-key issue-42-attempt-1
-  groove acquire --task 'investigate flake' --base main --wait 5s
+  groove acquire fix-nav --key nav-1
+  groove acquire fix-nav -b main -w 30s --print-path
+  groove acquire fix-parser -p frontend --key issue-42-attempt-1
+  groove acquire investigate-flake --base main --wait 5s
 
 Released slots with observed processes are skipped before cleanup. Stop lingering
 shells, editors and builds; run acquire from outside any slot you want to reuse.
@@ -11,10 +12,15 @@ verified clean checkout. Resolve the reported Git/filesystem issue before retryi
 Reserves a cleaned, verified checkout of --base (default HEAD) until it is
 explicitly released. HEAD resolves where you run the command, so from a linked
 worktree it is that checkout's commit. HEAD is detached in the reservation;
-Groove never creates or switches branches. --task names the reservation so later
-commands can select it with --task NAME instead of the reservation ID. An active label
+Groove never creates or switches branches. TASK names the reservation so later
+commands can select it by label instead of the reservation UUID. An omitted TASK
+gets a generated label. Labels use 1–128 ASCII letters, digits, dots, underscores
+or hyphens, must not look like UUIDs, and are unique across the repository. An active label
 cannot be reused: a second acquire with it fails with INVALID_ARGUMENT naming the
-existing lease and path. Labels and keys must not contain control characters.
+existing reservation and path. Keys must not contain control characters.
+Select a pool with -p/--pool. Otherwise the owning workspace selects its pool,
+then a repository with exactly one pool selects that pool. With several pools
+outside a workspace, acquisition reports the available names and requires -p.
 
 On macOS, unmount directories inside slots first: acquisition has no mount-table
 safeguard. Linux checks visible mounts, including same-device bind mounts.
@@ -38,7 +44,7 @@ free slot (not checkout preparation, which has its own Git timeouts). There is
 no FIFO fairness. On POOL_EXHAUSTED or ACQUIRE_TIMEOUT, wait or inspect with
 `groove list`; never bypass capacity.
 A Git preparation timeout stops the scan immediately with POOL_UNHEALTHY (exit 6).
-Inspect that failure and increase --git-timeout for legitimately slow Git work.
+Inspect that failure and increase --timeout for legitimately slow Git work.
 Recognizable foreign repositories, moved worktrees and conflicting registration
 claims at a slot path refuse preparation. Safely move the occupant back to its
 original location or outside the pool before retrying; preserve its worktree
@@ -67,4 +73,6 @@ reduce reservable capacity and never expire a protected reservation.
 --path-only prints exactly the workspace path and a newline in human mode.
 The JSON acquisition response is unchanged by --path-only.
 --wait requires a non-negative integer and a unit (ms, s, m or h), for example
---wait 30s. It defaults to 0s. --git-timeout defaults to 2m and must be positive.
+--wait 30s. It defaults to 0s. --timeout defaults to the pool's saved git-timeout
+(initially 2m) and must be positive. --key aliases --idempotency-key;
+--print-path aliases --path-only. Legacy --task remains accepted with a warning.

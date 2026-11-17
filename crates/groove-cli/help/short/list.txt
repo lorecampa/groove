@@ -1,2 +1,3 @@
 EXAMPLE:
-  groove list --slots
+  groove list
+  groove list -p frontend

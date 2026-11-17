@@ -1,7 +1,7 @@
 WORKFLOW:
-  groove pool init --capacity 4
-  groove acquire --task fix-parser
+  groove pool create frontend --capacity 4
+  groove acquire fix-parser -p frontend --key issue-42
   # Work in the returned checkout; create a branch to keep commits.
-  groove release --save --task fix-parser
+  groove release fix-parser --save -m 'parser fix'
 
 Stop all writers before release. Reservations persist until explicitly released.

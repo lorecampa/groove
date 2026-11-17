@@ -78,21 +78,21 @@ Follow the [installation guide](../README.md#install), then initialize from your
 repository:
 
 ```sh
-groove pool init --capacity 4
+groove pool create default --capacity 4
 # Alternative settings, chosen once on a new pool:
-groove --repo /other/repo pool init --capacity 4 --cleanup warm \
-  --workspace-root /absolute/dedicated/groove-worktrees
+groove --repo /other/repo pool create default --capacity 4 --cleanup warm \
+  --root /absolute/dedicated/groove-worktrees
 ```
 
 Initialization creates fixed slot metadata; acquisition materializes worktrees.
 A pool requires a first commit, including when no ready spares are requested.
 Standalone snapshots remain available before that first commit.
 New pools default to zero ready spares. Enable preparation explicitly with
-`--ready-target N` or `pool_defaults.ready_target`; existing pool settings are
+`--ready-target N` or `pool-defaults.ready-target`; existing pool settings are
 unchanged. Idle eviction still defaults to seven days and runs opportunistically.
 A ready pool rejects every repeated init. Its checkout root stays fixed until
 the pool is deleted and reinitialized.
-Use `groove pool set --capacity 8 --cleanup warm` to grow/change future cleanup.
+Use `groove pool set NAME capacity=8 cleanup=warm` to grow/change future cleanup.
 Updates validate all values before publication; shrinking is unsupported. Active
 reservations and permanent locks survive. Matching interrupted initialization
 resumes automatically; `--resume` remains accepted. Differing settings are rejected.
@@ -106,7 +106,7 @@ State stays in `<GIT_COMMON_DIR>/groove/`; new checkout roots default to
 checkouts out of Spotlight indexing. Existing and custom roots stay unchanged.
 Change the parent with
 `groove config set worktrees.root=/absolute/worktrees`, or choose an exact
-pool root with `pool init --workspace-root`. See `pool init --help` for naming and precedence.
+pool root with `pool create NAME --root`. See `pool create --help` for naming and precedence.
 Existing pools retain their recorded roots, including legacy roots in `.git`.
 To relocate one, stop all writers, preserve results and release every reservation,
 then destroy and reinitialize with the desired root. Never move checkout directories
@@ -126,17 +126,26 @@ already-started preparation may use its observed policy.
 Use a named pool when workflows need separate capacity, cleanup or caches:
 
 ```sh
-groove --pool frontend pool init --capacity 3 --cleanup warm
-groove --pool backend pool init --capacity 2 --cleanup pristine
+groove pool create frontend --capacity 3 --cleanup warm
+groove pool create backend --capacity 2 --cleanup pristine
 groove pool list
-groove --pool frontend acquire --task fix-navigation --idempotency-key navigation-1
-groove --pool frontend release --save --task fix-navigation
+groove acquire fix-navigation -p frontend --key navigation-1
+groove release fix-navigation --save -m 'navigation fix'
 ```
 
-Pass the same `--pool` on later pool commands. Without it, a managed workspace
-selects its owning pool (also when selected through `--repo`); other paths select `default`,
-and missing selected pools never fall back to another namespace.
-Labels/keys can be reused independently across pools. Named state lives under
+Pool selection applies at acquisition and pool administration. An explicit name
+wins, followed by the current workspace's owning pool (also through `--repo`),
+then the sole non-deleted pool. Multiple pools require an explicit choice.
+Creation alone defaults to the name `default`; deletion always requires a name.
+Release, show and path find labels or UUIDs across pools, or infer the reservation
+from the current workspace when omitted. Labels are unique within the repository;
+keys remain pool-local. Labels contain 1–128 ASCII letters, digits, dots,
+underscores or hyphens, and cannot resemble UUIDs. An omitted acquisition label
+is generated, with stable identity when retried using the same key.
+Existing duplicate labels require migration: inspect their UUIDs, preserve and
+release each reservation by UUID, then acquire distinct labels. Upgrade all
+writers together; older clients cannot participate in repository label locking.
+Never remove permanent old or new label locks. Named state lives under
 `<common>/groove/pools/<name>/`; default retains its original layout and keys.
 All linked checkouts share the catalog. Snapshots, branches, objects and Git configuration
 are shared.
@@ -158,17 +167,16 @@ being deleted, and exact native registrations are removed without trusting slot
 Release every task and stop all writers, then run from outside the pool:
 
 ```sh
-groove pool destroy --dry-run
-groove pool destroy
+groove pool delete frontend --dry-run
+groove pool delete frontend --yes
 # If released workspaces still contain edits, ignored caches or broken checkouts:
-groove pool destroy --force --dry-run
-groove pool destroy --force
-groove --pool frontend pool destroy --dry-run
-groove --pool frontend pool destroy --force
+groove pool delete frontend --force --dry-run
+groove pool delete frontend --force --yes
 ```
 
-With several non-deleted pools, destruction requires explicit `--pool NAME`, even
-for default. Only that namespace is removed. `--pool-id` checks its generation;
+Deletion requires an explicit NAME and confirmation. On a terminal Groove asks;
+without one, pass `--yes`. `--dry-run` previews without deleting or prompting.
+Only that namespace is removed. `--pool-id` checks its generation;
 it never searches for or selects a different pool. Healthy sibling checkouts and
 workers remain usable during another pool's interrupted initialization/deletion.
 Short Git registration/root updates still serialize through the repository admin lock.
@@ -206,7 +214,7 @@ files or another live repository's marker. A new pool still requires an empty ro
 An interruption leaves the pool disabled. Repeat the same destroy command, including
 its discard flag, to resume. Completed retries succeed. For automation, pass
 `--pool-id UUID` from the preview/result so a retry cannot target a replacement pool.
-After completion, `pool init` can choose new capacity, cleanup and checkout-root settings;
+After completion, `pool create` can choose new capacity, cleanup and checkout-root settings;
 old library/snapshot handles are rejected and completed request keys remain tombstoned.
 Destroy also cancels interrupted initialization without creating worktrees.
 If metadata or an original default-root location is damaged, repair/restore it
@@ -226,17 +234,18 @@ If descriptors remain held without a live preparation lock owner, stop surviving
 writers; Groove reports the condition but never breaks their locks.
 
 [The portable skill](../skills/groove/SKILL.md) covers acquire, retry, work and
-release --save. Normal commands select a reservation with `--task` (its label) or `--reservation-id`; slot IDs
+release --save. Task commands accept a positional label or reservation UUID; slot IDs
 identify reusable directories for diagnostics.
 Reservations survive process exit and restart, with no TTL or automatic reclamation.
 
 ```sh
 groove list
-groove list --slots
-groove show --slot wt-0001
+groove pool show frontend
+groove pool show frontend --slot wt-0001
 ```
 
-`list` lists durable reservations. `list --slots` includes available, reserved,
+`list` lists durable reservations across pools; `-p NAME` filters them.
+`pool show NAME` includes available, reserved,
 locked, quarantined and unhealthy slots, plus task labels and acquisition times. These are nontransactional observations; PIDs/age never prove
 ownership or stopped writers. A live in-process library lease need not appear
 in `list`.
@@ -300,14 +309,14 @@ For example, this shell script uses a C project configured for `make` and `ccach
 ```sh
 set -eu
 # In the repository; this pool uses the default pristine cleanup.
-groove --pool builds pool init --capacity 2
-lease=$(groove --json --pool builds acquire --task fix-parser)
+groove pool create builds --capacity 2
+lease=$(groove --json acquire fix-parser -p builds)
 workspace=$(printf '%s\n' "$lease" | jq -er 'select(.ok == true) | .result.workspace_path')
 reservation_id=$(printf '%s\n' "$lease" | jq -er '.result.reservation_id')
 # The compiler cache survives workspace cleanup; object files stay in this slot.
 (cd "$workspace" && CCACHE_DIR="$HOME/.cache/ccache" CCACHE_NOHARDLINK=1 make CC='ccache cc')
 # Export required ignored outputs and stop every writer before releasing.
-groove --pool builds release --save --reservation-id "$reservation_id"
+groove release "$reservation_id" --save
 ```
 
 Check the acquisition's exit status and `ok` before using its paths in automation.
@@ -330,10 +339,10 @@ them up. Request journals and saved-release receipts have no automatic expiry.
 
 ## Recovery
 
-Inspect the affected reservation with `list --slots` or `show` and follow the
+Inspect the affected reservation with `list`, `pool show NAME` or `show` and follow the
 reported next action. Command `--help` owns error-specific recovery instructions.
 Retry a lost acquisition with its original key and
-inputs; retry a saved release with its original reservation ID and pool. Never infer
+inputs; retry a saved release with its original reservation ID. Never infer
 ownership from labels, PIDs or age.
 
 If a repository was moved, restore its recorded location: pool manifests and Git
@@ -381,7 +390,7 @@ recovery, not storage/power-loss guarantees. See [testing](testing.md).
 
 Groove does not read `.groove.toml` or run setup profiles, recipes or agents.
 Use the reserved checkout directly with your terminal or agent runner.
-`show --details` and `list --details` opt into local Git facts.
+`show --details` and `pool show NAME --details` opt into local Git facts.
 
 ## Upgrading from managed execution
 
@@ -393,9 +402,12 @@ disk. This version provides no run-history or log-cleanup commands.
 
 Repository compatibility is listed under [requirements](#requirements).
 
-Background preparation has an optional pool-specific Git timeout. Persist the
-budget required by large-repository acquires with `pool set --ready-git-timeout
-45m`; otherwise each worker inherits the triggering command's `--git-timeout`.
+Persist foreground budgets with `pool set NAME git-timeout=10m`; creation uses
+`--git-timeout` or the user setting `pool-defaults.git-timeout` (default two
+minutes). `acquire/release --timeout` overrides one invocation. Background
+preparation can use `pool set NAME ready-git-timeout=45m`; otherwise it uses the
+pool's foreground budget. Pool get/set and config use kebab-case keys, with
+`KEY=VALUE` assignments for every set. `root` is read-only after creation.
 Preparation failures include the elapsed budget and the setting to adjust.
 
 A Git preparation timeout leaves an available or released slot eligible for retry;
@@ -403,9 +415,8 @@ it is evidence of slowness rather than corruption. Inspect the failure in slot
 views or the ready report, increase the relevant budget, and retry. Successful
 acquisition clears the failure. Inconsistent or foreign checkouts still quarantine.
 
-Recovery hints carry the selected pool and repository. Inside a managed workspace,
-the inferred owning pool is retained in copied commands even when `--pool` was
-omitted, so saved-release advice applies to the original reservation.
+Recovery hints carry the repository and original reservation identity. UUID
+selection resolves the original pool even after slot reuse.
 
 Pool destruction accepts residual files when they still match the pinned snapshot
 from `release --save`. Later edits and ignored files still refuse deletion without

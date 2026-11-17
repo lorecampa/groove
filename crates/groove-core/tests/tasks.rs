@@ -26,7 +26,7 @@ fn task(label: &str) -> ReservationOptions {
 fn reservations_are_detached_and_found_by_task_label() {
     let repo = Repo::new();
     let pool = pool(&repo, 2);
-    let lease = pool.reserve(task("fix parser")).unwrap();
+    let lease = pool.reserve(task("fix-parser")).unwrap();
     assert_eq!(lease.head_mode, HeadMode::Detached);
     assert_eq!(
         git(&lease.worktree_path, &["rev-parse", "HEAD"]),
@@ -41,12 +41,12 @@ fn reservations_are_detached_and_found_by_task_label() {
         git(&repo.path, &["branch", "--show-current"])
     );
     assert_eq!(
-        pool.lease_by_task("fix parser").unwrap().lease_id,
+        pool.lease_by_task("fix-parser").unwrap().lease_id,
         lease.lease_id
     );
     pool.release_lease(lease.lease_id).unwrap();
     assert_eq!(
-        pool.lease_by_task("fix parser").unwrap_err().code,
+        pool.lease_by_task("fix-parser").unwrap_err().code,
         ErrorCode::LeaseMismatch
     );
 }
@@ -108,7 +108,12 @@ fn concurrent_reservations_of_one_label_admit_exactly_one() {
 fn labels_with_control_characters_are_rejected_before_allocation() {
     let repo = Repo::new();
     let pool = pool(&repo, 1);
-    for label in ["\u{1b}]0;title\u{7}", "two\nlines", "nul\0byte"] {
+    for label in [
+        "\u{1b}]0;title\u{7}",
+        "two\nlines",
+        "nul\0byte",
+        "plain label, unicode è",
+    ] {
         let error = pool.reserve(task(label)).unwrap_err();
         assert_eq!(error.code, ErrorCode::InvalidArgument, "{label:?}");
     }
@@ -121,7 +126,7 @@ fn labels_with_control_characters_are_rejected_before_allocation() {
     assert_eq!(error.code, ErrorCode::InvalidArgument);
     // Nothing was allocated: the only slot is still free.
     assert!(pool.protected_leases().unwrap().is_empty());
-    pool.reserve(task("plain label, unicode è")).unwrap();
+    pool.reserve(task("plain-label_7.ok")).unwrap();
 }
 
 #[test]

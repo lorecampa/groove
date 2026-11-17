@@ -42,15 +42,18 @@ fn short(oid: &str) -> &str {
 
 pub fn acquire(context: &Context<'_>, request: AcquireRequest) -> Result<Output> {
     let pool = context.pool()?;
-    let lease = pool.reserve(ReservationOptions {
-        acquire: groove_core::AcquireOptions {
-            base: request.base,
-            wait: request.wait,
-            git_timeout: context.git_timeout,
-        },
-        task: request.task,
-        request_key: request.request_key,
-    })?;
+    let lease = pool.reserve(
+        ReservationOptions {
+            acquire: groove_core::AcquireOptions {
+                base: request.base,
+                wait: request.wait,
+                git_timeout: context.git_timeout,
+            },
+            task: request.task,
+            request_key: request.request_key,
+        }
+        .with_generated_task(),
+    )?;
     tracing::info!(event = "workspace.reserved", slot = %lease.slot_id, lease_id = %lease.lease_id, "Workspace reserved");
     if request.path_only {
         Output::raw(
@@ -66,15 +69,13 @@ fn release_saved(
     context: &Context<'_>,
     selector: &LeaseSelector,
     save: SaveOptions,
-    force: bool,
+    _force: bool,
 ) -> Result<Output> {
     let pool = context.retained_pool()?;
     let id = select_id(&pool, selector, context.repo)?;
     let outcome = || {
-        if !force {
-            // --save preserves changes; only other writers block it.
-            pool.ensure_quiescent(id, false, context.git_timeout)?;
-        }
+        // --save preserves changes; force never authorizes concurrent writers.
+        pool.ensure_quiescent(id, false, context.git_timeout)?;
         let save = SaveOptions {
             session: Some(id.to_string()),
             ..save
@@ -119,9 +120,7 @@ pub fn release(
     let pool = context.pool()?;
     let id = select_id(&pool, selector, context.repo)?;
     let outcome = || {
-        if !force {
-            pool.ensure_quiescent(id, true, context.git_timeout)?;
-        }
+        pool.ensure_quiescent(id, !force, context.git_timeout)?;
         let result: ReleaseResult = pool.release_lease(id)?;
         tracing::info!(event = "workspace.released", slot = %result.slot_id, lease_id = %id, "Workspace released");
         let text = format!(

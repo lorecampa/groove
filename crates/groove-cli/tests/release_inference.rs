@@ -187,8 +187,8 @@ fn explicit_selectors_win_and_an_explicit_wrong_pool_never_falls_back() {
     let repo = Repo::new();
     let default = pool(&repo, "default");
     let frontend = pool(&repo, "frontend");
-    let other = reserve(&default, Some("same"));
-    let current = reserve(&frontend, Some("same"));
+    let other = reserve(&default, Some("other"));
+    let current = reserve(&frontend, Some("current"));
     failure(
         &run(&current.worktree_path, &["--pool", "default", "release"]),
         2,
@@ -198,7 +198,7 @@ fn explicit_selectors_win_and_an_explicit_wrong_pool_never_falls_back() {
     protected(&frontend, &current);
     let output = success(&run(
         &current.worktree_path,
-        &["--pool", "default", "release", "--task", "same"],
+        &["--pool", "default", "release", "--task", "other"],
     ));
     assert_eq!(
         output["release"]["reservation_id"],
@@ -434,8 +434,8 @@ fn release_retry_guidance_keeps_the_inferred_named_pool() {
         current.lease_id.to_string()
     );
     let hint = error["hint"].as_str().unwrap();
-    assert!(hint.contains("--pool frontend"), "{hint}");
-    assert!(!hint.contains("--pool default"), "{hint}");
+    assert!(hint.contains(&current.lease_id.to_string()), "{hint}");
+    assert!(!hint.contains("--pool"), "{hint}");
     protected(&default, &other);
     protected(&frontend, &current);
     success(&run(

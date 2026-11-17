@@ -1,2 +1,2 @@
 EXAMPLE:
-  groove config set logging.max_files=50
+  groove config set logging.max-files=50 pool-defaults.git-timeout=10m

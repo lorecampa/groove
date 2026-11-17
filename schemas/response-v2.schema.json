@@ -589,6 +589,10 @@
     },
     "reservation": {
       "properties": {
+        "pool": {
+          "$ref": "#/$defs/pool_name",
+          "description": "Owning pool namespace when returned by repository-wide listing."
+        },
         "acquired_at_unix_ms": {
           "minimum": 0,
           "type": "integer"
@@ -896,6 +900,7 @@
     "pool_settings": {
       "type": "object",
       "properties": {
+        "git_timeout": { "type": "string", "pattern": "^[1-9][0-9]*(ms|s|m|h)$" },
         "pool_name": {
           "$ref": "#/$defs/pool_name"
         },
@@ -1127,6 +1132,7 @@
         "deleted"
       ],
       "properties": {
+        "deleted_snapshots": { "type": "array", "items": { "$ref": "#/$defs/uuid" } },
         "deleted": {
           "$ref": "#/$defs/uuid"
         }
@@ -1621,6 +1627,9 @@
     "acquire": [
       "reservation"
     ],
+    "path": [
+      "reservation"
+    ],
     "completions": [
       "text"
     ],
@@ -1645,7 +1654,7 @@
       "slot_result"
     ],
     "snapshot delete": [
-      "snapshot_delete_result"
+      "snapshot_delete_result", "snapshots_result"
     ],
     "snapshot diff": [
       "snapshot_diff_result"
@@ -1670,11 +1679,17 @@
     "pool init": [
       "init"
     ],
+    "pool create": [
+      "init"
+    ],
+    "pool delete": [
+      "destruction_result"
+    ],
     "pool list": [
       "pools_result"
     ],
     "pool show": [
-      "pool_show_result"
+      "pool_show_result", "slot_result"
     ],
     "pool set": [
       "pool_result"

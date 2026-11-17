@@ -1,4 +1,4 @@
 EXAMPLE:
-  groove pool init --capacity 4
+  groove pool create frontend --capacity 4 --git-timeout 10m
 
 Existing pools keep their settings; use pool show or pool set.

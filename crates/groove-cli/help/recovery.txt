@@ -1,0 +1,17 @@
+RECOVERY
+Reservations survive process exit and never expire. Stop every writer before
+release, checkpoint or deletion. A PID, label, timestamp or metadata record does
+not establish ownership. Never remove or replace permanent lock files.
+
+After a lost acquire response, retry the same pool, key, base and task. After a
+lost saved-release response, retry by reservation UUID, not a reusable task label.
+Use list to find reservations across pools and pool show NAME to inspect slots.
+--force acknowledges loss of unsaved work; it never bypasses active writers.
+
+Preserve results on a branch or with release --save. Snapshots remain local;
+recover one with snapshot restore SNAPSHOT --to DIR. Do not move pool roots.
+For a moved repository, restore its recorded location before recovery.
+
+Run groove help recovery COMMAND for command-specific recovery rules, for example:
+  groove help recovery release
+  groove help recovery pool delete

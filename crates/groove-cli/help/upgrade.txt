@@ -4,12 +4,12 @@ EXAMPLES:
   groove upgrade --dry-run --with-plugins
   groove upgrade
   groove upgrade --with-plugins
-  groove upgrade --target-version 0.4.0 --timeout 45m
+  groove upgrade --to 0.5.0 --timeout 45m
   groove --json upgrade --check
 
-Upgrade works outside repositories. --repo is not used and --pool is rejected.
+Upgrade works outside repositories; --repo is accepted and needs no repository.
 Default: latest non-yanked stable groove-cli release from crates.io. An exact
---target-version must also exist and not be yanked. Prereleases and downgrades
+--to must also exist and not be yanked. Prereleases and downgrades
 are rejected. --check exits 0 on successful discovery, including when an update
 exists; inspect components[].update_available. --dry-run shows literal commands.
 Neither check nor preview installs, refreshes catalogs or changes Cargo records.

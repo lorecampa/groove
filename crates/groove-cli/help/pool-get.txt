@@ -1,8 +1,11 @@
 EXAMPLES:
   groove pool get capacity
-  groove --pool frontend pool get workspace-root
+  groove pool get frontend root
 
 Print one effective setting and a newline, or an empty line when unset.
-Keys: capacity, cleanup, ready-target, idle-timeout, ready-base, ready-git-timeout, workspace-root.
+Keys: capacity, cleanup, ready-target, idle-timeout, ready-base, git-timeout,
+ready-git-timeout, root. The root is read-only.
+Without NAME, select the owning workspace's pool or the repository's only pool;
+otherwise report the available names and require an explicit name.
 JSON returns key and value (with null for an unset setting).
 Unknown keys fail with INVALID_ARGUMENT. Use pool set to change typed settings.

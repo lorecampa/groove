@@ -87,7 +87,7 @@ fn invalid_root_does_not_publish_init_and_fixed_permissions_need_no_resume() {
     fs::set_permissions(&root, fs::Permissions::from_mode(0o755)).unwrap();
     response(&repo.path, &args);
     assert_eq!(
-        response(&repo.path, &["pool", "show"])["pool"]["capacity"],
+        response(&repo.path, &["pool", "show", "default"])["pool"]["capacity"],
         2
     );
 }
@@ -212,7 +212,7 @@ fn workspace_selects_owning_pool_and_explicit_selection_wins() {
         2
     );
     assert_eq!(
-        response(&repo.path, &["pool", "show"])["pool"]["capacity"],
+        response(&repo.path, &["pool", "show", "default"])["pool"]["capacity"],
         2
     );
     response(&nested, &["release", "--task", "c"]);
@@ -311,7 +311,7 @@ fn destroy_prunes_expired_requests_and_retains_recent_replay_protection() {
     let expired = journal(&repo, "expired");
     let recent = journal(&repo, "recent");
     age(&expired);
-    response(&repo.path, &["pool", "destroy"]);
+    response(&repo.path, &["pool", "delete", "default", "--yes"]);
     assert!(!expired.exists());
     assert!(recent.exists());
 }

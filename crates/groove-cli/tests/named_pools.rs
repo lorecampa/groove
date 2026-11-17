@@ -28,9 +28,9 @@ fn disk_usage_is_opt_in_scoped_and_includes_ignored_files_without_following_syml
             &["--pool", pool, "pool", "init", "--capacity", "1"],
         ));
     }
-    let acquired = assert_success(&cli(&repo, &["acquire", "--task", "sizing"]));
+    let acquired = assert_success(&cli(&repo, &["acquire", "sizing", "-p", "default"]));
     let path = std::path::Path::new(acquired["result"]["workspace_path"].as_str().unwrap());
-    let before = cli(&repo, &["pool", "show", "--disk-usage"]);
+    let before = cli(&repo, &["pool", "show", "default", "--disk-usage"]);
     assert!(before.status.success());
     let before = checked(&before)["result"]["storage"]["workspace_bytes"]
         .as_u64()
@@ -46,7 +46,7 @@ fn disk_usage_is_opt_in_scoped_and_includes_ignored_files_without_following_syml
     assert!(checked(&plain)["result"]["pools"][0]
         .get("storage")
         .is_none());
-    let plain = cli(&repo, &["pool", "show"]);
+    let plain = cli(&repo, &["pool", "show", "default"]);
     assert!(plain.status.success());
     assert!(checked(&plain)["result"].get("storage").is_none());
 
@@ -64,7 +64,10 @@ fn disk_usage_is_opt_in_scoped_and_includes_ignored_files_without_following_syml
         assert_eq!(pools[1]["name"], "frontend");
         assert_eq!(pools[1]["storage"]["workspace_bytes"], 0);
     }
-    let output = cli(&repo, &["pool", "show", "--disk-usage", "--details"]);
+    let output = cli(
+        &repo,
+        &["pool", "show", "default", "--disk-usage", "--details"],
+    );
     assert!(output.status.success());
     json_progress::assert_only(&output, "pool show");
     let value = checked(&output);
@@ -72,7 +75,7 @@ fn disk_usage_is_opt_in_scoped_and_includes_ignored_files_without_following_syml
     assert_eq!(value["result"]["inspection"]["capacity"], 1);
     for args in [
         vec!["pool", "list", "--disk-usage"],
-        vec!["pool", "show", "--disk-usage"],
+        vec!["pool", "show", "default", "--disk-usage"],
     ] {
         let output = support::groove_human_in(&repo.path)
             .args(args)
@@ -88,7 +91,6 @@ fn disk_usage_is_opt_in_scoped_and_includes_ignored_files_without_following_syml
     }
     for selector in [
         vec!["--task", "sizing"],
-        vec!["--slot", "wt-0001"],
         vec![
             "--reservation-id",
             acquired["result"]["reservation_id"].as_str().unwrap(),
@@ -100,7 +102,7 @@ fn disk_usage_is_opt_in_scoped_and_includes_ignored_files_without_following_syml
         assert_eq!(output.status.code(), Some(2));
         assert_eq!(checked(&output)["error"]["code"], "INVALID_ARGUMENT");
     }
-    assert_success(&cli(&repo, &["--pool", "frontend", "pool", "destroy"]));
+    assert_success(&cli(&repo, &["pool", "delete", "frontend", "--yes"]));
     let output = cli(&repo, &["pool", "list", "--all", "--disk-usage"]);
     assert!(output.status.success());
     assert_eq!(
@@ -167,8 +169,8 @@ fn pool_selection_is_explicit_scoped_and_schema_conformant() {
             .ends_with(&format!("/groove/pools/{pool}")));
     }
     let missing = cli(&repo, &["acquire"]);
-    assert_eq!(missing.status.code(), Some(4));
-    assert_eq!(checked(&missing)["error"]["code"], "NOT_INITIALIZED");
+    assert_eq!(missing.status.code(), Some(2));
+    assert_eq!(checked(&missing)["error"]["code"], "INVALID_ARGUMENT");
     let f = assert_success(&cli(
         &repo,
         &[
@@ -187,7 +189,7 @@ fn pool_selection_is_explicit_scoped_and_schema_conformant() {
             "--pool=backend",
             "acquire",
             "--task",
-            "same",
+            "backend-task",
             "--idempotency-key",
             "same",
         ],
@@ -234,10 +236,7 @@ fn pool_selection_is_explicit_scoped_and_schema_conformant() {
         &repo,
         &["--pool", "frontend", "release", "--task", "same"],
     ));
-    let preview = cli(
-        &repo,
-        &["--pool", "frontend", "pool", "destroy", "--dry-run"],
-    );
+    let preview = cli(&repo, &["pool", "delete", "frontend", "--dry-run"]);
     assert!(preview.status.success());
     let preview = checked(&preview);
     assert_eq!(preview["result"]["destruction"]["pool_name"], "frontend");
@@ -246,13 +245,13 @@ fn pool_selection_is_explicit_scoped_and_schema_conformant() {
         .unwrap();
     let wrong = cli(
         &repo,
-        &["--pool", "backend", "pool", "destroy", "--pool-id", id],
+        &["pool", "delete", "backend", "--yes", "--pool-id", id],
     );
     assert_eq!(wrong.status.code(), Some(4));
     assert_eq!(checked(&wrong)["error"]["code"], "CONFIG_CONFLICT");
     let removed = cli(
         &repo,
-        &["--pool", "frontend", "pool", "destroy", "--pool-id", id],
+        &["pool", "delete", "frontend", "--yes", "--pool-id", id],
     );
     assert!(removed.status.success());
     assert_eq!(checked(&removed)["result"]["destruction"]["deleted"], true);
@@ -273,7 +272,7 @@ fn pool_selection_is_explicit_scoped_and_schema_conformant() {
     assert_eq!(pools[1]["phase"], "deleted");
     let shown = assert_success(&cli(
         &repo,
-        &["--pool", "backend", "show", "--task", "same"],
+        &["--pool", "backend", "show", "--task", "backend-task"],
     ));
     assert_eq!(
         shown["result"]["reservation"]["reservation_id"],
@@ -295,7 +294,7 @@ fn invalid_names_fail_before_filesystem_effects_and_help_teaches_selection() {
     assert!(checked(&help)["result"]["text"]
         .as_str()
         .unwrap()
-        .contains("--pool frontend"));
+        .contains("groove pool list"));
     let unknown = cli(&repo, &["--pool", "unknown", "pool", "show"]);
     assert_eq!(unknown.status.code(), Some(4));
     assert_eq!(checked(&unknown)["error"]["code"], "NOT_INITIALIZED");
@@ -334,7 +333,7 @@ fn an_explicit_default_preserves_existing_layout_and_human_output_names_named_po
     let ambiguous = cli(&repo, &["pool", "destroy", "--dry-run"]);
     assert_eq!(ambiguous.status.code(), Some(2));
     checked(&ambiguous);
-    assert_success(&cli(&repo, &["--pool", "default", "pool", "destroy"]));
+    assert_success(&cli(&repo, &["pool", "delete", "default", "--yes"]));
     let output = support::groove_human_in(&repo.path)
         .args(["pool", "list"])
         .output()
@@ -351,7 +350,7 @@ fn an_explicit_default_preserves_existing_layout_and_human_output_names_named_po
     assert!(output.status.success());
     let text = String::from_utf8_lossy(&output.stdout);
     assert!(text.contains("default") && text.contains("deleted") && text.contains("frontend"));
-    assert_success(&cli(&repo, &["--pool", "frontend", "pool", "destroy"]));
+    assert_success(&cli(&repo, &["pool", "delete", "frontend", "--yes"]));
     let empty = cli(&repo, &["pool", "list"]);
     assert!(empty.status.success());
     assert_eq!(checked(&empty)["result"]["pools"], serde_json::json!([]));

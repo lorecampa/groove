@@ -2,6 +2,7 @@
 
 mod completions;
 mod config;
+mod confirmation;
 mod lease;
 mod pool;
 mod snapshot;
@@ -33,6 +34,111 @@ impl Context<'_> {
     }
 }
 
+/// Locate an explicit reservation selector without silently choosing default.
+pub fn resolve_pool(repo: &Path, timeout: Duration) -> Result<groove_core::PoolName> {
+    if let Some(pool) = Pool::owning_pool(repo, timeout)? {
+        return Ok(pool);
+    }
+    let pools: Vec<_> = Pool::list_pools(repo, timeout)?
+        .into_iter()
+        .filter(|pool| pool.phase != groove_core::PoolPhase::Deleted)
+        .collect();
+    match pools.as_slice() {
+        [pool] => Ok(pool.name.clone()),
+        [] => Err(groove_core::Error::new(
+            groove_core::ErrorCode::NotInitialized,
+            "No repository pools exist; create one with pool create NAME --capacity N",
+        )),
+        _ => Err(groove_core::Error::new(
+            groove_core::ErrorCode::InvalidArgument,
+            format!(
+                "Select a pool explicitly; repository pools: {}",
+                pools
+                    .iter()
+                    .map(|pool| pool.name.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        )),
+    }
+}
+
+/// Locate an explicit reservation selector without silently choosing default.
+pub fn reservation_pool(
+    repo: &Path,
+    selected: Option<&groove_core::PoolName>,
+    selector: &LeaseSelector,
+    saved: bool,
+    timeout: Duration,
+) -> Result<groove_core::PoolName> {
+    use groove_core::{Error, ErrorCode, PoolPhase};
+    let label = selector
+        .task
+        .as_ref()
+        .map(|task| format!("task '{task}'"))
+        .unwrap_or_else(|| {
+            format!(
+                "reservation '{}'",
+                selector.lease_id.expect("explicit selector")
+            )
+        });
+    let mut matches = Vec::new();
+    for entry in Pool::list_pools(repo, timeout)? {
+        if entry.phase != PoolPhase::Ready && !(saved && entry.phase == PoolPhase::Deleted) {
+            continue;
+        }
+        let pool = Pool::open_retained_named(repo, &entry.name, timeout)?;
+        let found = if let Some(id) = selector.lease_id {
+            if saved && pool.has_saved_release(id)? {
+                true
+            } else {
+                match pool.lease_info(id) {
+                    Ok(_) => true,
+                    Err(error) if error.code == ErrorCode::LeaseMismatch => false,
+                    Err(error) => return Err(error),
+                }
+            }
+        } else if entry.phase == PoolPhase::Ready {
+            match pool.lease_by_task(selector.task.as_deref().expect("explicit task selector")) {
+                Ok(_) => true,
+                Err(error) if error.code == ErrorCode::LeaseMismatch => false,
+                Err(error) => return Err(error),
+            }
+        } else {
+            false
+        };
+        if found {
+            matches.push(entry.name);
+        }
+    }
+    if let Some(selected) = selected {
+        if matches.contains(selected) {
+            return Ok(selected.clone());
+        }
+        let elsewhere = if matches.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "; it is present in {}",
+                matches
+                    .iter()
+                    .map(|name| format!("'{name}'"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
+        return Err(Error::new(
+            ErrorCode::LeaseMismatch,
+            format!("No {label} in pool '{selected}'{elsewhere}"),
+        ));
+    }
+    match matches.as_slice() {
+        [name] => Ok(name.clone()),
+        [] => Err(Error::new(ErrorCode::LeaseMismatch, format!("No {label} found in any repository pool"))),
+        _ => Err(Error::new(ErrorCode::InvalidArgument, format!("Several pools contain {label}: {}. Select the reservation UUID; migrate duplicate task labels before reusing the label", matches.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")))),
+    }
+}
+
 /// Resolve the selector to a lease ID without validating an explicit ID, so
 /// core retry logic (e.g. saved-release receipts for superseded generations) still applies.
 fn select_id(pool: &Pool, selector: &LeaseSelector, path: &Path) -> Result<groove_core::LeaseId> {
@@ -46,9 +152,13 @@ fn select_id(pool: &Pool, selector: &LeaseSelector, path: &Path) -> Result<groov
 /// Run one parsed command.
 pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
     match command {
+        Command::Help { topic } => {
+            let text = crate::contract::help_topic(topic)?;
+            Output::text(serde_json::json!({"text": text}), text)
+        }
         Command::Upgrade(options) => upgrade::run(options),
         Command::Pool(command) => match command {
-            PoolCommand::Get { key } => pool::get(context, key),
+            PoolCommand::Get { key, .. } => pool::get(context, key),
             PoolCommand::List {
                 all,
                 disk_usage,
@@ -57,9 +167,16 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
             } => pool::pools(context, *all, *disk_usage, page, *sort),
             PoolCommand::Destroy {
                 dry_run,
+                yes,
                 discard_changes,
                 pool_id,
-            } => pool::destroy(context, *dry_run, *discard_changes, *pool_id),
+                ..
+            } => {
+                if !dry_run {
+                    confirmation::confirm(*yes, "Delete this pool's checkouts and artifacts?")?;
+                }
+                pool::destroy(context, *dry_run, *discard_changes, *pool_id)
+            }
             PoolCommand::Init {
                 ready_target,
                 idle_timeout,
@@ -69,6 +186,7 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
                 cleanup,
                 worktree_root,
                 resume,
+                ..
             } => {
                 let defaults = crate::preferences::load()?.pool_defaults;
                 pool::init(
@@ -86,28 +204,37 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
                 )
             }
             PoolCommand::Show {
+                slot,
                 details,
                 disk_usage,
                 page,
                 sort,
+                ..
             } => pool::show(
                 context,
-                &Default::default(),
+                &crate::args::OptionalSelector {
+                    slot: slot.clone(),
+                    ..Default::default()
+                },
                 *details,
                 *disk_usage,
                 page,
                 *sort,
             ),
             PoolCommand::Set {
+                values,
                 capacity,
                 cleanup,
                 ready_target,
                 idle_timeout,
                 ready_base,
                 ready_git_timeout,
+                ..
             } => pool::set(
                 context,
+                values,
                 groove_core::PoolUpdate {
+                    git_timeout: None,
                     capacity: *capacity,
                     cleanup_policy: cleanup.map(Into::into),
                     ready_target: *ready_target,
@@ -124,6 +251,7 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
             request_key,
             wait_ms,
             path_only,
+            ..
         } => lease::acquire(
             context,
             lease::AcquireRequest {
@@ -140,6 +268,7 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
             description,
             max_file_bytes,
             force,
+            ..
         } => lease::release(
             context,
             lease,
@@ -155,15 +284,32 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
             details,
             page,
             sort,
+            ..
         } => pool::list(context, *slots, *details, page, *sort),
-        Command::Show { selector, details } => pool::show(
-            context,
-            selector,
-            *details,
-            false,
-            &Default::default(),
-            crate::args::SlotSort::Slot,
-        ),
+        Command::Show { selector, details } => {
+            let mut selector = selector.clone();
+            if selector.lease_id.is_none() && selector.task.is_none() && selector.slot.is_none() {
+                selector.lease_id =
+                    Some(context.pool()?.lease_for_workspace(context.repo)?.lease_id);
+            }
+            pool::show(
+                context,
+                &selector,
+                *details,
+                false,
+                &Default::default(),
+                crate::args::SlotSort::Slot,
+            )
+        }
+        Command::Path { selector } => {
+            let pool = context.pool()?;
+            let id = select_id(&pool, selector, context.repo)?;
+            let lease = pool.lease_info(id)?;
+            Output::raw(
+                serde_json::to_value(&lease)?,
+                format!("{}\n", lease.worktree_path.display()),
+            )
+        }
         Command::Completions { shell } => completions::run(*shell),
         Command::Snapshot(command) => snapshot::run(context, command),
         Command::Config(command) => config::run(context, command),

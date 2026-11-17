@@ -24,6 +24,8 @@ pub enum CleanupPolicy {
 #[derive(Debug, Clone)]
 /// Options used to create a pool or explicitly resume interrupted initialization.
 pub struct PoolOptions {
+    /// Persisted foreground Git budget. Per-operation overrides do not change it.
+    pub default_git_timeout: crate::ReadyGitTimeout,
     /// Automatic spare-checkout policy; defaults to `None` for library callers,
     /// which supply their own background execution. The CLI copies user defaults.
     pub ready: Option<crate::ReadySettings>,
@@ -45,6 +47,7 @@ pub struct PoolOptions {
 impl Default for PoolOptions {
     fn default() -> Self {
         Self {
+            default_git_timeout: crate::ReadyGitTimeout::default(),
             ready: None,
             resume: false,
             capacity: 4,
@@ -179,6 +182,9 @@ pub struct InitResult {
 /// Current repository-local pool settings, refreshed from durable metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PoolSettings {
+    /// Persisted foreground Git budget; defaults to two minutes in older pools.
+    #[serde(default)]
+    pub git_timeout: crate::ReadyGitTimeout,
     /// Persisted automatic checkout policy, absent for legacy lazy pools.
     #[serde(flatten)]
     pub ready: Option<crate::ReadySettings>,
@@ -198,6 +204,8 @@ pub struct PoolSettings {
 /// An atomic pool settings update. The checkout root cannot be changed.
 #[derive(Debug, Clone)]
 pub struct PoolUpdate {
+    /// Persisted foreground Git budget; None leaves the setting unchanged.
+    pub git_timeout: Option<crate::ReadyGitTimeout>,
     /// Desired spare count; validated against the resulting capacity.
     pub ready_target: Option<usize>,
     /// Idle eviction duration, or `never`.
@@ -216,6 +224,7 @@ pub struct PoolUpdate {
 impl Default for PoolUpdate {
     fn default() -> Self {
         Self {
+            git_timeout: None,
             ready_target: None,
             idle_timeout: None,
             ready_base: None,

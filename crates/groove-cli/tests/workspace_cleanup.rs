@@ -94,7 +94,10 @@ fn read_only_directories_do_not_quarantine_reuse_or_block_destruction() {
         fs::write(directory.join("result"), b"disposable output").unwrap();
         fs::set_permissions(&directory, fs::Permissions::from_mode(0o555)).unwrap();
         assert_success(&cli(&repo, &["release", "--force", "--reservation-id", id]));
-        assert_success(&cli(&repo, &["pool", "destroy", "--force"]));
+        assert_success(&cli(
+            &repo,
+            &["pool", "delete", "default", "--yes", "--force"],
+        ));
         assert!(!repo.slot(1).exists());
     }
 }
