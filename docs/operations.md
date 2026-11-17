@@ -394,3 +394,22 @@ Long commands report their current operation phase in JSON progress events and
 interactive spinners. Debug Git completion events identify the subcommand and
 working-directory basename without recording full arguments or checkout paths.
 Phases are advisory process-wide observations, not completion percentages.
+
+Checkout uses Git's detected CPU count for at least 100 eligible files, and stays
+serial below that threshold. These per-process settings require no repository
+configuration changes. Git's CPU detection is platform-specific; it does not
+necessarily match a container's CPU quota.
+
+Checkout verification confirms the requested detached HEAD and uses one status
+inventory to reject staged, modified, untracked and (for pristine cleanup) ignored
+content. Collapsing directory entries reduces scanning without changing the clean
+baseline requirement; no untracked cache is enabled.
+
+Snapshot validation reads changed, staged and untracked path inventories
+concurrently; stability checks overlap their independent changed/untracked scans.
+All children finish before capture proceeds or returns an error. The attribute
+audit, full special-file walk and stopped-writer requirement remain in force.
+
+Detailed pool/list inspection checks slots concurrently in groups bounded by
+available CPUs and eight workers. Each slot retains its own shared execution
+lock and timeout; results keep their requested ordering and per-slot errors.

@@ -776,25 +776,17 @@ pub(crate) fn verify(
             ))
         }
     }
-    git.run(
-        path,
-        &[
-            "diff",
-            "--quiet",
-            "--no-ext-diff",
-            "--no-textconv",
-            "--cached",
-            oid.as_str(),
-            "--",
-        ],
-        &[],
-    )?;
-    git.run(
-        path,
-        &["diff", "--quiet", "--no-ext-diff", "--no-textconv", "--"],
-        &[],
-    )?;
-    let mut args = vec!["status", "--porcelain=v1", "-z", "--untracked-files=all"];
+    // HEAD == oid was checked above, and status includes staged and modified
+    // entries. Only emptiness matters: collapsing untracked/ignored directories
+    // is equivalent and avoids enumerating every file beneath them.
+    let mut args = vec![
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=normal",
+        "--no-renames",
+        "--no-ahead-behind",
+    ];
     if policy == CleanupPolicy::Pristine {
         args.push("--ignored");
     }

@@ -4,6 +4,18 @@
 
 ### Changed
 
+- Collect detailed per-slot Git status concurrently, bounded by available CPUs
+  and eight workers while retaining each slot's execution lock.
+
+- Overlap independent snapshot path inventories during validation and stability
+  checks, retaining the attribute audit and full special-file walk.
+
+- Verify checkout cleanliness with one bounded status query, collapsing untracked
+  and ignored directories when only their presence matters.
+
+- Use Git parallel checkout for large file sets while retaining serial checkout
+  below 100 files; the subprocess configuration does not modify repository settings.
+
 - Refresh the README demo with the current binary and the `pool init` and
   `pool show` commands introduced in 0.4.0.
 
