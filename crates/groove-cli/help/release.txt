@@ -58,7 +58,8 @@ Permissions, other mount namespaces and alternate mount paths can hide writers;
 an empty scan never replaces the requirement to stop them yourself.
 Git status warnings fail inspection, including when Git exits successfully;
 unreadable untracked directories never authorize release as a clean workspace.
---force skips these checks; with --save it still saves and pins the snapshot.
+--force skips only unsaved-change checks; active writers still block release.
+With --save it still saves and pins the snapshot. -m/--message implies --save.
 It never bypasses descriptor ownership or legacy execution protection.
 
 If the checkout was deleted (rm -rf, git worktree remove), normal release and

@@ -48,6 +48,7 @@ pub fn run(context: &Context<'_>, command: &SnapshotCommand) -> Result<Output> {
             description,
             session,
             max_file_bytes,
+            ..
         } => snapshot_output(service.save(SaveOptions {
             description: description.clone(),
             session: session.clone(),
@@ -107,8 +108,17 @@ pub fn run(context: &Context<'_>, command: &SnapshotCommand) -> Result<Output> {
             older_than_ms,
             keep_last,
             apply,
-            dry_run: _,
-        } => super::snapshot_prune::run(&service, *older_than_ms, *keep_last, *apply),
+            yes,
+            dry_run,
+        } => {
+            if !dry_run {
+                super::confirmation::confirm(
+                    *yes || *apply,
+                    "Delete eligible unpinned snapshots?",
+                )?;
+            }
+            super::snapshot_prune::run(&service, *older_than_ms, *keep_last, !dry_run)
+        }
         SnapshotCommand::Show { id } => snapshot_output(service.show(id)?),
         SnapshotCommand::Diff {
             id,

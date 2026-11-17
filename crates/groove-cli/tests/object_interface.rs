@@ -17,6 +17,76 @@ fn invoke(repo: &Repo, args: &[&str], code: i32) -> Value {
 }
 
 #[test]
+fn deletion_requires_explicit_confirmation_and_messages_save_snapshots() {
+    let repo = Repo::new();
+    invoke(
+        &repo,
+        &[
+            "pool",
+            "create",
+            "frontend",
+            "--capacity",
+            "1",
+            "--idle-timeout",
+            "never",
+        ],
+        0,
+    );
+    invoke(&repo, &["--pool", "frontend", "acquire", "fix"], 0);
+    let saved = invoke(&repo, &["release", "fix", "-m", "nav fix"], 0);
+    assert_eq!(saved["result"]["snapshot"]["description"], "nav fix");
+    let snapshot = saved["result"]["snapshot"]["id"].as_str().unwrap();
+    invoke(&repo, &["snapshot", "delete", snapshot, "--pinned"], 0);
+    let saved = invoke(&repo, &["snapshot", "save", "-m", "ordinary"], 0);
+    let snapshot = saved["result"]["snapshot"]["id"].as_str().unwrap();
+    invoke(
+        &repo,
+        &[
+            "snapshot",
+            "prune",
+            "--older-than",
+            "0s",
+            "--keep-last",
+            "0",
+        ],
+        2,
+    );
+    invoke(&repo, &["snapshot", "show", snapshot], 0);
+    invoke(
+        &repo,
+        &[
+            "snapshot",
+            "prune",
+            "--older-than",
+            "0s",
+            "--keep-last",
+            "0",
+            "-n",
+        ],
+        0,
+    );
+    invoke(&repo, &["snapshot", "show", snapshot], 0);
+    invoke(
+        &repo,
+        &[
+            "snapshot",
+            "prune",
+            "--older-than",
+            "0s",
+            "--keep-last",
+            "0",
+            "-y",
+        ],
+        0,
+    );
+    invoke(&repo, &["pool", "delete", "frontend"], 2);
+    invoke(&repo, &["pool", "show", "frontend"], 0);
+    invoke(&repo, &["pool", "delete", "frontend", "-n"], 0);
+    invoke(&repo, &["pool", "delete", "frontend", "-y"], 0);
+    invoke(&repo, &["pool", "delete", "-y"], 2);
+}
+
+#[test]
 fn concurrent_acquirers_cannot_publish_the_same_label_in_different_pools() {
     use std::os::unix::fs::MetadataExt;
     let repo = Repo::new();
@@ -345,7 +415,7 @@ fn pool_objects_accept_positional_names_and_legacy_flags_without_ambiguity() {
         "INVALID_ARGUMENT"
     );
     invoke(&repo, &["pool", "destroy", "frontend", "--dry-run"], 0);
-    invoke(&repo, &["pool", "destroy", "frontend"], 0);
+    invoke(&repo, &["pool", "destroy", "frontend", "--yes"], 0);
     assert_eq!(
         invoke(&repo, &["pool", "get", "default", "capacity"], 0)["result"]["value"],
         1

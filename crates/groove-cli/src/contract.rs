@@ -39,11 +39,11 @@ fn scope_context_help(
                     | "release"
                     | "show"
                     | "list"
-                    | "pool init"
+                    | "pool create"
                     | "pool show"
                     | "pool get"
                     | "pool set"
-                    | "pool destroy"
+                    | "pool delete"
             )
         } else {
             matches!(
@@ -172,12 +172,12 @@ fn concise_help(path: &str) -> &'static str {
     match path {
         "" => include_str!("../help/short/overview.txt"),
         "pool" => include_str!("../help/short/pool.txt"),
-        "pool init" => include_str!("../help/short/pool-init.txt"),
+        "pool create" => include_str!("../help/short/pool-init.txt"),
         "pool show" => include_str!("../help/short/pool-show.txt"),
         "pool set" => include_str!("../help/short/pool-set.txt"),
         "acquire" => include_str!("../help/short/acquire.txt"),
         "release" => include_str!("../help/short/release.txt"),
-        "pool destroy" => include_str!("../help/short/pool-destroy.txt"),
+        "pool delete" => include_str!("../help/short/pool-destroy.txt"),
         "pool list" => include_str!("../help/short/pool-list.txt"),
         "list" => include_str!("../help/short/list.txt"),
         "show" => include_str!("../help/short/show.txt"),
@@ -356,6 +356,13 @@ mod tests {
                 format!("{prefix} {}", command.get_name())
             };
             paths.insert(name.clone());
+            for alias in command.get_all_aliases() {
+                paths.insert(if prefix.is_empty() {
+                    alias.to_owned()
+                } else {
+                    format!("{prefix} {alias}")
+                });
+            }
             if command.get_subcommands().next().is_none() {
                 assert!(
                     mapping.contains_key(&name),

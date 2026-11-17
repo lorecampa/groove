@@ -87,7 +87,25 @@ impl Args {
                     validate_task(task)?;
                 }
             }
-            Command::Release { lease, .. } | Command::Path { selector: lease } => {
+            Command::Release {
+                lease,
+                save,
+                message,
+                description,
+                ..
+            } => {
+                if let Some(message) = message.take() {
+                    *save = true;
+                    *description = message;
+                }
+                normalize_selector(
+                    &mut lease.reservation,
+                    &mut lease.task,
+                    &mut lease.lease_id,
+                    &mut self.deprecations,
+                )?;
+            }
+            Command::Path { selector: lease } => {
                 normalize_selector(
                     &mut lease.reservation,
                     &mut lease.task,
@@ -102,6 +120,15 @@ impl Args {
                     &mut selector.lease_id,
                     &mut self.deprecations,
                 )?;
+            }
+            Command::Snapshot(SnapshotCommand::Save {
+                message,
+                description,
+                ..
+            }) => {
+                if let Some(message) = message.take() {
+                    *description = message;
+                }
             }
             _ => {}
         }
@@ -241,19 +268,22 @@ pub enum Command {
         #[command(flatten)]
         lease: LeaseSelector,
         /// Save and pin a snapshot before release; a save failure keeps the reservation.
-        #[arg(long)]
+        #[arg(short = 's', long)]
         save: bool,
+        /// Snapshot description; implies --save.
+        #[arg(short = 'm', long, conflicts_with = "description")]
+        message: Option<String>,
         /// Description recorded with the pinned snapshot.
         #[arg(long, requires = "save", default_value = "workspace saved")]
         description: String,
         /// File size limit, e.g. 100M; 0 means unlimited.
         #[arg(long = "max-file-size", value_name = "SIZE", value_parser = parse_size, requires = "save", default_value = DEFAULT_MAX_FILE_BYTES, long_help = "Largest changed file to capture, e.g. 100M; 0 removes the limit.")]
         max_file_bytes: u64,
-        /// Skip change/process checks; unsaved work can be lost.
+        /// Discard unsaved work; never bypasses active writers.
         #[arg(
             short = 'f',
             long,
-            long_help = "Skip unsaved-change and process checks (with --save, still save changes). Without --save, unsaved contents are discarded on the next acquisition."
+            long_help = "Discard unsaved changes (with --save, still save changes). Active writers always block release. Without --save, unsaved contents are discarded on the next acquisition."
         )]
         force: bool,
     },
@@ -416,6 +446,9 @@ pub enum SnapshotCommand {
     /// Save staged and working files without changing HEAD or the index.
     Save {
         /// Description of the checkpoint.
+        #[arg(short = 'm', long, conflicts_with = "description")]
+        message: Option<String>,
+        /// Description of the checkpoint.
         #[arg(default_value = "")]
         description: String,
         /// Task or session identifier recorded with the snapshot.
@@ -451,10 +484,13 @@ pub enum SnapshotCommand {
         #[arg(long, value_name = "N", default_value_t = 20)]
         keep_last: usize,
         /// Delete eligible snapshot refs; never overrides pins or runs Git GC.
-        #[arg(long, conflicts_with = "dry_run")]
+        #[arg(long, conflicts_with = "dry_run", hide = true)]
         apply: bool,
+        /// Confirm deletion without an interactive prompt.
+        #[arg(short = 'y', long, conflicts_with = "dry_run")]
+        yes: bool,
         /// Explicitly preview without deleting anything (the default).
-        #[arg(long, conflicts_with = "apply")]
+        #[arg(short = 'n', long, conflicts_with = "apply")]
         dry_run: bool,
     },
     /// Show one snapshot's metadata.
@@ -493,7 +529,7 @@ pub enum SnapshotCommand {
         /// Snapshot ID.
         id: String,
         /// Also delete a snapshot pinned for saved release or interrupted recovery.
-        #[arg(short = 'f', long)]
+        #[arg(long = "pinned", visible_alias = "force")]
         force: bool,
     },
 }
@@ -524,13 +560,16 @@ pub enum PoolCommand {
         disk_usage: bool,
     },
     /// Delete an idle pool's checkouts and legacy caches, retaining snapshots.
-    #[command(after_long_help = help!("pool-destroy"))]
+    #[command(name = "delete", visible_alias = "destroy", after_long_help = help!("pool-destroy"))]
     Destroy {
         /// Pool to delete; also accepts the legacy --pool selection.
         name: Option<PoolName>,
         /// Validate and preview deletion without removing data or changing lifecycle state.
         #[arg(short = 'n', long)]
         dry_run: bool,
+        /// Confirm deletion without an interactive prompt.
+        #[arg(short = 'y', long, conflicts_with = "dry_run")]
+        yes: bool,
         /// Discard residual edits, ignored files and broken checkouts; never bypasses owners or reservations.
         #[arg(short = 'f', long = "force")]
         discard_changes: bool,
@@ -539,7 +578,7 @@ pub enum PoolCommand {
         pool_id: Option<PoolId>,
     },
     /// Create a pool of reusable worktree slots for this repository.
-    #[command(after_long_help = help!("pool-init"))]
+    #[command(name = "create", visible_alias = "init", after_long_help = help!("pool-init"))]
     Init {
         /// Name of the pool to create (default: default).
         name: Option<PoolName>,
@@ -562,7 +601,7 @@ pub enum PoolCommand {
         #[arg(long, value_enum, default_value = "pristine")]
         cleanup: Cleanup,
         /// Exact, initially empty checkout root (overrides worktrees.root and ~/.worktrees).
-        #[arg(long = "workspace-root", value_name = "DIR")]
+        #[arg(long = "root", visible_alias = "workspace-root", value_name = "DIR")]
         worktree_root: Option<PathBuf>,
         /// Resume an interrupted init with its original settings.
         #[arg(long)]
@@ -685,11 +724,11 @@ impl Command {
             Self::Upgrade(_) => "upgrade",
             Self::Pool(command) => match command {
                 PoolCommand::Get { .. } => "pool get",
-                PoolCommand::Init { .. } => "pool init",
+                PoolCommand::Init { .. } => "pool create",
                 PoolCommand::List { .. } => "pool list",
                 PoolCommand::Show { .. } => "pool show",
                 PoolCommand::Set { .. } => "pool set",
-                PoolCommand::Destroy { .. } => "pool destroy",
+                PoolCommand::Destroy { .. } => "pool delete",
             },
             Self::Acquire { .. } => "acquire",
             Self::Release { .. } => "release",

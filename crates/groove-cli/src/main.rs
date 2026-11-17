@@ -102,7 +102,19 @@ fn dispatch(raw: &[std::ffi::OsString]) -> ExitCode {
             args.normalize()
                 .map_err(|message| clap::Error::raw(ErrorKind::InvalidValue, message))
         }) {
-        Ok(args) => ExitCode::from(run(&args)),
+        Ok(mut args) => {
+            for words in raw.windows(2) {
+                if words[0] == "pool" && words[1] == "init" {
+                    args.deprecations
+                        .push("pool init is deprecated; use pool create");
+                }
+                if words[0] == "pool" && words[1] == "destroy" {
+                    args.deprecations
+                        .push("pool destroy is deprecated; use pool delete");
+                }
+            }
+            ExitCode::from(run(&args))
+        }
         Err(error) => ExitCode::from(reject(raw, &error)),
     }
 }
@@ -228,6 +240,23 @@ fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {
         );
     }
     let explicit_pool = positional_pool.or(args.pool.as_ref());
+    if matches!(
+        args.command,
+        Command::Pool(args::PoolCommand::Destroy { .. })
+    ) && explicit_pool.is_none()
+    {
+        return output::emit_error(
+            format,
+            request_id,
+            &Error::new(
+                ErrorCode::InvalidArgument,
+                "pool delete requires an explicit NAME",
+            ),
+            terminal,
+            Some(args),
+            None,
+        );
+    }
     let reservation_selector = match &args.command {
         Command::Release {
             lease: selector,

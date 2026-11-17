@@ -1677,6 +1677,12 @@
     "pool init": [
       "init"
     ],
+    "pool create": [
+      "init"
+    ],
+    "pool delete": [
+      "destruction_result"
+    ],
     "pool list": [
       "pools_result"
     ],

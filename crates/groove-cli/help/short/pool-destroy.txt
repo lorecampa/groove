@@ -1,5 +1,7 @@
 EXAMPLE:
-  groove pool destroy --dry-run
+  groove pool delete frontend --dry-run
+
+Use --yes to confirm noninteractive deletion. NAME is always explicit.
 
 Release every reservation and stop ALL writers first. Deletes pool checkouts and
 ignored files; snapshots and branches remain. Preserve detached commits first.

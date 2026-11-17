@@ -2,6 +2,7 @@
 
 mod completions;
 mod config;
+mod confirmation;
 mod lease;
 mod pool;
 mod snapshot;
@@ -133,10 +134,16 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
             } => pool::pools(context, *all, *disk_usage, page, *sort),
             PoolCommand::Destroy {
                 dry_run,
+                yes,
                 discard_changes,
                 pool_id,
                 ..
-            } => pool::destroy(context, *dry_run, *discard_changes, *pool_id),
+            } => {
+                if !dry_run {
+                    confirmation::confirm(*yes, "Delete this pool's checkouts and artifacts?")?;
+                }
+                pool::destroy(context, *dry_run, *discard_changes, *pool_id)
+            }
             PoolCommand::Init {
                 ready_target,
                 idle_timeout,
@@ -223,6 +230,7 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
             description,
             max_file_bytes,
             force,
+            ..
         } => lease::release(
             context,
             lease,

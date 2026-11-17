@@ -1,5 +1,13 @@
 # Changelog
 
+- `pool create`/`pool delete` replace `init`/`destroy` (deprecated aliases remain),
+  and `--root` replaces `--workspace-root`. Pool deletion requires an explicit
+  name. Pool deletion and snapshot pruning share `-n/--dry-run`, `-y/--yes` and
+  interactive confirmation; non-TTY execution requires `--yes`.
+- `release -m/--message` implies saving; snapshot save accepts the same message
+  syntax. Snapshot deletion uses `--pinned` to acknowledge pins. `--force` on
+  release discards unsaved work but always checks for active writers.
+
 - Task labels are now repository-wide, coordinated by permanent repository label
   locks and a reconciled advisory registry. Existing duplicate labels remain
   protected and require explicit release by UUID before reuse with distinct names.

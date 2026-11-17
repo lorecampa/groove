@@ -43,7 +43,7 @@ pub(super) fn run(
     }
     if !apply {
         text.push_str(
-            "Preview only. Repeat with --apply to recompute and delete eligible snapshots.\n",
+            "Preview only. Repeat with --yes to recompute and delete eligible snapshots.\n",
         );
     }
     text.push_str("Deletion removes references. Git garbage collection may reclaim unused objects later; shared objects remain.\n");
