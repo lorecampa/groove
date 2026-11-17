@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Skip `git clean` when an untracked-aware status inventory is already empty,
+  retaining the final baseline verification and pristine ignored-file cleanup.
+
 - Give snapshot commands an independent `--lock-timeout` budget, so a short
   contention wait does not also impose a tiny repository-discovery Git timeout.
 

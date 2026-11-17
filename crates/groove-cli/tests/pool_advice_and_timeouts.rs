@@ -90,6 +90,51 @@ exec "$GROOVE_REAL_GIT" "$@"
 }
 
 #[test]
+fn a_clean_released_checkout_does_not_depend_on_running_git_clean() {
+    let repo = Repo::new();
+    init(&repo, "default", "1");
+    cli(&repo.path, &["acquire", "--task", "initial"]);
+    cli(&repo.path, &["release", "--task", "initial"]);
+    let wrapper = repo.temp.path().join("reject-clean");
+    fs::create_dir(&wrapper).unwrap();
+    fs::write(
+        wrapper.join("git"),
+        r#"#!/bin/sh
+case " $* " in *" clean "*) echo 'unexpected clean on verified clean checkout' >&2; exit 64 ;; esac
+exec "$GROOVE_REAL_GIT" "$@"
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(wrapper.join("git"), fs::Permissions::from_mode(0o755)).unwrap();
+    let output = support::groove_in(&repo.path)
+        .env(
+            "PATH",
+            format!("{}:{}", wrapper.display(), std::env::var("PATH").unwrap()),
+        )
+        .env(
+            "GROOVE_REAL_GIT",
+            std::env::var_os("GROOVE_TEST_GIT").unwrap(),
+        )
+        .args(["acquire", "--task", "clean-reuse"])
+        .output()
+        .unwrap();
+    check(output, 0);
+    assert_eq!(
+        fs::read(repo.slot(1).join("tracked.txt")).unwrap(),
+        b"baseline\n"
+    );
+    cli(&repo.path, &["release", "--task", "clean-reuse"]);
+    // Residual untracked and ignored files must still be removed in pristine pools.
+    fs::write(repo.slot(1).join("untracked"), "residual").unwrap();
+    fs::create_dir(repo.slot(1).join("ignored")).unwrap();
+    fs::write(repo.slot(1).join("ignored/cache"), "cache").unwrap();
+    cli(&repo.path, &["acquire", "--task", "dirty-reuse"]);
+    assert!(!repo.slot(1).join("untracked").exists());
+    assert!(!repo.slot(1).join("ignored").exists());
+    cli(&repo.path, &["release", "--task", "dirty-reuse"]);
+}
+
+#[test]
 fn ready_git_timeout_is_optional_normalized_and_pool_local() {
     let repo = Repo::new();
     assert!(init(&repo, "default", "1")

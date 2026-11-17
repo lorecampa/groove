@@ -519,19 +519,21 @@ pub(crate) fn normalize(
         fds,
     )?;
     crate::progress::set_phase("cleaning");
-    git.run(
-        path,
-        &[
-            "clean",
-            if policy == CleanupPolicy::Pristine {
-                "-ffdx"
-            } else {
-                "-ffd"
-            },
-            "--",
-        ],
-        fds,
-    )?;
+    if !baseline_status(git, path, policy, fds)?.is_empty() {
+        git.run(
+            path,
+            &[
+                "clean",
+                if policy == CleanupPolicy::Pristine {
+                    "-ffdx"
+                } else {
+                    "-ffd"
+                },
+                "--",
+            ],
+            fds,
+        )?;
+    }
     Ok(())
 }
 
@@ -747,7 +749,17 @@ pub(crate) fn verify(
             ))
         }
     }
-    // HEAD == oid was checked above, and status includes staged and modified
+    if !baseline_status(git, path, policy, &[])?.is_empty() {
+        return Err(Error::new(
+            crate::ErrorCode::RecoveryFailed,
+            "Worktree is not at a clean baseline",
+        ));
+    }
+    Ok(())
+}
+
+fn baseline_status(git: &Git, path: &Path, policy: CleanupPolicy, fds: &[i32]) -> Result<Vec<u8>> {
+    // Status includes staged and modified
     // entries. Only emptiness matters: collapsing untracked/ignored directories
     // is equivalent and avoids enumerating every file beneath them.
     let mut args = vec![
@@ -761,23 +773,15 @@ pub(crate) fn verify(
     if policy == CleanupPolicy::Pristine {
         args.push("--ignored");
     }
-    if !git
-        .run_with(
-            path,
-            &args,
-            crate::git::Invocation {
-                reject_stderr: true,
-                ..Default::default()
-            },
-        )?
-        .is_empty()
-    {
-        return Err(Error::new(
-            crate::ErrorCode::RecoveryFailed,
-            "Worktree is not at a clean baseline",
-        ));
-    }
-    Ok(())
+    git.run_with(
+        path,
+        &args,
+        crate::git::Invocation {
+            reject_stderr: true,
+            inherit: fds,
+            ..Default::default()
+        },
+    )
 }
 /// Detach HEAD in a released checkout so a branch the task created or switched
 /// to is no longer "checked out" there, freeing it for `git switch` or deletion
