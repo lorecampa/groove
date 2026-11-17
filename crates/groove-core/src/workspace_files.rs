@@ -395,7 +395,11 @@ mod tests {
     #[test]
     fn directory_inventory_has_a_binary_contract_and_rejects_truncation() {
         let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join(DIRECTORY_STATE_NAME);
+        let path = temp
+            .path()
+            .canonicalize()
+            .unwrap()
+            .join(DIRECTORY_STATE_NAME);
         let entry = DirectoryState {
             path: b"raw-\xff".to_vec(),
             mode: 0o755,

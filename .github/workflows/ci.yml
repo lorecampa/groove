@@ -143,9 +143,6 @@ jobs:
       GIT_CONFIG_GLOBAL: /dev/null
       GIT_CONFIG_NOSYSTEM: '1'
       MACOSX_DEPLOYMENT_TARGET: '13.0'
-      # Keep fixture Unix sockets below Darwin's sun_path limit. The product
-      # uses its own short, validated path independent of the caller's TMPDIR.
-      TMPDIR: /private/tmp
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
