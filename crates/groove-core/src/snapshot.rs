@@ -764,7 +764,10 @@ impl Snapshots {
                     let mut bytes = 0;
                     for path in selected {
                         for rule in rules {
-                            let mut literal = format!(":(literal,attr:{rule})").into_bytes();
+                            // The physical inventory can contain a case-only
+                            // spelling change on macOS while the index retains
+                            // the original name. Audit every matching index path.
+                            let mut literal = format!(":(literal,icase,attr:{rule})").into_bytes();
                             literal.extend_from_slice(path);
                             bytes += literal.len() + 1;
                             bounded.push(OsString::from_vec(literal));
