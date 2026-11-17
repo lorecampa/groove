@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Verify exact tracked-path spelling during reuse on case-insensitive storage;
+  case-only contamination now triggers cleanup or a safe checkout rebuild.
+
 - Accept Git's fsmonitor IPC socket at the root of verified worktree
   administration, while continuing to reject unknown sockets and special files.
   Preserve the daemon and its socket across safe handoffs.

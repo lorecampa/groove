@@ -857,6 +857,11 @@ fn baseline_status(git: &Git, path: &Path, policy: CleanupPolicy, fds: &[i32]) -
     // entries. Only emptiness matters: collapsing untracked/ignored directories
     // is equivalent and avoids enumerating every file beneath them.
     let mut args = vec![
+        // Exact path spelling is part of the baseline even on case-insensitive
+        // storage. Otherwise Git can hide a case-only rename from both cleanup
+        // and verification, handing the next owner the previous owner's name.
+        "-c",
+        "core.ignorecase=false",
         "status",
         "--porcelain=v1",
         "-z",
