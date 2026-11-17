@@ -34,9 +34,9 @@ fn capacity_wait_bounds_preparing_slots_independently_of_the_git_budget() {
     cli(&repo, &["acquire", "--task", "initial"]);
     cli(&repo, &["release", "--task", "initial"]);
     let lock = fs::File::open(repo.state().join("locks/wt-0001.lock")).unwrap();
-    // SAFETY: the file owns this descriptor throughout both CLI contenders;
-    // this is the same exclusion a surviving preparation child retains.
     assert_eq!(
+        // SAFETY: the file owns this descriptor throughout both CLI contenders;
+        // this is the same exclusion a surviving preparation child retains.
         unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) },
         0
     );
