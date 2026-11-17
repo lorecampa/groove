@@ -1,24 +1,20 @@
 EXAMPLES:
   groove list
-  groove list --slots
-  groove list --details
+  groove list -p frontend
+  groove list --sort acquired --limit 20
 
-By default lists active reservations, including ones left by interrupted
-commands. --slots lists slots with their status, reason and suggested next
-action. --details adds bounded local Git status (staged, modified, untracked).
+Lists active reservations across every pool, including ones left by interrupted
+commands. Human output includes a POOL column. -p/--pool filters to one pool.
+Use pool show [NAME] for the slot table and pool show --details for Git status.
 Observations never prove ownership or that writers have stopped.
 Corrupt ready-slot metadata is reported as unhealthy with its failure.
 
-Returns at most 50 entries by default, ordered by slot ID. Use --limit N to
+Returns at most 50 entries by default, ordered by task label. Use --limit N to
 change the page size, --offset N to continue, or --unlimited for the complete list.
 JSON includes pagination.total, offset, limit (null with --unlimited) and next_offset
 (null at the end). An empty page does not mean the pool has no reservations.
-Metadata is still enumerated; --details checks Git status for all slots.
+Metadata is still enumerated.
 Concurrent changes can shift offset pages; observations never grant ownership.
---sort task orders labels lexicographically, with unlabelled entries first and
-slot ID breaking ties. --sort slot restores the default order.
---order asc (default) or --order desc applies to the sort key and slot-ID
-tie-breaker before pagination. Descending task order puts unlabelled entries last.
-
-Detailed status waits at most two seconds for a slot busy with a save, release
-or preparation, then reports that slot's Git status as unavailable and retryable.
+--sort task orders labels lexicographically, --sort pool groups by pool, and
+--sort acquired orders by acquisition time (newest first by default).
+--order asc|desc applies before pagination. Task and pool sorts default to asc.

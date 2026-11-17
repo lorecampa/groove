@@ -122,7 +122,7 @@ fn concise_help_keeps_examples_and_reference_topics_remain_installed() {
     let repo = Repo::new();
     for command in ["acquire", "release", "show", "list", "upgrade"] {
         let help = support::groove_human_in(&repo.path)
-            .args([command, "--help"])
+            .args([command, "-h"])
             .output()
             .unwrap();
         assert!(help.status.success());
@@ -134,6 +134,17 @@ fn concise_help_keeps_examples_and_reference_topics_remain_installed() {
             text.lines().count()
         );
         assert!(!text.contains("OUTPUT TYPES"), "{text}");
+        for flag in ["-h", "--help"] {
+            let human = support::groove_human_in(&repo.path)
+                .args([command, flag])
+                .output()
+                .unwrap();
+            assert!(human.status.success());
+            let human = String::from_utf8(human.stdout).unwrap();
+            let json = invoke(&repo, &[command, flag], 0);
+            assert_eq!(json["result"]["text"], human);
+            assert_eq!(human.contains("OUTPUT TYPES"), flag == "--help");
+        }
     }
     for topic in ["exit-codes", "durations", "recovery", "environment"] {
         let help = invoke(&repo, &["help", topic], 0);
@@ -242,7 +253,11 @@ fn deletion_requires_explicit_confirmation_and_messages_save_snapshots() {
         0,
     );
     invoke(&repo, &["--pool", "frontend", "acquire", "fix"], 0);
-    let saved = invoke(&repo, &["release", "fix", "-m", "nav fix"], 0);
+    let saved = invoke(
+        &repo,
+        &["release", "fix", "-m", "nav fix", "--max-file-size", "1M"],
+        0,
+    );
     assert_eq!(saved["result"]["snapshot"]["description"], "nav fix");
     let snapshot = saved["result"]["snapshot"]["id"].as_str().unwrap();
     invoke(&repo, &["snapshot", "delete", snapshot, "--pinned"], 0);

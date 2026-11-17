@@ -4,11 +4,11 @@
 
 ### Changed
 
-- Keep command help focused on usage, options and examples. Installed help topics
-  cover exit codes, durations, recovery
-  (`help recovery [COMMAND]`) and environment behavior. `help COMMAND` shows the
-  same concise command reference without opening a repository. Add `--json` to
-  `COMMAND --help` for the JSON contract in the existing `result.text` envelope.
+- Keep `-h` concise and `--help` detailed, with command-specific output contracts.
+  `--json` changes stdout formatting only: both help forms use the existing
+  `result.text` envelope without changing their content. Installed help topics
+  cover exit codes, durations, recovery and environment behavior; `help COMMAND`
+  shows the detailed command reference without opening a repository.
 - Resolve snapshot UUID prefixes of at least eight characters; filter snapshot
   lists with `--pinned`. Multi-snapshot deletion validates all selectors first and
   requires confirmation, with `--dry-run` and `--yes`. API v2 single deletions

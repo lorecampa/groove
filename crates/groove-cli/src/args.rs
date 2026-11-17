@@ -206,6 +206,24 @@ impl Args {
                 self.deprecations
                     .push("list --slots/--details are deprecated; use pool show NAME");
             }
+            Command::Pool(PoolCommand::Set {
+                capacity,
+                cleanup,
+                ready_target,
+                idle_timeout,
+                ready_base,
+                ready_git_timeout,
+                ..
+            }) if capacity.is_some()
+                || cleanup.is_some()
+                || ready_target.is_some()
+                || idle_timeout.is_some()
+                || ready_base.is_some()
+                || ready_git_timeout.is_some() =>
+            {
+                self.deprecations
+                    .push("pool set setting flags are deprecated; use KEY=VALUE");
+            }
             _ => {}
         }
         Ok(self)
@@ -350,7 +368,7 @@ pub enum Command {
         path_only: bool,
     },
     /// Return a workspace to the pool; optionally save a pinned snapshot first.
-    #[command(after_long_help = help!("release"))]
+    #[command(after_long_help = help!("release"), group(clap::ArgGroup::new("saving").multiple(true).args(["save", "message"])))]
     Release {
         #[command(flatten)]
         timeout: GitTimeoutArgs,
@@ -363,10 +381,15 @@ pub enum Command {
         #[arg(short = 'm', long, conflicts_with = "description")]
         message: Option<String>,
         /// Description recorded with the pinned snapshot.
-        #[arg(long, requires = "save", default_value = "workspace saved")]
+        #[arg(
+            long,
+            hide = true,
+            requires = "save",
+            default_value = "workspace saved"
+        )]
         description: String,
         /// File size limit, e.g. 100M; 0 means unlimited.
-        #[arg(long = "max-file-size", value_name = "SIZE", value_parser = parse_size, requires = "save", default_value = DEFAULT_MAX_FILE_BYTES, long_help = "Largest changed file to capture, e.g. 100M; 0 removes the limit.")]
+        #[arg(long = "max-file-size", value_name = "SIZE", value_parser = parse_size, requires = "saving", default_value = DEFAULT_MAX_FILE_BYTES, long_help = "Largest changed file to capture, e.g. 100M; 0 removes the limit.")]
         max_file_bytes: u64,
         /// Discard unsaved work; never bypasses active writers.
         #[arg(
@@ -428,7 +451,7 @@ pub struct UpgradeArgs {
     #[arg(long, conflicts_with = "dry_run")]
     pub check: bool,
     /// Show source, destination and literal installer commands without executing them.
-    #[arg(long)]
+    #[arg(short = 'n', long)]
     pub dry_run: bool,
     /// Also update installed, enabled user Groove plugins in Codex and Claude Code.
     #[arg(long)]
@@ -752,22 +775,22 @@ pub enum PoolCommand {
         #[arg(value_name = "NAME|KEY=VALUE")]
         values: Vec<PoolSettingArgument>,
         /// Desired ready, unreserved checkouts; cannot exceed resulting capacity. Zero disables replenishment.
-        #[arg(long)]
+        #[arg(long, hide = true)]
         ready_target: Option<usize>,
         /// Idle duration for excess checkouts (positive s/m/h/d), or never to disable eviction.
-        #[arg(long)]
+        #[arg(long, hide = true)]
         idle_timeout: Option<groove_core::IdleTimeout>,
         /// Local revision for spare preparation; no implicit fetch or project commands.
-        #[arg(long)]
+        #[arg(long, hide = true)]
         ready_base: Option<String>,
         /// Background Git timeout (positive ms/s/m/h); unset inherits --git-timeout.
-        #[arg(long, value_name = "DURATION")]
+        #[arg(long, hide = true, value_name = "DURATION")]
         ready_git_timeout: Option<groove_core::ReadyGitTimeout>,
         /// New capacity (1..=4096); shrinking is rejected.
-        #[arg(long, value_parser = parse_capacity)]
+        #[arg(long, hide = true, value_parser = parse_capacity)]
         capacity: Option<usize>,
         /// Cleanup policy for future acquisitions.
-        #[arg(long, value_enum)]
+        #[arg(long, hide = true, value_enum)]
         cleanup: Option<Cleanup>,
     },
 }
@@ -1163,8 +1186,8 @@ mod scalar_tests {
     }
 
     #[test]
-    fn show_requires_exactly_one_selector_and_pool_show_has_collection_options() {
-        assert!(Args::try_parse_from(["groove", "show"]).is_err());
+    fn show_allows_inference_or_one_selector_and_pool_show_has_collection_options() {
+        assert!(Args::try_parse_from(["groove", "show"]).is_ok());
         for (flag, value) in [
             ("--task", "label"),
             ("--slot", "wt-0001"),

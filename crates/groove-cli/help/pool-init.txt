@@ -1,9 +1,9 @@
 EXAMPLES:
   groove pool create frontend --capacity 3 --git-timeout 10m
-  groove pool init --capacity 4
-  groove pool init --capacity 4 --workspace-root /absolute/empty/root
-  groove pool init --resume --capacity 4
-  groove --pool frontend pool init --capacity 3 --cleanup warm
+  groove pool create --capacity 4
+  groove pool create frontend --capacity 4 --root /absolute/empty/root
+  groove pool create frontend --resume --capacity 4
+  groove pool create frontend --capacity 3 --cleanup warm
   groove config set worktrees.root=/absolute/worktrees
 
 Creates slot metadata and permanent locks. Checkouts materialize on demand by
@@ -19,17 +19,17 @@ Pristine cleanup is the default and removes ignored files on acquisition. Choose
 warm only when your workflow validates retained ignored residue; rebuilding a
 checkout can discard it. External build-tool caches can also serve pristine pools.
 
-Initializes the selected pool (--pool NAME; default: default). The checkout root
+Creates NAME (default: default). The checkout root
 defaults to $HOME/.worktrees/<project>-<repo-id>/<pool> on Linux and macOS.
 The project name is sanitized and the ID hashes the canonical common Git directory,
 so linked worktrees agree and separate clones of the same project stay separate.
 Set worktrees.root in global configuration to replace the ~/.worktrees parent.
---workspace-root overrides it with an exact pool root, without adding components.
+--root overrides it with an exact pool root, without adding components.
 Global TOML paths must be absolute and do not expand ~.
 Existing pools keep their recorded paths, including legacy roots beneath .git.
 The root stays fixed for that pool generation; after destroy, init can choose
 another root and settings. Interrupted init must resolve to its original root;
-if preferences changed, pass that exact root with --workspace-root when resuming.
+if preferences changed, pass that exact root with --root when resuming.
 A custom root must start empty, be owned by you and lie outside Git administration
 and every checkout (the exact legacy state/worktrees root remains accepted).
 Roots cannot overlap another pool's root, including pending
@@ -37,9 +37,9 @@ and retained deleted pools. Relative paths resolve from the current directory.
 Never delete permanent lock files to force setup or recovery.
 
 READY CHECKOUTS:
---ready-target defaults to pool_defaults.ready_target (0) and must be between 0
+--ready-target defaults to pool-defaults.ready-target (0) and must be between 0
 and capacity. An incompatible global default is rejected; override it explicitly.
---idle-timeout defaults to pool_defaults.idle_timeout (7d); accepts positive whole
+--idle-timeout defaults to pool-defaults.idle-timeout (7d); accepts positive whole
 s/m/h/d durations or never. Excess idle checkouts become eligible for deletion,
 including ignored caches. Slot capacity, permanent locks, branches, snapshots and
 release receipts remain. Reservations never expire.
@@ -54,6 +54,7 @@ this repository: older writers reject enabled pools' new metadata.
 Disable automatic work with --ready-target 0 --idle-timeout never.
 Use `groove pool show` to inspect background progress and failures.
 
---ready-git-timeout DURATION persists the background worker's per-Git-operation
-budget (positive ms/s/m/h). Unset inherits the triggering command's --git-timeout.
+--git-timeout persists the foreground per-Git-operation budget. Its default is
+pool-defaults.git-timeout (2m). --ready-git-timeout DURATION overrides that saved
+budget for background workers (positive ms/s/m/h).
 Large repositories should persist the value their acquires need, e.g. 45m.

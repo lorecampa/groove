@@ -2,14 +2,16 @@
 USER PREFERENCES:
   groove config show
   groove config get logging.level
-  groove config set logging.level=trace logging.max_files=50
+  groove config set logging.level=trace logging.max-files=50
   groove config set worktrees.root=/absolute/worktrees
   groove config unset worktrees.root
   groove config unset logging.directory
   groove config edit
 
 Preferences are user-wide, separate from pool settings, and require no repository.
-Preferences use an extensible key space in a file; pool settings use a fixed typed set of flags.
+Preference and pool keys use kebab-case, and both set commands accept KEY=VALUE.
+Legacy underscore spellings remain accepted. Stored TOML and JSON retain their
+existing snake_case fields for compatibility.
 `get KEY` prints the effective value and a newline (an empty line when unset);
 JSON returns key and value, using null for an unset optional value.
 The file is $XDG_CONFIG_HOME/groove/config.toml (or ~/.config/groove/config.toml).
@@ -38,7 +40,7 @@ User preference structure is described by schemas/user-v1.schema.json in the
 source distribution; the loader additionally checks cross-field constraints.
 
 worktrees.root replaces the default $HOME/.worktrees parent used by new pools:
-<root>/<project>-<repo-id>/<pool>. It must be absolute. pool init --workspace-root
+<root>/<project>-<repo-id>/<pool>. It must be absolute. pool create --root
 overrides it with an exact pool path. Changing/unsetting this preference never
 relocates existing pools; use pool show to inspect a pool's recorded path.
 
@@ -53,7 +55,7 @@ diagnostics.
 Invalid supplied values name the setting and its expected type or allowed values.
 `set` accepts TOML literals or bare strings, validates updates together and saves
 atomically, preserving comments. `unset` restores defaults. Size/count/age limits
-must be positive and max_file_mib cannot exceed max_total_mib. Invalid changes
+must be positive and max-file-mib cannot exceed max-total-mib. Invalid changes
 leave the file unchanged.
 
 `edit` uses VISUAL, EDITOR or vi with quoted arguments but no shell evaluation.
@@ -64,14 +66,15 @@ and `edit` work with broken settings, and global configuration commands create
 no persistent diagnostic logs so they can repair the logging destination itself.
 
 NEW POOL DEFAULTS:
-pool_defaults.ready_target defaults to 0 (0..4096). pool_defaults.idle_timeout
+pool-defaults.ready-target defaults to 0 (0..4096). pool-defaults.idle-timeout
 is a positive whole duration in s/m/h/d, default 7d, or never to disable eviction.
 For example:
-  groove config set pool_defaults.ready_target=2 pool_defaults.idle_timeout=3d
-These values are copied at init, with explicit init flags taking precedence.
+  groove config set pool-defaults.ready-target=2 pool-defaults.idle-timeout=3d
+pool-defaults.git-timeout defaults to 2m and must be a positive duration.
+These values are copied at creation, with explicit creation flags taking precedence.
 Changing defaults never changes an existing pool. Initialization rejects a target
 above that pool's capacity; pass --ready-target explicitly instead of clamping.
-ready_base is repository-specific and is configured through pool init/pool set.
+ready-base is repository-specific and is configured through pool create/pool set.
 
 UPDATE PREFERENCES:
 updates.check defaults to true. Set updates.check=false to disable automatic

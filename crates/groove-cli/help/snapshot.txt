@@ -1,5 +1,5 @@
 EXAMPLES:
-  groove snapshot save 'before refactor'
+  groove snapshot save -m 'before refactor'
   groove snapshot list
   groove snapshot storage --largest 10
   groove snapshot diff ID
@@ -39,13 +39,16 @@ and success/error outcomes. Enabled DEBUG file logging retains structured
 snapshot_timing records with operation, phase, elapsed_us and outcome fields.
 These diagnostics leave --json stdout unchanged. See config show for settings.
 
-Unknown or deleted snapshot IDs return INVALID_ARGUMENT with "Snapshot not found".
+SNAPSHOT accepts a full UUID or a unique prefix of at least eight characters.
+Ambiguous prefixes fail without selecting a snapshot. Unknown or deleted snapshot
+IDs return INVALID_ARGUMENT with "Snapshot not found".
 
 Snapshots pinned by `release --save` or an interrupted in-place restore need
-`delete --force`. Explicit retention is available with snapshot prune --older-than 30d;
-it previews by default and never overrides pins. Deleting removes the ref;
+`delete --pinned`. Explicit retention is available with snapshot prune --older-than 30d;
+use --dry-run to preview or --yes for noninteractive deletion. Prune never overrides
+pins. Deleting removes the ref;
 Git reclaims the space during its normal garbage collection.
-Unreadable or inconsistent pins cause an error, including with --force; repair
+Unreadable or inconsistent pins cause an error, including with --pinned; repair
 the reference before retrying. A reference changed during deletion is preserved.
 
 snapshot diff compares a saved checkpoint with current files (including eligible
@@ -53,7 +56,12 @@ untracked files), or with a second checkpoint. It emits an uncolored binary-capa
 Git patch with fixed prefixes, independently of Git display preferences. It does
 not change HEAD, the real index or working files. Equal trees produce empty output.
 
-snapshot list returns at most 50 snapshots, newest first, by default.
+snapshot delete accepts multiple IDs; it validates every selector and pin before
+deleting. Multiple deletions require terminal confirmation or --yes; --dry-run
+previews. Single deletion is immediate. Failed deletion reports any completed IDs.
+
+snapshot list returns at most 50 snapshots, newest first, by default. --pinned
+filters to pinned snapshots.
 Use --limit 20 --offset 20 for another page, or --unlimited for the complete list.
 JSON includes pagination.total, offset, limit (null with --unlimited) and next_offset
 (null at the end). Snapshot IDs break ties for equal creation times.

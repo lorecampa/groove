@@ -20,7 +20,7 @@ pub fn command() -> clap::Command {
         .filter(|argument| matches!(argument.get_id().as_str(), "pool" | "git_timeout_ms"))
         .cloned()
         .collect();
-    scope_context_help(decorate(command, ""), "", &context)
+    scope_context_help(decorate(command, "", &schema()), "", &context)
 }
 
 // Transitional context aliases belong to their commands, never the global set.
@@ -86,12 +86,81 @@ fn scope_context_help(
     command
 }
 
-fn decorate(mut command: clap::Command, path: &str) -> clap::Command {
-    let text = format!(
-        "{}\nAdd --json to --help for the output contract.\nHelp topics: exit-codes, durations, recovery, environment.\n",
+fn decorate(mut command: clap::Command, path: &str, schema: &Value) -> clap::Command {
+    let mut text = command
+        .get_after_long_help()
+        .map(ToString::to_string)
+        .unwrap_or_else(|| concise_help(path).to_owned());
+    if path == "config" {
+        text.push_str("\nPREFERENCE DEFAULTS (TOML, before environment overrides):\n");
+        text.push_str(
+            &toml::to_string_pretty(&preferences::Config::default())
+                .expect("built-in preferences must serialize as TOML"),
+        );
+    }
+    if path.starts_with("config ") {
+        text.push_str("\nSee groove config --help for preference keys and defaults.\n");
+    }
+    if path.is_empty() {
+        text.push_str(include_str!("../help/json.txt"));
+    } else {
+        text.push_str(
+            "\nOUTPUT CONTRACT:\nSee groove --help for global output rules and exit codes.\n",
+        );
+    }
+    let mut definitions = BTreeSet::new();
+    if !path.is_empty() {
+        if let Some(commands) = schema["x-groove-command-results"].as_object() {
+            for (name, names) in commands {
+                if name == path || name.starts_with(&format!("{path} ")) {
+                    let names: Vec<_> = names
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(Value::as_str)
+                        .collect();
+                    text.push_str(&format!("  {name} -> result: {}\n", names.join(" | ")));
+                    definitions.extend(names.into_iter().map(str::to_owned));
+                }
+            }
+        }
+        definitions.insert("error".into());
+        append_definitions(&mut text, definitions, schema);
+    } else {
+        text.push_str("Run groove COMMAND --help for that command's result fields and types.\n");
+    }
+    if path.is_empty() {
+        text.push_str("\nERROR EXIT CODES:\n");
+        for value in schema["$defs"]["error"]["properties"]["code"]["enum"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            let library_name = match value.as_str() {
+                Some("INVALID_RESERVATION") => Value::String("INVALID_LEASE".into()),
+                Some("RESERVATION_MISMATCH") => Value::String("LEASE_MISMATCH".into()),
+                _ => value.clone(),
+            };
+            if let Ok(code) = serde_json::from_value::<ErrorCode>(library_name) {
+                text.push_str(&format!(
+                    "  {}: {}\n",
+                    output::error_status(code),
+                    output::cli_error_code(code)
+                ));
+            }
+        }
+        text.push_str("  7: stdout could not be written\n");
+    }
+    let invocation = if path.is_empty() {
+        "groove".to_owned()
+    } else {
+        format!("groove {path}")
+    };
+    text.push_str(&format!("\nRun {invocation} -h for concise help.\n"));
+    command = command.after_long_help(text).after_help(format!(
+        "{}\nRun {invocation} --help for detailed help, recovery rules and output types.",
         concise_help(path)
-    );
-    command = command.after_long_help(text.clone()).after_help(text);
+    ));
     let children: Vec<_> = command
         .get_subcommands()
         .map(|child| {
@@ -100,7 +169,7 @@ fn decorate(mut command: clap::Command, path: &str) -> clap::Command {
             } else {
                 format!("{path} {}", child.get_name())
             };
-            decorate(child.clone(), &child_path)
+            decorate(child.clone(), &child_path, schema)
         })
         .collect();
     for child in children {
@@ -153,50 +222,16 @@ pub fn help_topic(parts: &[String]) -> groove_core::Result<String> {
     if parts.first().is_some_and(|topic| topic == "json") {
         return Err(groove_core::Error::new(
             ErrorCode::InvalidArgument,
-            "Use groove COMMAND --help --json for its output contract",
+            "Use groove COMMAND --help for its output contract",
         ));
     }
     reference_help(parts)
-}
-
-pub fn json_contract(path: &[String]) -> groove_core::Result<String> {
-    reference_help(
-        &std::iter::once("json".into())
-            .chain(path.iter().cloned())
-            .collect::<Vec<_>>(),
-    )
 }
 
 fn reference_help(parts: &[String]) -> groove_core::Result<String> {
     let invalid = |message| groove_core::Error::new(ErrorCode::InvalidArgument, message);
     let topic = parts.first().map(String::as_str).unwrap_or("");
     match topic {
-        "json" => {
-            let schema = schema();
-            let filter = parts[1..].join(" ");
-            let mut text = include_str!("../help/json.txt").to_owned();
-            let mut definitions = BTreeSet::new();
-            for (name, types) in schema["x-groove-command-results"]
-                .as_object()
-                .expect("validated command schema")
-            {
-                if filter.is_empty() || name == &filter || name.starts_with(&format!("{filter} ")) {
-                    let types: Vec<_> = types
-                        .as_array()
-                        .expect("validated result list")
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .collect();
-                    text.push_str(&format!("\n{name}: {}\n", types.join(" | ")));
-                    definitions.extend(types.into_iter().map(str::to_owned));
-                }
-            }
-            if definitions.is_empty() {
-                return Err(invalid(format!("Unknown command contract: {filter}")));
-            }
-            append_definitions(&mut text, definitions, &schema);
-            Ok(text)
-        }
         "exit-codes" => {
             let mut text = "Exit codes are stable categories; branch on error.code for the specific failure.\n".to_owned();
             for value in schema()["$defs"]["error"]["properties"]["code"]["enum"]
