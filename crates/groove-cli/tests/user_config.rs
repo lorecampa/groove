@@ -240,8 +240,10 @@ fn log_fields_are_typed_and_correlated() {
         .collect();
     for event in &events {
         let timestamp = event["timestamp"].as_str().unwrap();
-        let parsed = chrono::DateTime::parse_from_rfc3339(timestamp).unwrap();
-        assert_eq!(parsed.offset().local_minus_utc(), 0);
+        let parsed =
+            time::OffsetDateTime::parse(timestamp, &time::format_description::well_known::Rfc3339)
+                .unwrap();
+        assert_eq!(parsed.offset().whole_seconds(), 0);
         assert_eq!(timestamp.len(), 24); // Milliseconds and UTC Z suffix.
         assert!(timestamp.ends_with('Z'));
         assert!(event.get("timestamp_ms").is_none());
@@ -306,13 +308,14 @@ fn configured_retention_is_used_and_removed_flags_are_rejected() {
 
 mod support;
 
-fn timestamp_in_window(text: &str, before: i64, after: i64) {
-    let time = chrono::DateTime::parse_from_rfc3339(text).expect("RFC 3339 timestamp");
+fn timestamp_in_window(text: &str, before: i128, after: i128) {
+    let time = time::OffsetDateTime::parse(text, &time::format_description::well_known::Rfc3339)
+        .expect("RFC 3339 timestamp");
     assert_eq!(text.len(), 24);
     assert!(text.ends_with('Z'));
-    assert_eq!(time.offset().local_minus_utc(), 0);
+    assert_eq!(time.offset().whole_seconds(), 0);
     assert!(
-        (before..=after).contains(&time.timestamp_millis()),
+        (before..=after).contains(&(time.unix_timestamp_nanos() / 1_000_000)),
         "stale/future timestamp: {text}"
     );
 }
@@ -325,7 +328,7 @@ fn successful_lifecycle_has_fresh_matching_timestamps_and_startup_notices() {
     let mut invocations = std::collections::HashSet::new();
     for action in ["pool create", "acquire", "list", "release"] {
         let logs = home.path().join(action);
-        let before = chrono::Utc::now().timestamp_millis();
+        let before = time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000;
         let mut cmd = command(home.path());
         cmd.env("GROOVE_LOG_DIR", &logs)
             .arg("--repo")
@@ -352,7 +355,7 @@ fn successful_lifecycle_has_fresh_matching_timestamps_and_startup_notices() {
             _ => {}
         }
         let out = cmd.output().unwrap();
-        let after = chrono::Utc::now().timestamp_millis();
+        let after = time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000;
         let stderr = String::from_utf8(out.stderr.clone()).unwrap();
         // Includes the startup announcement, not just tracing events.
         assert!(stderr.contains("DEBUG Log file:"));
@@ -446,13 +449,13 @@ fn unavailable_log_warning_is_timestamped_and_does_not_break_stdout() {
     let home = tempfile::tempdir().unwrap();
     let blocked = home.path().join("not-a-directory");
     fs::write(&blocked, "blocked").unwrap();
-    let before = chrono::Utc::now().timestamp_millis();
+    let before = time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000;
     let out = command(home.path())
         .env("GROOVE_LOG_DIR", blocked)
         .args(["-v", "list"])
         .output()
         .unwrap();
-    let after = chrono::Utc::now().timestamp_millis();
+    let after = time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000;
     assert!(!out.status.success());
     let response: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(response["ok"], false);
