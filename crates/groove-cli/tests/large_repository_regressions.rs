@@ -66,7 +66,10 @@ fn release_waits_for_concurrent_detailed_inspection() {
     }
     cli(&repo, &["release", "--task", "initial"]);
     for _ in 0..200 {
-        cli(&repo, &["acquire", "--task", "cycle"]);
+        // Inspection can still hold admission after release. This regression
+        // tests release's exclusion, not zero-wait capacity; request that wait
+        // explicitly now that --wait 0s never waits for another slot user.
+        cli(&repo, &["acquire", "--task", "cycle", "--wait", "2s"]);
         cli(&repo, &["release", "--task", "cycle"]);
     }
     fs::write(stop, b"stop").unwrap();
