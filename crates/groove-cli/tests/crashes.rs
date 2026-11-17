@@ -1099,53 +1099,60 @@ fn superseded_pins(interrupt_retirement: bool) {
 
 #[test]
 fn finish_crash_retries_preserve_checkpoint_and_never_release_a_successor() {
-    for checkpoint in ["finish-snapshot-saved", "finish-released"] {
-        let r = Repo::new();
-        let cli = |args: &[&str]| support::groove_in(&r.path).args(args).output().unwrap();
-        support::assert_success(&cli(&["pool", "init", "--capacity", "1"]));
-        let lease = support::assert_success(&cli(&["acquire"]))["result"].clone();
-        let id = lease["reservation_id"].as_str().unwrap();
-        std::fs::write(r.slot(1).join("tracked.txt"), "checkpoint results").unwrap();
-        let (mut command, listener) = checkpoint_command(
-            &r,
-            checkpoint,
-            &["release", "--save", "--reservation-id", id],
-        );
-        kill_at_checkpoint(&mut command, listener, checkpoint);
-        let receipt: serde_json::Value = serde_json::from_slice(
-            &std::fs::read(r.state().join(format!("slots/finish-{id}.json"))).unwrap(),
-        )
-        .unwrap();
-        let successor = if checkpoint == "finish-released" {
-            Some(support::assert_success(&cli(&["acquire"]))["result"].clone())
-        } else {
-            assert!(!cli(&["acquire"]).status.success());
-            None
-        };
-        let retry = support::assert_success(&cli(&["release", "--save", "--reservation-id", id]));
-        if successor.is_some() {
-            assert_eq!(retry["result"]["snapshot"]["id"], receipt["snapshot"]["id"]);
-        }
-        let recovered = r.temp.path().join("recovered");
+    finish_crash_retry("finish-released");
+}
+
+#[test]
+fn finish_crash_retries_preserve_unreleased_checkpoint() {
+    finish_crash_retry("finish-snapshot-saved");
+}
+
+fn finish_crash_retry(checkpoint: &str) {
+    let r = Repo::new();
+    let cli = |args: &[&str]| support::groove_in(&r.path).args(args).output().unwrap();
+    support::assert_success(&cli(&["pool", "init", "--capacity", "1"]));
+    let lease = support::assert_success(&cli(&["acquire"]))["result"].clone();
+    let id = lease["reservation_id"].as_str().unwrap();
+    std::fs::write(r.slot(1).join("tracked.txt"), "checkpoint results").unwrap();
+    let (mut command, listener) = checkpoint_command(
+        &r,
+        checkpoint,
+        &["release", "--save", "--reservation-id", id],
+    );
+    kill_at_checkpoint(&mut command, listener, checkpoint);
+    let receipt: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(r.state().join(format!("slots/finish-{id}.json"))).unwrap(),
+    )
+    .unwrap();
+    let successor = if checkpoint == "finish-released" {
+        Some(support::assert_success(&cli(&["acquire"]))["result"].clone())
+    } else {
+        assert!(!cli(&["acquire"]).status.success());
+        None
+    };
+    let retry = support::assert_success(&cli(&["release", "--save", "--reservation-id", id]));
+    if successor.is_some() {
+        assert_eq!(retry["result"]["snapshot"]["id"], receipt["snapshot"]["id"]);
+    }
+    let recovered = r.temp.path().join("recovered");
+    support::assert_success(&cli(&[
+        "snapshot",
+        "restore",
+        retry["result"]["snapshot"]["id"].as_str().unwrap(),
+        "--to",
+        recovered.to_str().unwrap(),
+    ]));
+    assert_eq!(
+        std::fs::read_to_string(recovered.join("tracked.txt")).unwrap(),
+        "checkpoint results"
+    );
+    if let Some(successor) = successor {
+        assert!(!cli(&["acquire"]).status.success());
         support::assert_success(&cli(&[
-            "snapshot",
-            "restore",
-            retry["result"]["snapshot"]["id"].as_str().unwrap(),
-            "--to",
-            recovered.to_str().unwrap(),
+            "release",
+            "--reservation-id",
+            successor["reservation_id"].as_str().unwrap(),
         ]));
-        assert_eq!(
-            std::fs::read_to_string(recovered.join("tracked.txt")).unwrap(),
-            "checkpoint results"
-        );
-        if let Some(successor) = successor {
-            assert!(!cli(&["acquire"]).status.success());
-            support::assert_success(&cli(&[
-                "release",
-                "--reservation-id",
-                successor["reservation_id"].as_str().unwrap(),
-            ]));
-        }
     }
 }
 
@@ -1294,6 +1301,17 @@ fn completed_finish_retry_rejects_deleted_snapshot_and_preserves_successor() {
 
 #[test]
 fn checkpoint_finish_ignores_parent_git_filters() {
+    finish_with_parent_filters(
+        "finish_crash_retries_preserve_checkpoint_and_never_release_a_successor",
+    );
+}
+
+#[test]
+fn checkpoint_unreleased_finish_ignores_parent_git_filters() {
+    finish_with_parent_filters("finish_crash_retries_preserve_unreleased_checkpoint");
+}
+
+fn finish_with_parent_filters(scenario: &str) {
     let fixture = tempfile::tempdir().unwrap();
     let config = fixture.path().join("global.gitconfig");
     std::fs::write(&config, "[filter \"fixture\"]\nclean = cat\nsmudge = cat\n").unwrap();
@@ -1302,11 +1320,7 @@ fn checkpoint_finish_ignores_parent_git_filters() {
     // preserved snapshots and generation-safe retry through actual CLI crashes.
     let output = support::TestChild::spawn(
         Command::new(std::env::current_exe().unwrap())
-            .args([
-                "--exact",
-                "finish_crash_retries_preserve_checkpoint_and_never_release_a_successor",
-                "--nocapture",
-            ])
+            .args(["--exact", scenario, "--nocapture"])
             .env("GIT_CONFIG_GLOBAL", config)
             .env("GIT_CONFIG_NOSYSTEM", "1"),
     )
