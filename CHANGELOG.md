@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Apply acquisition's capacity wait limit to preparing spares as well as active
+  reservations; zero wait no longer consumes the Git timeout waiting on a child.
+
 - Accept repositories with worktree configuration enabled before their optional
   `config.worktree` file has been created.
 - Match Linux inspection admission on macOS: briefly wait for pre-admission

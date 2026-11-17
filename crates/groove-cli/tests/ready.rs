@@ -8,6 +8,61 @@ use std::{
     time::{Duration, Instant},
 };
 use support::{assert_success, Repo};
+
+#[test]
+fn capacity_wait_bounds_preparing_slots_independently_of_the_git_budget() {
+    use std::os::fd::AsRawFd;
+    if !support::in_subprocess(
+        "capacity_wait_bounds_preparing_slots_independently_of_the_git_budget",
+    ) {
+        return;
+    }
+    let repo = Repo::new();
+    cli(
+        &repo,
+        &[
+            "pool",
+            "init",
+            "--capacity",
+            "1",
+            "--ready-target",
+            "0",
+            "--idle-timeout",
+            "never",
+        ],
+    );
+    cli(&repo, &["acquire", "--task", "initial"]);
+    cli(&repo, &["release", "--task", "initial"]);
+    let lock = fs::File::open(repo.state().join("locks/wt-0001.lock")).unwrap();
+    // SAFETY: the file owns this descriptor throughout both CLI contenders;
+    // this is the same exclusion a surviving preparation child retains.
+    assert_eq!(
+        unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) },
+        0
+    );
+    for (wait, expected) in [("0s", "POOL_EXHAUSTED"), ("100ms", "ACQUIRE_TIMEOUT")] {
+        let started = Instant::now();
+        let output = support::groove_in(&repo.path)
+            .args(["--git-timeout", "3s", "acquire", "--wait", wait])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(3), "{output:?}");
+        let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(value["error"]["code"], expected);
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "capacity wait consumed the Git budget: {value}"
+        );
+        assert_eq!(
+            fs::read(repo.slot(1).join("tracked.txt")).unwrap(),
+            b"baseline\n"
+        );
+    }
+    drop(lock);
+    cli(&repo, &["acquire", "--task", "after-owner-exit"]);
+    cli(&repo, &["release", "--task", "after-owner-exit"]);
+}
+
 #[test]
 fn initializing_an_unborn_repository_explains_the_first_commit_requirement() {
     let repo = Repo::new();

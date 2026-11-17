@@ -216,6 +216,12 @@ normal signal status (130 in a shell), rather than an ACQUIRE_TIMEOUT response.
 A signal can end a command before JSON is emitted. Use the original request key
 to resolve an interrupted acquisition whose outcome is uncertain.
 
+`acquire --wait` bounds all capacity waiting, including spares still held by a
+preparer or its surviving children. Zero scans once. The Git budget applies to
+preparing the caller's own acquired slot, not waiting for another owner's slot.
+If descriptors remain held without a live preparation lock owner, stop surviving
+writers; Groove reports the condition but never breaks their locks.
+
 [The portable skill](../skills/groove/SKILL.md) covers acquire, retry, work and
 release --save. Normal commands select a reservation with `--task` (its label) or `--reservation-id`; slot IDs
 identify reusable directories for diagnostics.
