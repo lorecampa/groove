@@ -461,20 +461,19 @@ impl Pool {
             .map(|key| self.resume_request(key, &options))
             .transpose()?
             .flatten();
-        match &options.task {
-            Some(task) => {
-                let matches = self.label_reservations(task)?;
-                if matches.len() > 1 {
-                    return Err(Error::new(ErrorCode::InvalidArgument, format!(
+        if let Some(task) = &options.task {
+            let matches = self.label_reservations(task)?;
+            if matches.len() > 1 {
+                return Err(Error::new(ErrorCode::InvalidArgument, format!(
                         "Task '{task}' has legacy duplicate reservations in pools {}. Release each by reservation UUID and reacquire with distinct labels; no reservation was changed",
                         matches.iter().map(|(name, _)| name.to_string()).collect::<Vec<_>>().join(", "))));
-                }
-                if let Some((pool, existing)) = matches.first().filter(|(_, existing)| {
-                    resumed
-                        .as_ref()
-                        .is_none_or(|info| info.lease_id != existing.lease_id)
-                }) {
-                    return Err(Error::new(
+            }
+            if let Some((pool, existing)) = matches.first().filter(|(_, existing)| {
+                resumed
+                    .as_ref()
+                    .is_none_or(|info| info.lease_id != existing.lease_id)
+            }) {
+                return Err(Error::new(
                         ErrorCode::InvalidArgument,
                         format!("Task '{task}' is already active in pool '{pool}'; use its reservation, release it, or choose another label"),
                     )
@@ -482,9 +481,7 @@ impl Pool {
                         d.lease_id = Some(existing.lease_id);
                         d.worktree_path = Some(existing.worktree_path.clone());
                     }));
-                }
             }
-            None => (),
         }
         if let Some(info) = resumed {
             self.record_label(&info)?;
