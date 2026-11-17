@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Bound snapshot EOL audits to changed physical and staged paths in verified LF
+  pool checkouts. Keep full audits for ordinary checkouts, changed conversion
+  rules and missing verification evidence; normalized CRLF bytes remain refused.
+
 - Run CI on pull requests and main pushes. Resolve release tags to one immutable
   commit for Linux/macOS checks, native builds and publication; require the full
   matrix before publishing and remove the documented offline bypass.

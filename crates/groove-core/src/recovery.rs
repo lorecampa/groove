@@ -644,6 +644,67 @@ fn conversion_context(git: &Git, path: &Path, policy: CleanupPolicy) -> Result<V
     Ok(context.finalize().to_vec())
 }
 
+/// Physical paths needing a snapshot EOL audit after a verified LF checkout.
+/// Missing or incompatible evidence requests a full audit; this never refreshes
+/// the marker or trusts Git's mutable stat cache as a physical-byte baseline.
+pub(crate) fn snapshot_audit_paths(
+    git: &Git,
+    path: &Path,
+    head: &str,
+    policy: CleanupPolicy,
+) -> Result<Option<Vec<u8>>> {
+    use std::os::unix::fs::MetadataExt;
+    let marker = registration_from_file(path)?.join("groove-verified");
+    repository::no_symlinks(&marker)?;
+    let metadata = match fs::metadata(&marker) {
+        Ok(value) => value,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    if !metadata.is_file()
+        || metadata.modified()? > std::time::SystemTime::now()
+        || metadata.dev() != fs::metadata(path)?.dev()
+        || !crate::platform::fs::recognized_fs(path)?
+    {
+        return Ok(None);
+    }
+    let contents = fs::read(&marker)?;
+    let prefix = format!("{head}\n");
+    let Some(context) = contents.strip_prefix(prefix.as_bytes()) else {
+        return Ok(None);
+    };
+    if context != conversion_context(git, path, policy)? {
+        return Ok(None);
+    }
+    // An unchanged checkout may itself contain normalized CRLF bytes. Such
+    // configurations still need the whole-tree physical EOL audit.
+    for (key, safe) in [
+        (
+            "core.autocrlf",
+            ["false", "no", "off", "0", "input"].as_slice(),
+        ),
+        ("core.eol", ["lf", "native"].as_slice()),
+    ] {
+        match git.run(path, &["config", "--get", key], &[]) {
+            Ok(found)
+                if safe
+                    .iter()
+                    .any(|value| trim(&found).eq_ignore_ascii_case(value.as_bytes())) => {}
+            Ok(_) => return Ok(None),
+            Err(error) if error.git_exit_code() == Some(1) => (),
+            Err(error) => return Err(error),
+        }
+    }
+    let inventory = crate::walk::inventory(
+        path,
+        crate::walk::Options {
+            verified: Some((metadata.mtime(), metadata.mtime_nsec())),
+            ..Default::default()
+        },
+    )?;
+    Ok(inventory.touched_complete.then_some(inventory.touched))
+}
+
 fn mark_verified(git: &Git, path: &Path, policy: CleanupPolicy) -> Result<()> {
     crate::progress::set_phase("recording inventory");
     use std::io::Write;

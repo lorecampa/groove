@@ -207,6 +207,11 @@ in saved text blobs under saved or effective destination rules.
 Automatic text rules (`text=auto`) preserve binary data, lone carriage returns
 and CRLF already stored in the index. Checkouts that write LF-index text as CRLF
 (`core.autocrlf=true` or `core.eol=crlf`) cannot be snapshotted.
+For a managed LF checkout with matching verification evidence, the EOL audit
+checks changed physical files and staged paths. It uses ctime rather than Git's
+refreshable stat cache, so a normalized clean status cannot hide CRLF edits.
+Ordinary checkouts, changed conversion rules and missing verification evidence
+retain the full audit. This optimization never refreshes the verification marker.
 Installing Git LFS or defining an unused filter does not block snapshots. Restore
 checks paths differing from the snapshot base against both saved and effective destination attributes
 before materializing files, including recovery with `--to`. This prevents silent loss of

@@ -182,6 +182,106 @@ exec "$GROOVE_REAL_GIT" "$@"
 }
 
 #[test]
+fn snapshot_audits_changed_physical_paths_without_rescanning_verified_text() {
+    let repo = Repo::new();
+    fs::write(repo.path.join(".gitattributes"), "*.txt text=auto\n").unwrap();
+    repo.git(&["add", "."]);
+    repo.git(&["commit", "-qm", "text baseline"]);
+    init(&repo, "default", "1");
+    cli(&repo.path, &["acquire", "--task", "capture"]);
+    let workspace = repo.slot(1);
+    fs::write(workspace.join("tracked.txt"), "edited\n").unwrap();
+    let wrapper = repo.temp.path().join("bounded-audit");
+    fs::create_dir(&wrapper).unwrap();
+    fs::write(
+        wrapper.join("git"),
+        r#"#!/bin/sh
+case " $* " in
+  *' --eol '*':(attr:text)'*) echo 'full text audit revisits verified files' >&2; exit 64 ;;
+esac
+exec "$GROOVE_REAL_GIT" "$@"
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(wrapper.join("git"), fs::Permissions::from_mode(0o755)).unwrap();
+    let capture = || {
+        support::groove_in(&workspace)
+            .env(
+                "PATH",
+                format!("{}:{}", wrapper.display(), std::env::var("PATH").unwrap()),
+            )
+            .env(
+                "GROOVE_REAL_GIT",
+                std::env::var_os("GROOVE_TEST_GIT").unwrap(),
+            )
+            .args(["snapshot", "save", "bounded audit"])
+            .output()
+            .unwrap()
+    };
+    check(capture(), 0);
+    // Refreshing Git's index hides normalization changes from status, but must
+    // never hide the physical CRLF bytes from Groove's capture validation.
+    fs::write(workspace.join("tracked.txt"), "baseline\r\n").unwrap();
+    support::command(&workspace, "git")
+        .args(["add", "tracked.txt"])
+        .output()
+        .unwrap();
+    let rejected = check(capture(), 2);
+    assert_eq!(rejected["error"]["code"], "UNSUPPORTED_CONFIGURATION");
+    assert_eq!(
+        fs::read(workspace.join("tracked.txt")).unwrap(),
+        b"baseline\r\n"
+    );
+}
+
+#[test]
+fn managed_snapshot_rechecks_conversion_rules_and_a_renormalized_index() {
+    let repo = Repo::new();
+    fs::write(repo.path.join(".gitattributes"), "*.txt text=auto\n").unwrap();
+    repo.git(&["add", "."]);
+    repo.git(&["commit", "-qm", "text baseline"]);
+    init(&repo, "default", "1");
+    cli(&repo.path, &["acquire", "--task", "conversion"]);
+    let workspace = repo.slot(1);
+    let git = |args: &[&str]| {
+        let output = support::command(&workspace, "git")
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+    };
+    git(&["config", "core.eol", "crlf"]);
+    fs::remove_file(workspace.join("tracked.txt")).unwrap();
+    git(&["checkout", "--", "tracked.txt"]);
+    assert_eq!(
+        fs::read(workspace.join("tracked.txt")).unwrap(),
+        b"baseline\r\n"
+    );
+    let rejected = check(
+        support::groove_in(&workspace)
+            .args(["snapshot", "save"])
+            .output()
+            .unwrap(),
+        2,
+    );
+    assert_eq!(rejected["error"]["code"], "UNSUPPORTED_CONFIGURATION");
+    git(&["config", "core.eol", "lf"]);
+    git(&["add", "--renormalize", "."]);
+    let rejected = check(
+        support::groove_in(&workspace)
+            .args(["snapshot", "save"])
+            .output()
+            .unwrap(),
+        2,
+    );
+    assert_eq!(rejected["error"]["code"], "UNSUPPORTED_CONFIGURATION");
+    assert_eq!(
+        fs::read(workspace.join("tracked.txt")).unwrap(),
+        b"baseline\r\n"
+    );
+}
+
+#[test]
 fn ready_git_timeout_is_optional_normalized_and_pool_local() {
     let repo = Repo::new();
     assert!(init(&repo, "default", "1")

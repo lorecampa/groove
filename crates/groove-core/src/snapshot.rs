@@ -647,68 +647,6 @@ impl Snapshots {
                 "Clear manual skip-worktree flags before saving",
             ));
         }
-        // A refreshed index can call a CRLF working file clean after text
-        // normalization. Inspect physical EOLs of text-attributed paths too;
-        // otherwise capture would silently retain an LF index blob instead.
-        let eols = Git::new(self.timeout).spool(
-            &self.root,
-            &[
-                "ls-files",
-                "--eol",
-                "-z",
-                "--",
-                ":(attr:text)",
-                ":(attr:text=auto)",
-                ":(attr:eol=lf)",
-                ":(attr:crlf)",
-                ":(attr:crlf=input)",
-            ],
-            Invocation {
-                env: &[("GIT_LITERAL_PATHSPECS", OsStr::new("0"))],
-                inherit: &lock.descriptors(),
-                reject_stderr: true,
-                spool_directory: Some(&self.state),
-                ..Invocation::snapshot()
-            },
-        )?;
-        path_batches(eols, |batch| {
-            for record in paths(batch) {
-                let tab = record
-                    .iter()
-                    .position(|byte| *byte == b'\t')
-                    .ok_or_else(|| invalid("Malformed Git EOL inventory"))?;
-                let header = &record[..tab];
-                let mut fields = header
-                    .split(|byte| *byte == b' ')
-                    .filter(|field| !field.is_empty());
-                let index = fields
-                    .next()
-                    .and_then(|field| field.strip_prefix(b"i/"))
-                    .ok_or_else(|| invalid("Malformed Git EOL inventory"))?;
-                let working = fields
-                    .next()
-                    .and_then(|field| field.strip_prefix(b"w/"))
-                    .ok_or_else(|| invalid("Malformed Git EOL inventory"))?;
-                if !fields
-                    .next()
-                    .is_some_and(|field| field.starts_with(b"attr/"))
-                {
-                    return Err(invalid("Malformed Git EOL inventory"));
-                }
-                // Unchanged explicit CRLF base paths restore through ordinary
-                // checkout. Changed ones are rejected by validate_attributes.
-                if header.windows(8).any(|part| part == b"eol=crlf") {
-                    continue;
-                }
-                if index != working && [b"crlf".as_slice(), b"mixed"].contains(&working) {
-                    return Err(unsupported(format!(
-                        "Text path {} has CRLF line endings that Git normalization hides from its LF index entry; snapshots preserve exact bytes and do not support checkouts that write text as CRLF (core.autocrlf or core.eol)",
-                        OsStr::from_bytes(&record[tab + 1..]).to_string_lossy()
-                    )));
-                }
-            }
-            Ok(())
-        })?;
         // These inventories read independent state. Join every child before
         // propagating a failure so the snapshot descriptor outlives all readers.
         let (changed, staged, untracked) = std::thread::scope(|scope| -> Result<_> {
@@ -747,6 +685,7 @@ impl Snapshots {
         let mut names = changed.clone();
         names.extend_from_slice(&staged);
         names.extend_from_slice(&untracked);
+        self.audit_eols(&names, lock)?;
         let strict = paths(&names).any(|name| {
             name.rsplit(|byte| *byte == b'/').next() == Some(b".gitattributes".as_slice())
         });
@@ -797,6 +736,105 @@ impl Snapshots {
             untracked,
             text_paths,
         })
+    }
+
+    fn audit_eols(&self, names: &[u8], lock: &SnapshotLock) -> Result<()> {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+        let rules = ["text", "text=auto", "eol=lf", "crlf", "crlf=input"];
+        let full = || {
+            let mut args: Vec<OsString> =
+                ["ls-files", "--eol", "-z", "--"].map(Into::into).to_vec();
+            args.extend(rules.map(|rule| format!(":(attr:{rule})").into()));
+            args
+        };
+        let mut args = full();
+        if let Some(pool) = &self.pool {
+            if let Some(head) = self.head()? {
+                if let Some(mut physical) = crate::recovery::snapshot_audit_paths(
+                    &Git::new(self.timeout),
+                    &self.root,
+                    &head,
+                    pool.settings()?.cleanup_policy,
+                )? {
+                    physical.extend_from_slice(names);
+                    let selected: BTreeSet<_> = paths(&physical).collect();
+                    let mut bounded: Vec<OsString> =
+                        ["ls-files", "--eol", "-z", "--"].map(Into::into).to_vec();
+                    let mut bytes = 0;
+                    for path in selected {
+                        for rule in rules {
+                            let mut literal = format!(":(literal,attr:{rule})").into_bytes();
+                            literal.extend_from_slice(path);
+                            bytes += literal.len() + 1;
+                            bounded.push(OsString::from_vec(literal));
+                        }
+                        if bytes > 64 * 1024 {
+                            break;
+                        }
+                    }
+                    if bytes <= 64 * 1024 {
+                        if bounded.len() == 4 {
+                            return Ok(());
+                        }
+                        args = bounded;
+                    }
+                }
+            }
+        }
+        // A refreshed index can call a CRLF working file clean after text
+        // normalization. Inspect physical EOLs of text-attributed paths too;
+        // otherwise capture would silently retain an LF index blob instead.
+        let eols = Git::new(self.timeout).spool_os(
+            &self.root,
+            args.iter().map(std::ffi::OsString::as_os_str),
+            Invocation {
+                env: &[("GIT_LITERAL_PATHSPECS", OsStr::new("0"))],
+                inherit: &lock.descriptors(),
+                reject_stderr: true,
+                spool_directory: Some(&self.state),
+                ..Invocation::snapshot()
+            },
+        )?;
+        path_batches(eols, |batch| {
+            for record in paths(batch) {
+                let tab = record
+                    .iter()
+                    .position(|byte| *byte == b'\t')
+                    .ok_or_else(|| invalid("Malformed Git EOL inventory"))?;
+                let header = &record[..tab];
+                let mut fields = header
+                    .split(|byte| *byte == b' ')
+                    .filter(|field| !field.is_empty());
+                let index = fields
+                    .next()
+                    .and_then(|field| field.strip_prefix(b"i/"))
+                    .ok_or_else(|| invalid("Malformed Git EOL inventory"))?;
+                let working = fields
+                    .next()
+                    .and_then(|field| field.strip_prefix(b"w/"))
+                    .ok_or_else(|| invalid("Malformed Git EOL inventory"))?;
+                if !fields
+                    .next()
+                    .is_some_and(|field| field.starts_with(b"attr/"))
+                {
+                    return Err(invalid("Malformed Git EOL inventory"));
+                }
+                // Unchanged explicit CRLF base paths restore through ordinary
+                // checkout. Changed ones are rejected by validate_attributes.
+                if header.windows(8).any(|part| part == b"eol=crlf") {
+                    continue;
+                }
+                if index != working && [b"crlf".as_slice(), b"mixed"].contains(&working) {
+                    return Err(unsupported(format!(
+                        "Text path {} has CRLF line endings that Git normalization hides from its LF index entry; snapshots preserve exact bytes and do not support checkouts that write text as CRLF (core.autocrlf or core.eol)",
+                        OsStr::from_bytes(&record[tab + 1..]).to_string_lossy()
+                    )));
+                }
+            }
+            Ok(())
+        })?;
+        Ok(())
     }
 
     /// Permit LF-preserving text rules and reject other active conversion rules.
