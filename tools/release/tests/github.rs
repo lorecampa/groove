@@ -111,8 +111,13 @@ fn rehearsal_leaves_a_verified_draft_and_publish_retry_does_not_reupload() {
     assert_eq!(fs::read_to_string(f.path("draft")).unwrap(), "true");
     f.assert_assets_preserved();
     fs::write(f.path("calls"), "").unwrap();
-    f.run(true, true);
-    assert_eq!(fs::read_to_string(f.path("draft")).unwrap(), "false");
+    let diagnostics = f.run(true, true);
+    assert_eq!(
+        fs::read_to_string(f.path("draft")).unwrap(),
+        "false",
+        "{diagnostics}\nGitHub calls: {}",
+        fs::read_to_string(f.path("calls")).unwrap()
+    );
     let calls = fs::read_to_string(f.path("calls")).unwrap();
     assert!(!calls.contains("release upload"));
     fs::write(f.path("calls"), "").unwrap();
