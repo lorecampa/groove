@@ -68,6 +68,7 @@ mod storage;
 mod test_support;
 mod types;
 pub mod upgrade;
+mod walk;
 mod workspace_files;
 
 pub use destruction::{DestroyOptions, DestroyResult};

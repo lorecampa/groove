@@ -587,17 +587,14 @@ impl Pool {
         lifecycle::write(&repo, &record)?;
         result.pool_id = Some(record.pool_id);
         state::checkpoint("pool-deleting");
-        for slot in &result.slots {
-            crate::recovery::remove_owned(&repo, &root.join(slot.as_str()))?;
-            state::checkpoint("pool-slot-removed");
-        }
-        for path in &result.artifacts {
+        remove_in_parallel(&result.slots, "pool-slot-removed", |slot| {
+            crate::recovery::remove_owned(&repo, &root.join(slot.as_str()))
+        })?;
+        remove_in_parallel(&result.artifacts, "pool-artifact-removed", |path| {
             repository::owned_dir(path)?;
-            crate::workspace_files::make_writable(path)?;
-            fs::remove_dir_all(path)?;
-            state::sync_dir(path.parent().expect("artifact entries have a parent"))?;
-            state::checkpoint("pool-artifact-removed");
-        }
+            crate::recovery::remove_tree_parallel(path)?;
+            state::sync_dir(path.parent().expect("artifact entries have a parent"))
+        })?;
         if exists(&intent_path)? {
             fs::remove_file(&intent_path)?;
             state::sync_dir(&repo.root)?;
@@ -618,6 +615,49 @@ impl Pool {
         result.deleted = true;
         Ok(result)
     }
+}
+
+fn remove_in_parallel<T: Sync>(
+    items: &[T],
+    checkpoint: &'static str,
+    remove: impl Fn(&T) -> Result<()> + Sync,
+) -> Result<()> {
+    let workers = std::thread::available_parallelism()
+        .map_or(1, usize::from)
+        .clamp(1, 8);
+    std::thread::scope(|scope| {
+        for chunk in items.chunks(workers) {
+            let mut handles = Vec::new();
+            let mut failure = None;
+            for item in chunk {
+                let remove = &remove;
+                match std::thread::Builder::new().spawn_scoped(scope, move || remove(item)) {
+                    Ok(handle) => handles.push(handle),
+                    Err(error) => {
+                        failure = Some(Error::from(error));
+                        break;
+                    }
+                }
+            }
+            // Join every writer before propagating failure, so a retry never
+            // overlaps unfinished removal from this invocation.
+            for handle in handles {
+                match handle
+                    .join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+                {
+                    Ok(()) => state::checkpoint(checkpoint),
+                    Err(error) => {
+                        failure.get_or_insert(error);
+                    }
+                }
+            }
+            if let Some(error) = failure {
+                return Err(error);
+            }
+        }
+        Ok(())
+    })
 }
 
 fn post_deletion_cleanup(repo: &Repository, root: &Path, timeout: Duration) {

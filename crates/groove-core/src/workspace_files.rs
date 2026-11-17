@@ -126,40 +126,14 @@ impl SavedDirectories {
 /// Observe directory metadata which Git checkout does not reset. File contents
 /// and file metadata have their own normalization path.
 pub(crate) fn directory_state(root: &Path) -> Result<Vec<DirectoryState>> {
-    use std::os::unix::ffi::OsStrExt;
-    fn visit(root: &Path, path: &Path, device: u64, state: &mut Vec<DirectoryState>) -> Result<()> {
-        let metadata = fs::symlink_metadata(path)?;
-        if !metadata.is_dir() || metadata.dev() != device {
-            return Err(Error::new(
-                ErrorCode::RecoveryFailed,
-                "Changed directory during metadata inventory",
-            ));
-        }
-        state.push(DirectoryState {
-            path: path
-                .strip_prefix(root)
-                .map_err(std::io::Error::other)?
-                .as_os_str()
-                .as_bytes()
-                .to_vec(),
-            mode: metadata.mode() & 0o7777,
-            attributes: directory_attributes(path)?,
-        });
-        for entry in fs::read_dir(path)? {
-            let entry = entry?;
-            if path == root && entry.file_name() == ".git" {
-                continue;
-            }
-            if entry.file_type()?.is_dir() {
-                visit(root, &entry.path(), device, state)?;
-            }
-        }
-        Ok(())
-    }
-    let mut state = Vec::new();
-    visit(root, root, fs::metadata(root)?.dev(), &mut state)?;
-    state.sort_by(|a, b| a.path.cmp(&b.path));
-    Ok(state)
+    Ok(crate::walk::inventory(
+        root,
+        crate::walk::Options {
+            attributes: true,
+            ..Default::default()
+        },
+    )?
+    .directories)
 }
 
 /// Reject task-created metadata only when Git adopted the directory into its index.
@@ -231,10 +205,14 @@ pub(crate) fn validate_new_directories(
 }
 
 pub(crate) fn directory_metadata_matches(
-    root: &Path,
+    current: &[DirectoryState],
     saved: &mut SavedDirectories,
 ) -> Result<bool> {
     use std::os::unix::ffi::OsStrExt;
+    let current = current
+        .iter()
+        .map(|entry| (entry.path.as_slice(), entry))
+        .collect::<std::collections::HashMap<_, _>>();
     while let Some(entry) = saved.next_entry()? {
         let relative = Path::new(std::ffi::OsStr::from_bytes(&entry.path));
         if relative
@@ -243,25 +221,10 @@ pub(crate) fn directory_metadata_matches(
         {
             return Ok(false);
         }
-        let path = root.join(relative);
-        let metadata = match fs::symlink_metadata(&path) {
-            Ok(metadata) => metadata,
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
-                ) =>
-            {
-                continue
-            }
-            Err(error) => return Err(error.into()),
-        };
-        if !metadata.is_dir() {
+        let Some(observed) = current.get(entry.path.as_slice()) else {
             continue;
-        }
-        if metadata.mode() & 0o7777 != entry.mode
-            || directory_attributes(&path)? != entry.attributes
-        {
+        };
+        if observed.mode != entry.mode || observed.attributes != entry.attributes {
             return Ok(false);
         }
     }
@@ -357,56 +320,36 @@ pub(crate) fn directory_attributes(path: &Path) -> Result<Vec<(Vec<u8>, Vec<u8>)
 }
 
 pub(crate) fn first_special(root: &Path, timeout: std::time::Duration) -> Result<Option<PathBuf>> {
-    walk(
-        root,
-        root,
-        fs::symlink_metadata(root)?.dev(),
-        Operation::Inspect(timeout),
-    )
-}
-
-pub(crate) fn remove_special(root: &Path) -> Result<()> {
-    walk(
-        root,
-        root,
-        fs::symlink_metadata(root)?.dev(),
-        Operation::Prepare,
-    )?;
-    Ok(())
-}
-
-pub(crate) fn make_writable(root: &Path) -> Result<()> {
-    walk(
-        root,
-        root,
-        fs::symlink_metadata(root)?.dev(),
-        Operation::RemoveTree,
-    )?;
-    Ok(())
-}
-
-#[derive(Clone, Copy)]
-enum Operation {
-    Inspect(std::time::Duration),
-    Prepare,
-    RemoveTree,
-}
-
-fn walk(
-    root: &Path,
-    directory: &Path,
-    device: u64,
-    operation: Operation,
-) -> Result<Option<PathBuf>> {
-    let metadata = fs::symlink_metadata(directory)?;
-    if !metadata.is_dir() || metadata.dev() != device {
-        return Err(Error::new(
-            ErrorCode::RecoveryFailed,
-            "Mounted or changed directory in workspace inventory",
-        )
-        .with_details(|details| details.path = Some(directory.into())));
+    use std::{io::Seek, os::unix::ffi::OsStrExt};
+    for path in crate::walk::inventory(root, Default::default())?.specials {
+        let mut input = tempfile::tempfile()?;
+        input.write_all(
+            path.strip_prefix(root)
+                .map_err(std::io::Error::other)?
+                .as_os_str()
+                .as_bytes(),
+        )?;
+        input.write_all(&[0])?;
+        input.rewind()?;
+        match crate::git::Git::new(timeout).run_with(
+            root,
+            &["check-ignore", "--stdin", "-z"],
+            crate::git::Invocation {
+                stdin: Some(input),
+                reject_stderr: true,
+                ..crate::git::Invocation::snapshot()
+            },
+        ) {
+            Ok(_) => (),
+            Err(error) if error.git_exit_code() == Some(1) => return Ok(Some(path)),
+            Err(error) => return Err(error),
+        }
     }
-    if !matches!(operation, Operation::Inspect(_)) && metadata.mode() & 0o700 != 0o700 {
+    Ok(None)
+}
+
+pub(crate) fn make_directory_writable(directory: &Path, metadata: &fs::Metadata) -> Result<()> {
+    if metadata.mode() & 0o700 != 0o700 {
         // SAFETY: geteuid has no preconditions and only observes this process.
         if metadata.uid() != unsafe { libc::geteuid() } {
             return Err(Error::new(
@@ -420,65 +363,29 @@ fn walk(
             fs::Permissions::from_mode((metadata.mode() & 0o7777) | 0o700),
         )?;
     }
-    for entry in fs::read_dir(directory)? {
-        let entry = entry?;
-        if directory == root
-            && entry.file_name() == ".git"
-            && !matches!(operation, Operation::RemoveTree)
-        {
-            continue;
+    Ok(())
+}
+
+pub(crate) fn make_writable(root: &Path) -> Result<()> {
+    fn visit(directory: &Path, device: u64) -> Result<()> {
+        let metadata = fs::symlink_metadata(directory)?;
+        if !metadata.is_dir() || metadata.dev() != device {
+            return Err(Error::new(
+                ErrorCode::RecoveryFailed,
+                "Mounted or changed directory in workspace inventory",
+            )
+            .with_details(|details| details.path = Some(directory.into())));
         }
-        let path = entry.path();
-        let kind = entry.file_type()?;
-        if kind.is_dir() {
-            let metadata = fs::symlink_metadata(&path)?;
-            if metadata.dev() != device {
-                return Err(Error::new(
-                    ErrorCode::RecoveryFailed,
-                    "Mounted directory in workspace inventory",
-                )
-                .with_details(|details| details.path = Some(path)));
-            }
-            if let Some(found) = walk(root, &path, device, operation)? {
-                return Ok(Some(found));
-            }
-        } else if !kind.is_file() && !kind.is_symlink() {
-            match operation {
-                Operation::Prepare => fs::remove_file(&path)?,
-                Operation::Inspect(timeout) => {
-                    use std::{
-                        io::{Seek, Write},
-                        os::unix::ffi::OsStrExt,
-                    };
-                    let mut input = tempfile::tempfile()?;
-                    input.write_all(
-                        path.strip_prefix(root)
-                            .map_err(std::io::Error::other)?
-                            .as_os_str()
-                            .as_bytes(),
-                    )?;
-                    input.write_all(&[0])?;
-                    input.rewind()?;
-                    let ignored = crate::git::Git::new(timeout).run_with(
-                        root,
-                        &["check-ignore", "--stdin", "-z"],
-                        crate::git::Invocation {
-                            stdin: Some(input),
-                            reject_stderr: true,
-                            ..crate::git::Invocation::snapshot()
-                        },
-                    );
-                    match ignored {
-                        Ok(_) => (),
-                        Err(error) if error.git_exit_code() == Some(1) => return Ok(Some(path)),
-                        Err(error) => return Err(error),
-                    }
-                }
-                Operation::RemoveTree => (),
+        make_directory_writable(directory, &metadata)?;
+        for entry in fs::read_dir(directory)? {
+            let entry = entry?;
+            if entry.file_type()?.is_dir() {
+                visit(&entry.path(), device)?;
             }
         }
+        Ok(())
     }
-    Ok(None)
+    visit(root, fs::symlink_metadata(root)?.dev())
 }
 
 #[cfg(test)]

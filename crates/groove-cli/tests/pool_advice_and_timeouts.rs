@@ -510,3 +510,49 @@ fn detailed_inspection_traces_the_git_program_and_only_the_directory_basename() 
         "{events:?}"
     );
 }
+
+#[test]
+fn destruction_repairs_nested_read_only_directories() {
+    let repo = Repo::new();
+    init(&repo, "default", "1");
+    let acquired = cli(&repo.path, &["acquire", "--task", "readonly"]);
+    let slot = Path::new(acquired["workspace_path"].as_str().unwrap());
+    let nested = slot.join("ignored/nested");
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(nested.join("cache"), "disposable\n").unwrap();
+    fs::set_permissions(&nested, fs::Permissions::from_mode(0o500)).unwrap();
+    fs::set_permissions(slot.join("ignored"), fs::Permissions::from_mode(0o500)).unwrap();
+    cli(&repo.path, &["release", "--task", "readonly", "--force"]);
+    assert_eq!(
+        cli(&repo.path, &["pool", "destroy", "--force"])["destruction"]["deleted"],
+        true
+    );
+    assert!(!slot.exists());
+}
+
+#[test]
+fn destruction_removes_all_three_checkouts_and_exact_registrations() {
+    let repo = Repo::new();
+    init(&repo, "default", "3");
+    let mut paths = Vec::new();
+    for task in ["one", "two", "three"] {
+        let acquired = cli(&repo.path, &["acquire", "--task", task]);
+        let slot = Path::new(acquired["workspace_path"].as_str().unwrap()).to_owned();
+        let admin = support::git(&slot, &["rev-parse", "--absolute-git-dir"]);
+        paths.push((slot, std::path::PathBuf::from(admin.trim())));
+    }
+    for task in ["one", "two", "three"] {
+        cli(&repo.path, &["release", "--task", task]);
+    }
+    let result = cli(&repo.path, &["pool", "destroy"]);
+    assert_eq!(result["destruction"]["deleted"], true);
+    assert_eq!(result["destruction"]["slots"].as_array().unwrap().len(), 3);
+    for (slot, admin) in paths {
+        assert!(!slot.exists(), "checkout remained: {}", slot.display());
+        assert!(
+            !admin.exists(),
+            "registration remained: {}",
+            admin.display()
+        );
+    }
+}
