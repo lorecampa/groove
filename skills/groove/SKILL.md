@@ -9,7 +9,7 @@ license: MIT OR Apache-2.0
 Requires the installed CLI, Git 2.40+ and Linux or macOS with supported local
 storage. Use the terminal; this skill does not provide an MCP server.
 
-Read `groove --json --help` for global output rules and exit codes. Use
+Read `groove --json --help` for global output rules and `groove help exit-codes` for exit categories. Use
 `groove --json` for machine-readable responses and keep stderr separate from
 stdout. Before first using a command, read
 `groove --json COMMAND --help`, including any subcommand (for example
@@ -35,29 +35,30 @@ coordinator supplies task scheduling, communication, command execution and resul
   Separately assigned tasks can have their own reservations.
 
 Assigned workers use the checkout, reservation ID and pool supplied by their coordinator.
-Match that assignment with `groove show --reservation-id ID` before using it. In JSON
+Match that assignment with `groove show ID` before using it. In JSON
 output, require `result.active` to be true; a successful show can otherwise describe
 a released reservation. Inspection, directory location, PIDs and metadata do not
 grant ownership. If the assignment is
 ambiguous, inspect and report it rather than guessing.
 
-Carry the same explicit `--pool NAME` on **every pool command**, including
-retries. Without it, Groove selects the pool owning the current workspace (or
-`--repo`) from its state and Git registration, falling back to `default`.
-Explicit `--pool` always wins; `GROOVE_POOL` does not select it automatically.
-Labels and idempotency keys are pool-local. Do not switch pools
-to bypass contention.
+Choose the pool at acquisition with `-p NAME`, retaining that choice for acquisition
+retries. Release, show and path locate the reservation across pools. Prefer the
+retained reservation UUID for retries: labels may already belong to a successor.
+Labels are repository-wide; idempotency keys remain pool-local. Without a name,
+acquisition and pool show/get/set select the owning workspace's pool, then the sole
+pool, otherwise report ambiguity. There is no hidden default or `GROOVE_POOL`
+selection. Do not switch pools to bypass contention.
 
 ## Acquire and work (coordinator)
 
-1. Inspect the selected pool with `groove --json --pool NAME pool show`.
-   Initialize it with `groove --pool NAME pool init --capacity N` when repository
+1. Inspect the selected pool with `groove --json pool show NAME`.
+   Initialize it with `groove pool create NAME --capacity N` when repository
    setup is part of the assignment; otherwise report an uninitialized pool as
    a prerequisite. Do not silently change capacity or existing configuration.
 2. Choose a task label and a new idempotency key for this logical acquisition:
 
    ```sh
-   groove --json --pool default acquire --task fix-parser --idempotency-key fix-parser-attempt-1
+   groove --json acquire fix-parser -p default --key fix-parser-attempt-1
    ```
 
    Retain the pool, key, original base argument, `result.reservation_id` and
@@ -91,7 +92,7 @@ A coordinator finishing the task must:
 3. Preserve the result and release:
 
    ```sh
-   groove --json --pool default release --save --reservation-id RESERVATION_ID --description 'parser fix'
+   groove --json release RESERVATION_ID --save -m 'parser fix'
    ```
 
    Retain the pinned snapshot ID from `result.snapshot.id`. Recover files and staging state with
@@ -109,7 +110,7 @@ Never delete locks, protection or execution records. Reservations never expire.
 
 For a lost response, conflicting label or blocked `release --save`,
 read [references/recovery.md](references/recovery.md). Retry finalization with
-its original **reservation ID and pool**, never a reusable task label. Stale IDs cannot
+its original **reservation ID**, never a reusable task label. Stale IDs cannot
 release a successor; saved-release receipts survive slot reuse.
 
 Report the task/pool, verification results and one explicit final state:
