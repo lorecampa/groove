@@ -318,7 +318,7 @@ fn explicit_ready_target_prepares_and_replenishes_without_a_public_worker_comman
     assert_eq!(initialized["idle_timeout"], "7d");
     let pool = Pool::open(&repo.path).unwrap();
     wait_ready(&pool, 1);
-    let first = cli(&repo, &["acquire", "--task", "one"]);
+    let first = cli(&repo, &["acquire", "--task", "one", "--wait", "20s"]);
     wait_ready(&pool, 1);
     // Confirm an actual second checkout exists, rather than trusting a stale report.
     let deadline = Instant::now() + Duration::from_secs(20);
@@ -331,15 +331,17 @@ fn explicit_ready_target_prepares_and_replenishes_without_a_public_worker_comman
         assert!(Instant::now() < deadline);
         std::thread::sleep(Duration::from_millis(10));
     }
-    let second = cli(&repo, &["acquire", "--task", "two"]);
+    let second = cli(&repo, &["acquire", "--task", "two", "--wait", "20s"]);
     assert_ne!(first["slot_id"], second["slot_id"]);
     wait_ready(&pool, 1);
     assert_eq!(pool.protected_leases().unwrap().len(), 2);
     assert!(cli(&repo, &["pool", "show"])["ready"].is_object());
     let help = cli(&repo, &["--help"]);
     assert!(!help["text"].as_str().unwrap().contains("reconcile"));
-    // Consume the last spare so any remaining worker has no preparation to do.
-    cli(&repo, &["acquire", "--task", "three"]);
+    // Reports are observations: a queued background pass can start after one
+    // is read. Explicitly wait within the fixture's existing 20-second readiness
+    // budget; zero-wait acquisition deliberately no longer awaits a preparer.
+    cli(&repo, &["acquire", "--task", "three", "--wait", "20s"]);
     wait_ready(&pool, 0);
 }
 #[test]
