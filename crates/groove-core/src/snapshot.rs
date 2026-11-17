@@ -764,7 +764,10 @@ impl Snapshots {
                     let mut bytes = 0;
                     for path in selected {
                         for rule in rules {
-                            let mut literal = format!(":(literal,attr:{rule})").into_bytes();
+                            // The physical inventory can contain a case-only
+                            // spelling change on macOS while the index retains
+                            // the original name. Audit every matching index path.
+                            let mut literal = format!(":(literal,icase,attr:{rule})").into_bytes();
                             literal.extend_from_slice(path);
                             bytes += literal.len() + 1;
                             bounded.push(OsString::from_vec(literal));
@@ -1242,7 +1245,13 @@ impl Snapshots {
         self.verify_staged_sizes(&index, &stamps, lock)?;
         phase.success();
         let phase = Phase::new(operation, "work_tree");
-        let work_tree = text(self.run(&["write-tree"], Some(&index), None, Some(lock))?)?;
+        let work_tree = if selected.is_empty() {
+            // Staging did not mutate the scratch index. Reuse the tree already
+            // written above, retaining the independent stability check below.
+            index_tree.clone()
+        } else {
+            text(self.run(&["write-tree"], Some(&index), None, Some(lock))?)?
+        };
         phase.success();
         crate::state::checkpoint("snapshot-captured");
         let phase = Phase::new(operation, "stability");
@@ -1732,6 +1741,9 @@ impl Snapshots {
             None,
             Some(lock),
         )?;
+        if ignored.is_empty() {
+            return Ok(());
+        }
         let target = self.spool_names(
             &["ls-tree", "-r", "--name-only", "-z", &s.work_tree],
             None,

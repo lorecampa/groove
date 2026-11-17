@@ -302,6 +302,40 @@ fn managed_snapshot_rechecks_conversion_rules_and_a_renormalized_index() {
     );
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn case_only_renames_cannot_hide_normalized_bytes_from_snapshot_validation() {
+    let repo = Repo::new();
+    if !repo.path.join("TRACKED.TXT").exists() {
+        return;
+    }
+    fs::write(repo.path.join(".gitattributes"), "* text=auto\n").unwrap();
+    repo.git(&["add", "."]);
+    repo.git(&["commit", "-qm", "text baseline"]);
+    init(&repo, "default", "1");
+    cli(&repo.path, &["acquire", "--task", "case-audit"]);
+    let workspace = repo.slot(1);
+    fs::rename(workspace.join("tracked.txt"), workspace.join("TRACKED.TXT")).unwrap();
+    fs::write(workspace.join("TRACKED.TXT"), "baseline\r\n").unwrap();
+    let refreshed = support::command(&workspace, "git")
+        .args(["add", "tracked.txt"])
+        .output()
+        .unwrap();
+    assert!(refreshed.status.success(), "{refreshed:?}");
+    let rejected = check(
+        support::groove_in(&workspace)
+            .args(["snapshot", "save"])
+            .output()
+            .unwrap(),
+        2,
+    );
+    assert_eq!(rejected["error"]["code"], "UNSUPPORTED_CONFIGURATION");
+    assert_eq!(
+        fs::read(workspace.join("TRACKED.TXT")).unwrap(),
+        b"baseline\r\n"
+    );
+}
+
 #[test]
 fn ready_git_timeout_is_optional_normalized_and_pool_local() {
     let repo = Repo::new();

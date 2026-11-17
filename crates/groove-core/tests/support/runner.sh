@@ -38,6 +38,10 @@ else
 fi
 
 umask 022
+# Canonicalize the caller's chosen temporary root, including macOS /var aliases,
+# before any tempfile fixture derives logging, checkout or socket paths from it.
+TMPDIR=$(cd "${TMPDIR:-/tmp}" && pwd -P)
+export TMPDIR
 test_bin=$(mktemp -d "${TMPDIR:-/tmp}/groove-test-bin.XXXXXXXX")
 trap 'rm -rf -- "$test_bin"' EXIT
 ln -s "$test_git" "$test_bin/git"

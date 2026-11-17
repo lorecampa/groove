@@ -32,6 +32,13 @@ impl Fixture {
             .join("installation with spaces");
         fs::create_dir_all(root.join("bin")).unwrap();
         fs::create_dir(root.join("peers")).unwrap();
+        // Restrict installer/network peers without falling back to an older
+        // system Git (notably Apple's /usr/bin/git on macOS runners).
+        std::os::unix::fs::symlink(
+            std::env::var_os("GROOVE_TEST_GIT").expect("test runner pins native Git"),
+            root.join("peers/git"),
+        )
+        .unwrap();
         fs::copy(support::groove_binary(), root.join("bin/groove")).unwrap();
         let receipt = json!({"installs":{format!("groove-cli {} (registry+https://github.com/rust-lang/crates.io-index)",env!("CARGO_PKG_VERSION")):{
             "bins":["groove"],"features":["custom"],"all_features":false,"no_default_features":true,"profile":"release","target":"x86_64-unknown-linux-gnu"}}});

@@ -71,6 +71,23 @@
 
 ### Fixed
 
+- Avoid building a whole-target collision inventory when restore finds no
+  ignored files, and reuse the captured index tree when staging changed nothing.
+  Safety capture, stability checks and ignored-file collision refusal remain.
+
+- Preserve resumable draft publication on macOS Bash 3.2 when all assets are
+  already uploaded; guard empty array expansion under `set -u`.
+
+- Verify exact tracked-path spelling during reuse on case-insensitive storage;
+  case-only contamination now triggers cleanup or a safe checkout rebuild.
+
+- Accept Git's fsmonitor IPC socket at the root of verified worktree
+  administration, while continuing to reject unknown sockets and special files.
+  Preserve the daemon and its socket across safe handoffs.
+
+- Exercise the installed pool command in CI and run the concurrent detailed
+  inspection regression on native macOS stable jobs.
+
 - Defer idle maintenance before taking slot exclusion when no preparation or
   eviction is due, so a no-op background pass cannot exhaust zero-wait capacity.
   Actual maintenance still requires descriptor ownership and revalidation.

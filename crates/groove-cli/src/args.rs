@@ -1199,6 +1199,32 @@ mod scalar_tests {
     }
 
     #[test]
+    fn ci_packaged_smoke_uses_an_installed_command() {
+        // This repository conformance check also compiles in extracted crates,
+        // whose published contents deliberately exclude GitHub workflows.
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.github/workflows/ci.yml");
+        let workflow = match std::fs::read_to_string(path) {
+            Ok(workflow) => workflow,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+            Err(error) => panic!("Cannot read CI smoke commands: {error}"),
+        };
+        let commands: Vec<_> = workflow
+            .lines()
+            .map(str::trim)
+            .filter(|line| line.starts_with("\"$RUNNER_TEMP/package/bin/groove\" "))
+            .collect();
+        assert!(
+            !commands.is_empty(),
+            "the packaged CLI smoke invocation is missing"
+        );
+        for line in commands {
+            let arguments = shell_words::split(line).unwrap();
+            Args::try_parse_from(arguments).unwrap_or_else(|error| panic!("{line}: {error}"));
+        }
+    }
+
+    #[test]
     fn show_allows_inference_or_one_selector_and_pool_show_has_collection_options() {
         assert!(Args::try_parse_from(["groove", "show"]).is_ok());
         for (flag, value) in [
