@@ -23,8 +23,8 @@ pub fn command() -> clap::Command {
     scope_context_help(decorate(command, "", &schema()), "", &context)
 }
 
-// Keep the legacy global parser during the additive rollout, but advertise
-// context only where it is used. Child overrides prevent inherited help leaks.
+// Transitional context aliases belong to their commands, never the global set.
+// Native command arguments take precedence and advertise the canonical spelling.
 fn scope_context_help(
     mut command: clap::Command,
     path: &str,
@@ -51,14 +51,25 @@ fn scope_context_help(
                 Some("acquire" | "release" | "show" | "list" | "pool" | "snapshot")
             )
         };
-        let argument = argument.clone().hide(!visible).help_heading("Options");
+        if command.get_arguments().any(|native| {
+            native.get_id() != argument.get_id()
+                && (native.get_long() == argument.get_long()
+                    || native.get_all_aliases().is_some_and(|aliases| {
+                        argument
+                            .get_long()
+                            .is_some_and(|long| aliases.contains(&long))
+                    }))
+        }) {
+            continue;
+        }
+        let argument = argument.clone().hide(true).global(false);
         if command
             .get_arguments()
             .any(|existing| existing.get_id() == argument.get_id())
         {
             let id = argument.get_id().clone();
             command = command.mut_arg(id, |_| argument);
-        } else {
+        } else if visible {
             command = command.arg(argument);
         }
     }

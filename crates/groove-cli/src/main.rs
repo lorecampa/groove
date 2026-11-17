@@ -96,11 +96,28 @@ fn main() -> ExitCode {
 
 fn dispatch(raw: &[std::ffi::OsString]) -> ExitCode {
     match crate::contract::command()
+        .color(requested_color(raw))
         .try_get_matches_from(raw)
         .and_then(|matches| {
             let mut args = Args::from_arg_matches(&matches)?;
             args.git_timeout_explicit = matches.value_source("git_timeout_ms")
                 == Some(clap::parser::ValueSource::CommandLine);
+            let mut command_matches = &matches;
+            while let Some((_, child)) = command_matches.subcommand() {
+                if let Ok(Some(pool)) = child.try_get_one::<groove_core::PoolName>("pool") {
+                    args.pool = Some(pool.clone());
+                }
+                if child.try_get_one::<u64>("git_timeout_ms").is_ok()
+                    && child.value_source("git_timeout_ms")
+                        == Some(clap::parser::ValueSource::CommandLine)
+                {
+                    args.git_timeout_ms = *child
+                        .get_one::<u64>("git_timeout_ms")
+                        .expect("explicit timeout has a parsed value");
+                    args.git_timeout_explicit = true;
+                }
+                command_matches = child;
+            }
             Ok(args)
         })
         .and_then(|args| {
@@ -108,6 +125,40 @@ fn dispatch(raw: &[std::ffi::OsString]) -> ExitCode {
                 .map_err(|message| clap::Error::raw(ErrorKind::InvalidValue, message))
         }) {
         Ok(mut args) => {
+            if matches!(args.command, Command::Upgrade(_))
+                && raw.iter().any(|arg| {
+                    arg == "--target-version"
+                        || arg
+                            .to_str()
+                            .is_some_and(|arg| arg.starts_with("--target-version="))
+                })
+            {
+                args.deprecations
+                    .push("--target-version is deprecated; use --to");
+            }
+            if raw.iter().any(|arg| {
+                arg == "--workspace-root"
+                    || arg
+                        .to_str()
+                        .is_some_and(|arg| arg.starts_with("--workspace-root="))
+            }) {
+                args.deprecations
+                    .push("--workspace-root is deprecated; use --root");
+            }
+            if matches!(
+                args.command,
+                Command::Snapshot(args::SnapshotCommand::Prune { apply: true, .. })
+            ) {
+                args.deprecations.push("--apply is deprecated; use --yes");
+            }
+            if matches!(
+                args.command,
+                Command::Snapshot(args::SnapshotCommand::Delete { .. })
+            ) && raw.iter().any(|arg| arg == "--force")
+            {
+                args.deprecations
+                    .push("snapshot delete --force is deprecated; use --pinned");
+            }
             for words in raw.windows(2) {
                 if words[0] == "pool" && words[1] == "init" {
                     args.deprecations
@@ -124,6 +175,30 @@ fn dispatch(raw: &[std::ffi::OsString]) -> ExitCode {
     }
 }
 
+fn requested_color(raw: &[std::ffi::OsString]) -> clap::ColorChoice {
+    use std::io::IsTerminal;
+    let mut choice = "auto";
+    let mut arguments = raw.iter().skip(1).take_while(|arg| *arg != "--");
+    while let Some(arg) = arguments.next() {
+        if arg == "--color" {
+            choice = arguments
+                .next()
+                .and_then(|arg| arg.to_str())
+                .unwrap_or("auto");
+        } else if let Some(value) = arg.to_str().and_then(|arg| arg.strip_prefix("--color=")) {
+            choice = value;
+        }
+    }
+    match choice {
+        "always" => clap::ColorChoice::Always,
+        "never" => clap::ColorChoice::Never,
+        _ if std::env::var_os("NO_COLOR").is_some() || !std::io::stdout().is_terminal() => {
+            clap::ColorChoice::Never
+        }
+        _ => clap::ColorChoice::Auto,
+    }
+}
+
 /// Handle help, version and argument errors, honoring `--json` when present.
 fn reject(raw: &[std::ffi::OsString], error: &clap::Error) -> u8 {
     let partial = Partial::recover(raw);
@@ -132,6 +207,11 @@ fn reject(raw: &[std::ffi::OsString], error: &clap::Error) -> u8 {
         error.kind(),
         ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
     ) {
+        if matches!(partial.format, Format::Human)
+            && requested_color(raw) != clap::ColorChoice::Never
+        {
+            return output::emit_styled_help(&error.render().ansi().to_string());
+        }
         return output::emit_help(partial.format, request_id, &error.render().to_string());
     }
     let terminal = terminal::Terminal::new(terminal::Verbosity {

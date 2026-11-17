@@ -1,5 +1,11 @@
 # Changelog
 
+- Scope pool selection and Git timeout overrides to commands. Transitional legacy
+  spellings remain hidden and emit warnings. Add `-C`, `-p`, consistent short flags,
+  `--color` (auto honors NO_COLOR), and `upgrade --to` with a deprecated
+  `--target-version` alias. Help/version and correlation/output flags work throughout
+  the command tree; JSON help never contains ANSI styles.
+
 - Persist `git-timeout` per pool, seed new pools from `pool-defaults.git-timeout`,
   and use it for foreground operations and background work unless overridden.
   Existing pools default to two minutes. Acquisition and pool show/get/set now

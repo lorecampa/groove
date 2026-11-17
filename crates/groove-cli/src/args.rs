@@ -16,6 +16,7 @@ const DEFAULT_MAX_FILE_BYTES: &str = "100M";
 #[derive(Parser)]
 #[command(
     name = "groove",
+    propagate_version = true,
     version = concat!(env!("CARGO_PKG_VERSION"), " (revision ", env!("GROOVE_BUILD_REVISION"), ")"),
     about = "Reusable Git worktree pools and local checkpoints for parallel coding tasks",
     after_long_help = help!("overview")
@@ -24,6 +25,7 @@ pub struct Args {
     /// Repository path.
     #[arg(
         long,
+        short = 'C',
         global = true,
         help_heading = "Global options",
         default_value = ".",
@@ -33,11 +35,19 @@ pub struct Args {
     /// Pool namespace (owning workspace's pool, otherwise default).
     #[arg(
         long,
-        global = true,
-        help_heading = "Global options",
+        hide = true,
         long_help = "Pool namespace: explicit --pool wins, otherwise use the pool owning the current workspace (or --repo), then default. Ownership is validated from Groove state and Git registration. Use an explicit name for destroy from the main checkout when several pools exist."
     )]
     pub pool: Option<PoolName>,
+    /// Color output automatically, always, or never (auto honors NO_COLOR).
+    #[arg(
+        long,
+        global = true,
+        value_enum,
+        default_value = "auto",
+        help_heading = "Global options"
+    )]
+    pub color: ColorMode,
     /// Print one versioned JSON response.
     #[arg(
         long,
@@ -61,7 +71,7 @@ pub struct Args {
     #[arg(short, long, global = true, help_heading = "Global options")]
     pub quiet: bool,
     /// Positive Git and lock timeout, e.g. 2m or 30s.
-    #[arg(long = "git-timeout", value_name = "DURATION", global = true, help_heading = "Global options", default_value = "2m", value_parser = parse_positive_duration)]
+    #[arg(long = "git-timeout", value_name = "DURATION", hide = true, default_value = "2m", value_parser = parse_positive_duration)]
     pub git_timeout_ms: u64,
     #[arg(skip)]
     pub git_timeout_explicit: bool,
@@ -71,9 +81,61 @@ pub struct Args {
     pub deprecations: Vec<&'static str>,
 }
 
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum ColorMode {
+    Auto,
+    Always,
+    Never,
+}
+
+#[derive(ClapArgs)]
+pub struct PoolSelection {
+    /// Pool to use; otherwise select the owning workspace's pool or the only pool.
+    #[arg(short = 'p', long = "pool", value_name = "NAME")]
+    pub command_pool: Option<PoolName>,
+}
+
+#[derive(ClapArgs)]
+pub struct GitTimeoutArgs {
+    /// Override this command's Git budget; defaults to the selected pool's git-timeout.
+    #[arg(long = "timeout", visible_alias = "git-timeout", value_name = "DURATION", value_parser = parse_positive_duration)]
+    pub command_timeout: Option<u64>,
+}
+
 impl Args {
     /// Normalize the transitional aliases once, before routing across pools.
     pub fn normalize(mut self) -> Result<Self, String> {
+        if self.pool.is_some() {
+            self.deprecations.push("Global --pool is deprecated; select a pool on acquire or name the pool positionally");
+        }
+        if self.git_timeout_explicit {
+            self.deprecations
+                .push("Global --git-timeout is deprecated; use the command's --timeout");
+        }
+        let command_pool = match &self.command {
+            Command::Acquire { pool, .. } | Command::List { pool, .. } => pool.command_pool.clone(),
+            _ => None,
+        };
+        if let Some(pool) = command_pool {
+            if self.pool.as_ref().is_some_and(|legacy| legacy != &pool) {
+                return Err("Conflicting pool selections".into());
+            }
+            self.pool = Some(pool);
+        }
+        let command_timeout = match &self.command {
+            Command::Acquire { timeout, .. } | Command::Release { timeout, .. } => {
+                timeout.command_timeout
+            }
+            Command::Pool(PoolCommand::Init { saved_timeout, .. }) => *saved_timeout,
+            _ => None,
+        };
+        if let Some(timeout) = command_timeout {
+            if self.git_timeout_explicit && self.git_timeout_ms != timeout {
+                return Err("Conflicting Git timeout overrides".into());
+            }
+            self.git_timeout_ms = timeout;
+            self.git_timeout_explicit = true;
+        }
         match &mut self.command {
             Command::Acquire {
                 positional_task,
@@ -232,6 +294,10 @@ pub enum Command {
     /// Reserve a clean checkout of a commit until it is released.
     #[command(after_long_help = help!("acquire"))]
     Acquire {
+        #[command(flatten)]
+        pool: PoolSelection,
+        #[command(flatten)]
+        timeout: GitTimeoutArgs,
         /// Task label (1..128 ASCII letters, digits, dots, underscores or hyphens).
         #[arg(value_name = "TASK", conflicts_with = "task")]
         positional_task: Option<String>,
@@ -268,6 +334,8 @@ pub enum Command {
     #[command(after_long_help = help!("release"))]
     Release {
         #[command(flatten)]
+        timeout: GitTimeoutArgs,
+        #[command(flatten)]
         lease: LeaseSelector,
         /// Save and pin a snapshot before release; a save failure keeps the reservation.
         #[arg(short = 's', long)]
@@ -292,6 +360,8 @@ pub enum Command {
     /// List active reservations, or every slot.
     #[command(after_long_help = help!("list"))]
     List {
+        #[command(flatten)]
+        pool: PoolSelection,
         /// Sort by slot ID or task label, with slot ID breaking ties.
         #[arg(long, value_enum, default_value = "slot")]
         sort: SlotSort,
@@ -345,7 +415,7 @@ pub struct UpgradeArgs {
     #[arg(long)]
     pub with_plugins: bool,
     /// Select an exact stable CLI release; downgrades and prereleases are rejected.
-    #[arg(long, value_name = "VERSION")]
+    #[arg(long = "to", visible_alias = "target-version", value_name = "VERSION")]
     pub target_version: Option<String>,
     /// Deadline per installer process (positive duration, e.g. 30m); HTTP checks have separate short limits.
     #[arg(long, default_value = "30m", value_parser = parse_duration)]
@@ -582,6 +652,9 @@ pub enum PoolCommand {
     /// Create a pool of reusable worktree slots for this repository.
     #[command(name = "create", visible_alias = "init", after_long_help = help!("pool-init"))]
     Init {
+        /// Save the pool's default foreground Git budget (default: pool-defaults.git-timeout, 2m).
+        #[arg(long = "git-timeout", value_name = "DURATION", value_parser = parse_positive_duration)]
+        saved_timeout: Option<u64>,
         /// Name of the pool to create (default: default).
         name: Option<PoolName>,
         /// Desired ready, unreserved checkouts (default: pool_defaults.ready_target, 0).

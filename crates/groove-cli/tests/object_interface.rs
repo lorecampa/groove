@@ -433,11 +433,106 @@ fn command_help_only_advertises_applicable_context_flags() {
             .any(|line| line.trim_start().starts_with("--pool ")),
         "{text}"
     );
-    assert!(text.contains("--git-timeout"), "{text}");
+    assert!(
+        !text
+            .lines()
+            .any(|line| line.trim_start().starts_with("--git-timeout ")),
+        "{text}"
+    );
     let acquire = invoke(&repo, &["acquire", "--help"], 0);
     let text = acquire["result"]["text"].as_str().unwrap();
     assert!(text.contains("--pool"), "{text}");
     assert!(text.contains("--git-timeout"), "{text}");
+}
+
+#[test]
+fn true_global_flags_work_on_every_command_and_color_never_leaks_into_json() {
+    let repo = Repo::new();
+    for command in [
+        "acquire",
+        "release",
+        "path",
+        "show",
+        "list",
+        "pool",
+        "snapshot",
+        "config",
+        "completions",
+        "upgrade",
+    ] {
+        let help = invoke(
+            &repo,
+            &[
+                command,
+                "-C",
+                repo.path.to_str().unwrap(),
+                "--color",
+                "never",
+                "-q",
+                "--request-id",
+                "global-test",
+                "--help",
+            ],
+            0,
+        );
+        assert_eq!(help["request_id"], "global-test");
+        assert!(!help["result"]["text"].as_str().unwrap().contains('\u{1b}'));
+    }
+    let colored = support::command(&repo.path, env!("CARGO_BIN_EXE_groove"))
+        .args(["--color", "always", "--help"])
+        .output()
+        .unwrap();
+    assert!(colored.status.success());
+    assert!(colored.stdout.contains(&0x1b));
+    let plain = support::command(&repo.path, env!("CARGO_BIN_EXE_groove"))
+        .env("NO_COLOR", "1")
+        .args(["--color", "auto", "--help"])
+        .output()
+        .unwrap();
+    assert!(plain.status.success());
+    assert!(!plain.stdout.contains(&0x1b));
+    invoke(
+        &repo,
+        &[
+            "pool",
+            "create",
+            "frontend",
+            "--capacity",
+            "1",
+            "--idle-timeout",
+            "never",
+        ],
+        0,
+    );
+    invoke(
+        &repo,
+        &[
+            "acquire",
+            "short-flags",
+            "-p",
+            "frontend",
+            "-b",
+            "HEAD",
+            "-w",
+            "0s",
+            "--timeout",
+            "10s",
+        ],
+        0,
+    );
+    invoke(
+        &repo,
+        &[
+            "release",
+            "short-flags",
+            "-s",
+            "-m",
+            "saved",
+            "--timeout",
+            "10s",
+        ],
+        0,
+    );
 }
 
 #[test]

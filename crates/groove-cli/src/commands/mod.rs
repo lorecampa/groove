@@ -276,6 +276,7 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
             details,
             page,
             sort,
+            ..
         } => pool::list(context, *slots, *details, page, *sort),
         Command::Show { selector, details } => {
             let mut selector = selector.clone();

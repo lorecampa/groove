@@ -345,6 +345,12 @@ pub fn emit_help(format: Format, request_id: Option<&str>, text: &str) -> u8 {
     output_status(written, 0)
 }
 
+/// Only parser-generated help may carry trusted ANSI styles. Arbitrary output
+/// still goes through control-character escaping; JSON help always stays plain.
+pub fn emit_styled_help(text: &str) -> u8 {
+    output_status(write_text(text), 0)
+}
+
 fn write_json(response: &Value) -> io::Result<()> {
     let mut stdout = io::stdout().lock();
     serde_json::to_writer(&mut stdout, response)?;
