@@ -328,7 +328,7 @@ pub(crate) fn prepare(
         match normalize(&git, &path, oid, config.cleanup_policy, &[fd])
             .inspect(|()| state::checkpoint("normalized-in-place"))
             .and_then(|()| verify(&git, repo, &path, oid, config.cleanup_policy))
-            .and_then(|()| mark_verified(&git, &path))
+            .and_then(|()| mark_verified(&git, &path, config.cleanup_policy))
         {
             Ok(()) => {
                 state::checkpoint("verified");
@@ -363,7 +363,7 @@ pub(crate) fn prepare(
     drop(admin);
     normalize(&git, &path, oid, config.cleanup_policy, &[fd])?;
     verify(&git, repo, &path, oid, config.cleanup_policy)?;
-    mark_verified(&git, &path)?;
+    mark_verified(&git, &path, config.cleanup_policy)?;
     state::checkpoint("verified");
     Ok(if exists {
         RecoveryOutcome::Rebuilt
@@ -461,6 +461,31 @@ pub(crate) fn normalize(
             ));
         }
     }
+    // A prepared checkout with unchanged physical files and index already has
+    // the requested baseline. Skip redundant mutation, but retain the caller's
+    // independent final verification before publishing a reservation.
+    if reuse_possible
+        && !inventory.directories_changed
+        && inventory.touched_complete
+        && inventory.touched.is_empty()
+    {
+        if let Some((metadata, contents)) = verified.as_ref().zip(verified_context.as_deref()) {
+            let index_metadata = fs::metadata(&index)?;
+            let prefix = format!("{}\n", oid.as_str());
+            if (index_metadata.ctime(), index_metadata.ctime_nsec())
+                < (metadata.mtime(), metadata.mtime_nsec())
+                && contents
+                    .strip_prefix(prefix.as_bytes())
+                    .is_some_and(|context| context.len() == 32)
+                && contents[prefix.len()..] == conversion_context(git, path, policy)?
+            {
+                tracing::debug!(
+                    "Reusing unchanged verified checkout; final verification remains required"
+                );
+                return Ok(());
+            }
+        }
+    }
     if !reuse_untouched(
         git,
         path,
@@ -470,6 +495,7 @@ pub(crate) fn normalize(
             .zip(verified_context.as_deref())
             .filter(|_| reuse_possible),
         &inventory,
+        policy,
         fds,
     )? {
         // The full path discards flags and stat-cache assumptions and breaks every
@@ -537,10 +563,16 @@ pub(crate) fn normalize(
     Ok(())
 }
 
-fn conversion_context(git: &Git, path: &Path) -> Result<Vec<u8>> {
+fn conversion_context(git: &Git, path: &Path, policy: CleanupPolicy) -> Result<Vec<u8>> {
     use sha2::{Digest, Sha256};
     use std::os::unix::ffi::OsStrExt;
     let mut context = Sha256::new();
+    // A pristine acquisition must not trust a warm marker containing ignored
+    // residue. Older markers lack this policy fingerprint and fall back safely.
+    context.update(match policy {
+        CleanupPolicy::Pristine => b"pristine".as_slice(),
+        CleanupPolicy::Warm => b"warm".as_slice(),
+    });
     for entry in git
         .run(path, &["config", "--null", "--list"], &[])?
         .split(|byte| *byte == 0)
@@ -612,7 +644,7 @@ fn conversion_context(git: &Git, path: &Path) -> Result<Vec<u8>> {
     Ok(context.finalize().to_vec())
 }
 
-fn mark_verified(git: &Git, path: &Path) -> Result<()> {
+fn mark_verified(git: &Git, path: &Path, policy: CleanupPolicy) -> Result<()> {
     crate::progress::set_phase("recording inventory");
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
@@ -628,7 +660,7 @@ fn mark_verified(git: &Git, path: &Path) -> Result<()> {
         .mode(0o600)
         .open(marker)?;
     file.write_all(&git.run(path, &["rev-parse", "--verify", "HEAD"], &[])?)?;
-    file.write_all(&conversion_context(git, path)?)?;
+    file.write_all(&conversion_context(git, path, policy)?)?;
     file.sync_all()?;
     state::sync_dir(&admin)
 }
@@ -642,6 +674,7 @@ fn reuse_untouched(
     oid: &crate::CommitOid,
     verified: Option<(&fs::Metadata, &[u8])>,
     inventory: &crate::walk::Inventory,
+    policy: CleanupPolicy,
     fds: &[i32],
 ) -> Result<bool> {
     use std::io::{Seek, Write};
@@ -670,7 +703,7 @@ fn reuse_untouched(
         return Ok(false);
     };
     if previous.parse::<crate::CommitOid>().is_err()
-        || marker[newline + 1..] != conversion_context(git, path)?
+        || marker[newline + 1..] != conversion_context(git, path, policy)?
     {
         return Ok(false);
     }

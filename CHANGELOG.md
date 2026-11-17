@@ -1,5 +1,10 @@
 # Changelog
 
+- Reuse unchanged verified ready checkouts without repeating checkout or clean.
+  The shortcut requires unchanged physical inventory, index and conversion policy;
+  independent final verification still runs before handoff. Cleanup policy is now
+  part of the marker fingerprint, so old markers conservatively take the full path.
+
 ## Unreleased
 
 ### Fixed

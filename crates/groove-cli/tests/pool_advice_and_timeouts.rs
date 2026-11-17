@@ -135,6 +135,53 @@ exec "$GROOVE_REAL_GIT" "$@"
 }
 
 #[test]
+fn a_verified_ready_spare_can_be_acquired_without_repeating_checkout() {
+    let repo = Repo::new();
+    groove_core::Pool::init(
+        &repo.path,
+        groove_core::PoolOptions {
+            capacity: 1,
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
+            ready: Some(groove_core::ReadySettings {
+                ready_target: 1,
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let pool = groove_core::Pool::open(&repo.path).unwrap();
+    pool.request_ready().unwrap();
+    pool.run_ready(pool.ready_generation().unwrap().unwrap())
+        .unwrap();
+    let wrapper = repo.temp.path().join("reject-checkout");
+    fs::create_dir(&wrapper).unwrap();
+    fs::write(wrapper.join("git"), r#"#!/bin/sh
+case " $* " in *" checkout "*|*" clean "*) echo 'prepared checkout was needlessly rewritten' >&2; exit 64 ;; esac
+exec "$GROOVE_REAL_GIT" "$@"
+"#).unwrap();
+    fs::set_permissions(wrapper.join("git"), fs::Permissions::from_mode(0o755)).unwrap();
+    let output = support::groove_in(&repo.path)
+        .env(
+            "PATH",
+            format!("{}:{}", wrapper.display(), std::env::var("PATH").unwrap()),
+        )
+        .env(
+            "GROOVE_REAL_GIT",
+            std::env::var_os("GROOVE_TEST_GIT").unwrap(),
+        )
+        .args(["acquire", "--task", "prepared"])
+        .output()
+        .unwrap();
+    check(output, 0);
+    assert_eq!(
+        fs::read(repo.slot(1).join("tracked.txt")).unwrap(),
+        b"baseline\n"
+    );
+    cli(&repo.path, &["release", "--task", "prepared"]);
+}
+
+#[test]
 fn ready_git_timeout_is_optional_normalized_and_pool_local() {
     let repo = Repo::new();
     assert!(init(&repo, "default", "1")
