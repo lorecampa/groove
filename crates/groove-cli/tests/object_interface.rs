@@ -17,6 +17,38 @@ fn invoke(repo: &Repo, args: &[&str], code: i32) -> Value {
 }
 
 #[test]
+fn concise_help_keeps_examples_and_reference_topics_remain_installed() {
+    let repo = Repo::new();
+    for command in ["acquire", "release", "show", "list", "upgrade"] {
+        let help = invoke(&repo, &[command, "--help"], 0);
+        let text = help["result"]["text"].as_str().unwrap();
+        assert!(text.contains("EXAMPLE"), "{text}");
+        assert!(
+            text.lines().count() < 120,
+            "{command}: {} lines",
+            text.lines().count()
+        );
+        assert!(!text.contains("OUTPUT TYPES"), "{text}");
+    }
+    for topic in ["json", "exit-codes", "durations", "recovery", "environment"] {
+        let help = invoke(&repo, &["help", topic], 0);
+        assert!(!help["result"]["text"].as_str().unwrap().is_empty());
+    }
+    let contract = invoke(&repo, &["help", "json", "acquire"], 0);
+    assert!(contract["result"]["text"]
+        .as_str()
+        .unwrap()
+        .contains("reservation_id"));
+    let command = invoke(&repo, &["help", "pool", "create"], 0);
+    let text = command["result"]["text"].as_str().unwrap();
+    assert!(
+        text.contains("--capacity") && text.contains("--color"),
+        "{text}"
+    );
+    invoke(&repo, &["help", "does-not-exist"], 2);
+}
+
+#[test]
 fn pool_selection_is_explicit_owned_or_unique_and_git_budgets_round_trip() {
     let repo = Repo::new();
     invoke(&repo, &["config", "set", "pool-defaults.git-timeout=7m"], 0);

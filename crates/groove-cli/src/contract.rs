@@ -20,7 +20,7 @@ pub fn command() -> clap::Command {
         .filter(|argument| matches!(argument.get_id().as_str(), "pool" | "git_timeout_ms"))
         .cloned()
         .collect();
-    scope_context_help(decorate(command, "", &schema()), "", &context)
+    scope_context_help(decorate(command, ""), "", &context)
 }
 
 // Transitional context aliases belong to their commands, never the global set.
@@ -86,81 +86,12 @@ fn scope_context_help(
     command
 }
 
-fn decorate(mut command: clap::Command, path: &str, schema: &Value) -> clap::Command {
-    let mut text = command
-        .get_after_long_help()
-        .map(ToString::to_string)
-        .unwrap_or_else(|| concise_help(path).to_owned());
-    if path == "config" {
-        text.push_str("\nPREFERENCE DEFAULTS (TOML, before environment overrides):\n");
-        text.push_str(
-            &toml::to_string_pretty(&preferences::Config::default())
-                .expect("built-in preferences must serialize as TOML"),
-        );
-    }
-    if path.starts_with("config ") {
-        text.push_str("\nSee groove config --help for preference keys and defaults.\n");
-    }
-    if path.is_empty() {
-        text.push_str(include_str!("../help/json.txt"));
-    } else {
-        text.push_str(
-            "\nOUTPUT CONTRACT:\nSee groove --help for global output rules and exit codes.\n",
-        );
-    }
-    let mut definitions = BTreeSet::new();
-    if !path.is_empty() {
-        if let Some(commands) = schema["x-groove-command-results"].as_object() {
-            for (name, names) in commands {
-                if name == path || name.starts_with(&format!("{path} ")) {
-                    let names: Vec<_> = names
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .filter_map(Value::as_str)
-                        .collect();
-                    text.push_str(&format!("  {name} -> result: {}\n", names.join(" | ")));
-                    definitions.extend(names.into_iter().map(str::to_owned));
-                }
-            }
-        }
-        definitions.insert("error".into());
-        append_definitions(&mut text, definitions, schema);
-    } else {
-        text.push_str("Run groove COMMAND --help for that command's result fields and types.\n");
-    }
-    if path.is_empty() {
-        text.push_str("\nERROR EXIT CODES:\n");
-        for value in schema["$defs"]["error"]["properties"]["code"]["enum"]
-            .as_array()
-            .into_iter()
-            .flatten()
-        {
-            let library_name = match value.as_str() {
-                Some("INVALID_RESERVATION") => Value::String("INVALID_LEASE".into()),
-                Some("RESERVATION_MISMATCH") => Value::String("LEASE_MISMATCH".into()),
-                _ => value.clone(),
-            };
-            if let Ok(code) = serde_json::from_value::<ErrorCode>(library_name) {
-                text.push_str(&format!(
-                    "  {}: {}\n",
-                    output::error_status(code),
-                    output::cli_error_code(code)
-                ));
-            }
-        }
-        text.push_str("  7: stdout could not be written\n");
-    }
-    let invocation = if path.is_empty() {
-        "groove".to_owned()
-    } else {
-        format!("groove {path}")
-    };
-    text.push_str(&format!("\nRun {invocation} -h for concise help.\n"));
-    command = command.after_long_help(text).after_help(format!(
-        "{}\nRun {invocation} --help for detailed help, recovery rules and output types.",
+fn decorate(mut command: clap::Command, path: &str) -> clap::Command {
+    let text = format!(
+        "{}\nHelp topics: groove help json|exit-codes|durations|recovery|environment\n",
         concise_help(path)
-    ));
+    );
+    command = command.after_long_help(text.clone()).after_help(text);
     let children: Vec<_> = command
         .get_subcommands()
         .map(|child| {
@@ -169,7 +100,7 @@ fn decorate(mut command: clap::Command, path: &str, schema: &Value) -> clap::Com
             } else {
                 format!("{path} {}", child.get_name())
             };
-            decorate(child.clone(), &child_path, schema)
+            decorate(child.clone(), &child_path)
         })
         .collect();
     for child in children {
@@ -181,6 +112,9 @@ fn decorate(mut command: clap::Command, path: &str, schema: &Value) -> clap::Com
 
 fn concise_help(path: &str) -> &'static str {
     match path {
+        "help" => "EXAMPLES:\n  groove help json acquire\n  groove help recovery release\n  groove help pool create\n",
+        "path" => "EXAMPLES:\n  groove path fix-nav\n  groove path  # infer from the current workspace\n",
+        "upgrade" => "EXAMPLES:\n  groove upgrade --check\n  groove upgrade --dry-run --with-plugins\n  groove upgrade --to 0.6.0\n",
         "" => include_str!("../help/short/overview.txt"),
         "pool" => include_str!("../help/short/pool.txt"),
         "pool create" => include_str!("../help/short/pool-init.txt"),
@@ -211,6 +145,92 @@ fn concise_help(path: &str) -> &'static str {
         "config edit" => include_str!("../help/short/config-edit.txt"),
         "config unset" => include_str!("../help/short/config-unset.txt"),
         _ => "",
+    }
+}
+
+/// Installed reference topics and ordinary command help, without repository I/O.
+pub fn help_topic(parts: &[String]) -> groove_core::Result<String> {
+    let invalid = |message| groove_core::Error::new(ErrorCode::InvalidArgument, message);
+    let topic = parts.first().map(String::as_str).unwrap_or("");
+    match topic {
+        "json" => {
+            let schema = schema();
+            let filter = parts[1..].join(" ");
+            let mut text = include_str!("../help/json.txt").to_owned();
+            let mut definitions = BTreeSet::new();
+            for (name, types) in schema["x-groove-command-results"]
+                .as_object()
+                .expect("validated command schema")
+            {
+                if filter.is_empty() || name == &filter || name.starts_with(&format!("{filter} ")) {
+                    let types: Vec<_> = types
+                        .as_array()
+                        .expect("validated result list")
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .collect();
+                    text.push_str(&format!("\n{name}: {}\n", types.join(" | ")));
+                    definitions.extend(types.into_iter().map(str::to_owned));
+                }
+            }
+            if definitions.is_empty() {
+                return Err(invalid(format!("Unknown command contract: {filter}")));
+            }
+            append_definitions(&mut text, definitions, &schema);
+            Ok(text)
+        }
+        "exit-codes" => {
+            let mut text = "Exit codes are stable categories; branch on error.code for the specific failure.\n".to_owned();
+            for value in schema()["$defs"]["error"]["properties"]["code"]["enum"]
+                .as_array()
+                .expect("validated error codes")
+            {
+                let library_name = match value.as_str() {
+                    Some("INVALID_RESERVATION") => Value::String("INVALID_LEASE".into()),
+                    Some("RESERVATION_MISMATCH") => Value::String("LEASE_MISMATCH".into()),
+                    _ => value.clone(),
+                };
+                if let Ok(code) = serde_json::from_value::<ErrorCode>(library_name) {
+                    text.push_str(&format!(
+                        "{}: {}\n",
+                        output::error_status(code),
+                        output::cli_error_code(code)
+                    ));
+                }
+            }
+            text.push_str("0: success\n7: stdout could not be written\nSignals may terminate a process before it emits JSON.\n");
+            Ok(text)
+        }
+        "durations" => Ok(include_str!("../help/durations.txt").into()),
+        "environment" => Ok(format!(
+            "{}\nPreference defaults (TOML storage):\n{}",
+            include_str!("../help/environment.txt"),
+            toml::to_string_pretty(&preferences::Config::default())
+                .expect("default preferences serialize")
+        )),
+        "recovery" if parts.len() == 1 => Ok(include_str!("../help/recovery.txt").into()),
+        _ => {
+            let recovery = topic == "recovery";
+            let mut command = if recovery { Args::command() } else { command() };
+            command.build();
+            let path = if recovery { &parts[1..] } else { parts };
+            for component in path {
+                command = command.find_subcommand(component).cloned().ok_or_else(|| {
+                    invalid(format!(
+                        "Unknown command or help topic: {}",
+                        parts.join(" ")
+                    ))
+                })?;
+            }
+            if recovery {
+                Ok(command
+                    .get_after_long_help()
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| include_str!("../help/recovery.txt").into()))
+            } else {
+                Ok(command.render_long_help().to_string())
+            }
+        }
     }
 }
 

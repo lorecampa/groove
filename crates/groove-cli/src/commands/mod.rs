@@ -152,6 +152,10 @@ fn select_id(pool: &Pool, selector: &LeaseSelector, path: &Path) -> Result<groov
 /// Run one parsed command.
 pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
     match command {
+        Command::Help { topic } => {
+            let text = crate::contract::help_topic(topic)?;
+            Output::text(serde_json::json!({"text": text}), text)
+        }
         Command::Upgrade(options) => upgrade::run(options),
         Command::Pool(command) => match command {
             PoolCommand::Get { key, .. } => pool::get(context, key),

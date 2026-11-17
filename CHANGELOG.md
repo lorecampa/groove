@@ -1,5 +1,10 @@
 # Changelog
 
+- Keep command help focused on usage, options and examples. Installed help topics
+  now own JSON contracts (`help json [COMMAND]`), exit codes, durations, recovery
+  (`help recovery [COMMAND]`) and environment behavior. `help COMMAND` shows the
+  same concise command reference without opening a repository.
+
 - Scope pool selection and Git timeout overrides to commands. Transitional legacy
   spellings remain hidden and emit warnings. Add `-C`, `-p`, consistent short flags,
   `--color` (auto honors NO_COLOR), and `upgrade --to` with a deprecated

@@ -259,6 +259,7 @@ fn run_command(args: &mut Args, terminal: &terminal::Terminal) -> u8 {
         && matches!(
             args.command,
             Command::Snapshot(_)
+                | Command::Help { .. }
                 | Command::Config(_)
                 | Command::Completions { .. }
                 | Command::Upgrade(_)
@@ -280,7 +281,10 @@ fn run_command(args: &mut Args, terminal: &terminal::Terminal) -> u8 {
     // Configuration and completion commands work even with broken preferences.
     let logging = if matches!(
         args.command,
-        Command::Config(_) | Command::Completions { .. } | Command::Upgrade(_)
+        Command::Config(_)
+            | Command::Completions { .. }
+            | Command::Upgrade(_)
+            | Command::Help { .. }
     ) {
         preferences::Logging::disabled()
     } else {
@@ -391,6 +395,7 @@ fn run_command(args: &mut Args, terminal: &terminal::Terminal) -> u8 {
         && !matches!(
             args.command,
             Command::Config(_)
+                | Command::Help { .. }
                 | Command::Completions { .. }
                 | Command::Upgrade(_)
                 | Command::Snapshot(_)

@@ -17,6 +17,7 @@ const DEFAULT_MAX_FILE_BYTES: &str = "100M";
 #[command(
     name = "groove",
     propagate_version = true,
+    disable_help_subcommand = true,
     version = concat!(env!("CARGO_PKG_VERSION"), " (revision ", env!("GROOVE_BUILD_REVISION"), ")"),
     about = "Reusable Git worktree pools and local checkpoints for parallel coding tasks",
     after_long_help = help!("overview")
@@ -285,6 +286,12 @@ impl From<Cleanup> for groove_core::CleanupPolicy {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Show command help or the json, exit-codes, durations, recovery and environment topics.
+    Help {
+        /// Command path or topic, for example pool create or json acquire.
+        #[arg(value_name = "COMMAND|TOPIC")]
+        topic: Vec<String>,
+    },
     /// Upgrade the installed CLI, optionally including existing agent skill plugins.
     #[command(after_long_help = help!("upgrade"))]
     Upgrade(UpgradeArgs),
@@ -796,6 +803,7 @@ impl Command {
     /// Stable command name for logs.
     pub fn name(&self) -> &'static str {
         match self {
+            Self::Help { .. } => "help",
             Self::Upgrade(_) => "upgrade",
             Self::Pool(command) => match command {
                 PoolCommand::Get { .. } => "pool get",

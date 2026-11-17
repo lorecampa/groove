@@ -24,7 +24,10 @@ pub fn start(args: &Args) -> Option<NoticeCheck> {
         || args.quiet
         || matches!(
             args.command,
-            Command::Upgrade(_) | Command::Config(_) | Command::Completions { .. }
+            Command::Upgrade(_)
+                | Command::Config(_)
+                | Command::Completions { .. }
+                | Command::Help { .. }
         )
         || !preferences::load().ok()?.updates.check
     {
