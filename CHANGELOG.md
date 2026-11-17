@@ -6,6 +6,9 @@
 
 - Accept repositories with worktree configuration enabled before their optional
   `config.worktree` file has been created.
+- Match Linux inspection admission on macOS: briefly wait for pre-admission
+  Groove Git children and recognize connected pipeline readers without exempting
+  unrelated workspace writers.
 
 ## [0.5.0] - 2026-11-17
 
