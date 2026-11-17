@@ -871,7 +871,15 @@ mod scalar_tests {
 
     #[test]
     fn ci_packaged_smoke_uses_an_installed_command() {
-        let workflow = include_str!("../../../.github/workflows/ci.yml");
+        // This repository conformance check also compiles in extracted crates,
+        // whose published contents deliberately exclude GitHub workflows.
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.github/workflows/ci.yml");
+        let workflow = match std::fs::read_to_string(path) {
+            Ok(workflow) => workflow,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+            Err(error) => panic!("Cannot read CI smoke commands: {error}"),
+        };
         let commands: Vec<_> = workflow
             .lines()
             .map(str::trim)
