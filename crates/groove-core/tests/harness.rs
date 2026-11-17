@@ -10,6 +10,21 @@ use std::{
 #[test]
 fn harness_peer() {
     match std::env::var("GROOVE_HARNESS_PEER").as_deref() {
+        Ok("isolated-git") => {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::env::var("GIT_CONFIG_GLOBAL").unwrap(), "/dev/null");
+            assert_eq!(std::env::var("GIT_CONFIG_SYSTEM").unwrap(), "/dev/null");
+            assert_eq!(std::env::var("GIT_CONFIG_NOSYSTEM").unwrap(), "1");
+            let output = Command::new("git").arg("--version").output().unwrap();
+            assert!(output.status.success(), "{output:?}");
+            assert!(output.stdout.starts_with(b"git version "));
+            let path = std::env::var_os("GROOVE_HARNESS_MODE_FILE").unwrap();
+            std::fs::write(&path, "fixture").unwrap();
+            assert_eq!(
+                std::fs::metadata(path).unwrap().permissions().mode() & 0o777,
+                0o644
+            );
+        }
         Ok("partial") => {
             let mut stream =
                 UnixStream::connect(std::env::var_os("GROOVE_HARNESS_SOCKET").unwrap()).unwrap();
@@ -43,6 +58,47 @@ fn harness_peer() {
         }
         _ => (),
     }
+}
+
+#[test]
+fn cargo_runner_isolates_git_wrappers_configuration_and_umask() {
+    use std::os::unix::{fs::PermissionsExt, process::CommandExt};
+    let temp = support::tempdir();
+    let wrapper = temp.path().join("git");
+    std::fs::write(&wrapper, "#!/bin/sh\nexit 91\n").unwrap();
+    std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let runner = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/runner.sh");
+    let mut command = Command::new("bash");
+    command
+        .arg(runner)
+        .arg(std::env::current_exe().unwrap())
+        .args(["--exact", "harness_peer", "--nocapture"])
+        .env_remove("GROOVE_TEST_GIT")
+        .env(
+            "PATH",
+            format!(
+                "{}:{}",
+                temp.path().display(),
+                std::env::var("PATH").unwrap()
+            ),
+        )
+        .env("GIT_CONFIG_GLOBAL", temp.path().join("unreadable-global"))
+        .env("GIT_CONFIG_SYSTEM", temp.path().join("unreadable-system"))
+        .env("GIT_CONFIG_NOSYSTEM", "0")
+        .env("GROOVE_HARNESS_PEER", "isolated-git")
+        .env("GROOVE_HARNESS_MODE_FILE", temp.path().join("mode"));
+    // SAFETY: umask is async-signal-safe and changes only the forked child's
+    // process state, before Bash and the test runner start.
+    unsafe {
+        command.pre_exec(|| {
+            libc::umask(0o027);
+            Ok(())
+        });
+    }
+    let output = support::TestChild::spawn(&mut command)
+        .wait_with_output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
 }
 
 fn peer(mode: &str) -> Command {
