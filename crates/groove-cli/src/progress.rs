@@ -18,6 +18,7 @@ pub struct Progress {
     last: Option<Duration>,
     frame: usize,
     visible: bool,
+    initial_phase: &'static str,
 }
 
 impl Progress {
@@ -30,6 +31,7 @@ impl Progress {
             last: None,
             frame: 0,
             visible: false,
+            initial_phase: "initializing",
         }
     }
 
@@ -63,7 +65,7 @@ impl Progress {
                 "event": "progress",
                 "request_id": self.request_id,
                 "command": self.command,
-                "phase": groove_core::current_phase(),
+                "phase": groove_core::current_phase().unwrap_or(self.initial_phase),
                 "elapsed_ms": u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX),
             });
             writeln!(writer, "{event}")?;
@@ -73,9 +75,10 @@ impl Progress {
                 writer,
                 "\r\x1b[2K{frame} Running groove {}{}… ({}s)",
                 self.command,
-                groove_core::current_phase()
-                    .map(|phase| format!(": {phase}"))
-                    .unwrap_or_default(),
+                format_args!(
+                    ": {}",
+                    groove_core::current_phase().unwrap_or(self.initial_phase)
+                ),
                 elapsed.as_secs()
             )?;
             self.frame = self.frame.wrapping_add(1);
@@ -161,6 +164,9 @@ mod tests {
             assert_eq!(event["event"], "progress");
             assert_eq!(event["command"], "show");
             assert_eq!(event["request_id"], "request\n1");
+            assert!(event["phase"]
+                .as_str()
+                .is_some_and(|phase| !phase.is_empty()));
         }
         assert_eq!(events[0]["elapsed_ms"], 1000);
         assert_eq!(events[1]["elapsed_ms"], 6000);

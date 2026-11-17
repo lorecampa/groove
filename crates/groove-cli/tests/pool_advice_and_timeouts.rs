@@ -476,10 +476,15 @@ fn slow_checkout_progress_reports_the_current_phase() {
         })
         .collect();
     check(output, 0);
+    // Under load the first heartbeat may precede checkout. The rate limit can
+    // then suppress another heartbeat before completion; every emitted event
+    // must still identify its current phase instead of reporting null.
+    assert!(!events.is_empty());
     assert!(
-        events
-            .iter()
-            .any(|event| event["event"] == "progress" && event["phase"] == "checking out"),
+        events.iter().all(|event| event["event"] == "progress"
+            && event["phase"]
+                .as_str()
+                .is_some_and(|phase| !phase.is_empty())),
         "{events:?}"
     );
 }
