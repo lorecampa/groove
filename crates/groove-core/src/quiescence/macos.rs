@@ -229,22 +229,44 @@ fn pids() -> std::io::Result<Vec<libc::pid_t>> {
 }
 
 fn bsd_info(pid: i32) -> Option<libc::proc_bsdinfo> {
+    read_bsd_info(pid, false).ok()
+}
+
+// PROC_PIDTBSDINFO's nonzero argument includes unreaped children. Without it,
+// XNU returns ESRCH for zombies even while kill(pid, 0) still succeeds.
+// https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/proc_info.c
+fn read_bsd_info(pid: i32, include_zombies: bool) -> std::io::Result<libc::proc_bsdinfo> {
     let mut info = MaybeUninit::<libc::proc_bsdinfo>::uninit();
     // SAFETY: info has the exact layout/size required by PROC_PIDTBSDINFO.
     let bytes = unsafe {
         libc::proc_pidinfo(
             pid,
             libc::PROC_PIDTBSDINFO,
-            0,
+            u64::from(include_zombies),
             info.as_mut_ptr().cast(),
             size_of::<libc::proc_bsdinfo>() as i32,
         )
     };
     if bytes as usize != size_of::<libc::proc_bsdinfo>() {
-        return None;
+        return Err(if bytes <= 0 {
+            std::io::Error::last_os_error()
+        } else {
+            std::io::Error::other("Incomplete process information")
+        });
     }
     // SAFETY: a complete successful response initialized every field.
-    Some(unsafe { info.assume_init() })
+    Ok(unsafe { info.assume_init() })
+}
+
+/// A zombie or OS-confirmed exited process no longer owns workspace resources.
+pub(super) fn has_exited(pid: u32) -> bool {
+    i32::try_from(pid).ok().is_some_and(|pid| {
+        match read_bsd_info(pid, true) {
+            Ok(info) => info.pbi_status == libc::SZOMB,
+            // It may have been reaped since the preceding signal-zero probe.
+            Err(error) => error.raw_os_error() == Some(libc::ESRCH),
+        }
+    })
 }
 
 pub(super) fn parent_of(pid: u32) -> Option<u32> {

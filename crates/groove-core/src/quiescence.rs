@@ -27,8 +27,9 @@ fn retain_live_observations(processes: &mut Vec<WorkspaceProcess>) {
         };
         // SAFETY: signal zero sends no signal; it only probes this observed PID.
         let exists = unsafe { libc::kill(pid, 0) };
-        let exited =
-            exists < 0 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
+        let exited = (exists < 0
+            && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH))
+            || os::has_exited(process.pid);
         if exited {
             tracing::debug!(
                 pid = process.pid,
