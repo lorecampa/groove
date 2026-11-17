@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Preserve resumable draft publication on macOS Bash 3.2 when all assets are
+  already uploaded; guard empty array expansion under `set -u`.
+
 - Verify exact tracked-path spelling during reuse on case-insensitive storage;
   case-only contamination now triggers cleanup or a safe checkout rebuild.
 

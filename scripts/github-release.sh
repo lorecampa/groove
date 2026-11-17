@@ -62,7 +62,9 @@ if [[ $existing != true ]]; then
   if [[ $release_tag == *-* ]]; then flags+=(--prerelease); fi
   gh release create "$release_tag" --repo "$repository" "${flags[@]}"
 fi
-for path in "${missing[@]}"; do
+# Bash 3.2 treats an empty array as unset under nounset (and can return success
+# after aborting this expansion). A completed draft has no missing assets.
+for path in ${missing[@]+"${missing[@]}"}; do
   gh release upload "$release_tag" "$path" --repo "$repository"
 done
 
