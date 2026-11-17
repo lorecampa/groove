@@ -13,7 +13,10 @@ pub(super) fn processes_using(root: &Path, skip_ancestors: bool) -> Result<Vec<W
     let started = std::time::Instant::now();
     let executable = fs::metadata("/proc/self/exe")?;
     loop {
-        let (found, readers) = scan_processes(root, skip_ancestors)?;
+        let (mut found, readers) = scan_processes(root, skip_ancestors)?;
+        if !found.is_empty() {
+            crate::state::checkpoint("workspace-processes-scanned");
+        }
         if found.is_empty() && super::retry_observed_readers(&readers, started) {
             continue;
         }
@@ -32,6 +35,7 @@ pub(super) fn processes_using(root: &Path, skip_ancestors: bool) -> Result<Vec<W
                 })
             })
         {
+            super::retain_live_observations(&mut found);
             return Ok(found);
         }
         std::thread::sleep(std::time::Duration::from_millis(10));

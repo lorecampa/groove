@@ -98,7 +98,10 @@ pub(super) fn processes_using(root: &Path, skip_ancestors: bool) -> Result<Vec<W
     let started = std::time::Instant::now();
     let executable = fs::metadata(std::env::current_exe()?)?;
     loop {
-        let (found, readers) = scan_processes(root, skip_ancestors, &executable)?;
+        let (mut found, readers) = scan_processes(root, skip_ancestors, &executable)?;
+        if !found.is_empty() {
+            crate::state::checkpoint("workspace-processes-scanned");
+        }
         if found.is_empty() && super::retry_observed_readers(&readers, started) {
             continue;
         }
@@ -109,12 +112,25 @@ pub(super) fn processes_using(root: &Path, skip_ancestors: bool) -> Result<Vec<W
             || found.is_empty()
             || started.elapsed() >= std::time::Duration::from_millis(500)
             || !found.iter().all(|process| {
-                parent_of(process.pid)
-                    .and_then(|parent| executable_path(parent as i32))
+                let parent = parent_of(process.pid);
+                let parent_executable = parent.and_then(|pid| executable_path(pid as i32));
+                let groove_child = parent_executable
+                    .as_ref()
                     .and_then(|path| fs::metadata(path).ok())
-                    .is_some_and(|metadata| same_executable(&metadata, &executable))
+                    .is_some_and(|metadata| same_executable(&metadata, &executable));
+                tracing::debug!(
+                    pid = process.pid,
+                    ?parent,
+                    ?parent_executable,
+                    groove_child,
+                    "Classifying a pre-admission workspace process"
+                );
+                groove_child
             })
         {
+            tracing::debug!(elapsed = ?started.elapsed(), count = found.len(),
+                "Workspace process scan completed");
+            super::retain_live_observations(&mut found);
             return Ok(found);
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
