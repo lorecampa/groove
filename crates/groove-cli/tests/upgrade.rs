@@ -642,7 +642,9 @@ fn terminal_run(command: &mut Command) -> (Output, String) {
         });
     }
     let child = support::TestChild::spawn(command);
-    drop(slave);
+    // Keep a slave endpoint alive until the bounded post-exit drain finishes.
+    // Darwin may discard unread output when the last slave closes; Linux's
+    // post-close EIO behavior had hidden that fixture race.
     let output = child.wait_with_output().unwrap();
     // SAFETY: master is live and exclusively used by this test.
     unsafe {
@@ -655,10 +657,14 @@ fn terminal_run(command: &mut Command) -> (Output, String) {
     let mut buffer = [0; 4096];
     loop {
         match master.read(&mut buffer) {
-            Ok(0) | Err(_) => break,
+            Ok(0) => break,
             Ok(n) => bytes.extend_from_slice(&buffer[..n]),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+            Err(error) => panic!("Cannot drain upgrade PTY: {error}"),
         }
     }
+    drop(slave);
     (output, String::from_utf8_lossy(&bytes).into_owned())
 }
 fn initialize_notice_pool(fixture: &Fixture) -> support::Repo {
