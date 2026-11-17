@@ -17,6 +17,66 @@ fn invoke(repo: &Repo, args: &[&str], code: i32) -> Value {
 }
 
 #[test]
+fn positional_reservations_generated_labels_and_path_preserve_retry_identity() {
+    let repo = Repo::new();
+    invoke(
+        &repo,
+        &["pool", "init", "--capacity", "2", "--idle-timeout", "never"],
+        0,
+    );
+    let acquired = invoke(
+        &repo,
+        &[
+            "acquire", "fix-nav", "--key", "nav-1", "-b", "HEAD", "-w", "0s",
+        ],
+        0,
+    );
+    let id = acquired["result"]["reservation_id"].as_str().unwrap();
+    assert_eq!(
+        invoke(&repo, &["show", "fix-nav"], 0)["result"]["reservation"]["reservation_id"],
+        id
+    );
+    assert_eq!(
+        invoke(&repo, &["path", id], 0)["result"]["workspace_path"],
+        acquired["result"]["workspace_path"]
+    );
+    let path = support::command(&repo.path, env!("CARGO_BIN_EXE_groove"))
+        .args(["path", "fix-nav"])
+        .output()
+        .unwrap();
+    assert!(path.status.success(), "{path:?}");
+    assert_eq!(
+        String::from_utf8(path.stdout).unwrap(),
+        format!(
+            "{}\n",
+            acquired["result"]["workspace_path"].as_str().unwrap()
+        )
+    );
+    let alias = support::groove_in(&repo.path)
+        .args(["show", "--task", "fix-nav"])
+        .output()
+        .unwrap();
+    assert!(alias.status.success());
+    assert!(String::from_utf8_lossy(&alias.stderr).contains("deprecated"));
+    invoke(&repo, &["release", "fix-nav"], 0);
+    let generated = invoke(&repo, &["acquire", "--key", "generated-1"], 0);
+    let task = generated["result"]["task"].as_str().unwrap();
+    assert!(task.starts_with("task-"));
+    assert_eq!(
+        invoke(&repo, &["acquire", "--key", "generated-1"], 0)["result"]["reservation_id"],
+        generated["result"]["reservation_id"]
+    );
+    invoke(&repo, &["release", task], 0);
+    for bad in [
+        "contains spaces",
+        "a/b",
+        "00000000-0000-0000-0000-000000000000",
+    ] {
+        invoke(&repo, &["acquire", bad], 2);
+    }
+}
+
+#[test]
 fn settings_assignments_round_trip_and_reject_ambiguous_updates() {
     let repo = Repo::new();
     invoke(

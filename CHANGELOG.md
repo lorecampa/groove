@@ -1,5 +1,13 @@
 # Changelog
 
+- Task commands accept positional labels/UUIDs and `path` prints a reservation's
+  checkout path. Unnamed CLI acquisitions receive generated labels, stable across
+  retries with the same key. `--task` and `--reservation-id` remain accepted with
+  deprecation warnings for this release. New labels use 1–128 ASCII letters,
+  digits, dots, underscores or hyphens and cannot resemble UUIDs. JSON stays at
+  api_version 2: `path` reuses the reservation result and existing commands retain
+  their envelope, result types and exit categories.
+
 - Additive CLI rollout: pool settings accept `KEY=VALUE`; pool/config keys accept
   kebab-case and legacy underscores. Context flags are advertised only by the
   commands that use them. Existing global parsing remains during this phase.

@@ -52,6 +52,29 @@ pub struct ReservationOptions {
     pub request_key: Option<String>,
 }
 impl ReservationOptions {
+    /// Supply a generated label when the caller omitted one.
+    ///
+    /// A request key deterministically selects its label so retries across process
+    /// exits keep the same inputs. Without a key, each call chooses a fresh label.
+    /// Explicit labels are unchanged; [`Pool::reserve`] validates and arbitrates
+    /// them. This builder performs no I/O and cannot fail.
+    ///
+    /// ```
+    /// use groove_core::ReservationOptions;
+    /// let options = ReservationOptions::default().with_generated_task();
+    /// assert!(options.task.unwrap().starts_with("task-"));
+    /// ```
+    pub fn with_generated_task(mut self) -> Self {
+        if self.task.is_none() {
+            let suffix = self.request_key.as_ref().map_or_else(
+                || uuid::Uuid::new_v4().simple().to_string(),
+                |key| state::hex(Sha256::digest(key.as_bytes())),
+            );
+            self.task = Some(format!("task-{suffix}"));
+        }
+        self
+    }
+
     fn validate(&self) -> Result<()> {
         let too_long = |value: &Option<String>, max: usize| {
             value

@@ -98,7 +98,10 @@ fn dispatch(raw: &[std::ffi::OsString]) -> ExitCode {
     match crate::contract::command()
         .try_get_matches_from(raw)
         .and_then(|matches| Args::from_arg_matches(&matches))
-    {
+        .and_then(|args| {
+            args.normalize()
+                .map_err(|message| clap::Error::raw(ErrorKind::InvalidValue, message))
+        }) {
         Ok(args) => ExitCode::from(run(&args)),
         Err(error) => ExitCode::from(reject(raw, &error)),
     }
@@ -198,6 +201,9 @@ fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {
         args.command.name(),
     );
     let started = std::time::Instant::now();
+    for warning in &args.deprecations {
+        tracing::warn!(event = "arguments.deprecated", "{warning}");
+    }
     tracing::debug!(event = "command.started", "Command started");
     let positional_pool = match &args.command {
         Command::Pool(command) => command.name(),
@@ -235,11 +241,15 @@ fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {
         {
             Some((
                 args::LeaseSelector {
+                    reservation: None,
                     task: selector.task.clone(),
                     lease_id: selector.lease_id,
                 },
                 false,
             ))
+        }
+        Command::Path { selector } if selector.task.is_some() || selector.lease_id.is_some() => {
+            Some((selector.clone(), false))
         }
         _ => None,
     };

@@ -1,4 +1,6 @@
 EXAMPLES:
+  groove show fix-nav
+  groove path fix-nav
   groove show --task fix-parser
   groove show --reservation-id UUID --details
   groove show --slot wt-0001

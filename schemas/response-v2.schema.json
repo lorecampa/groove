@@ -1625,6 +1625,9 @@
     "acquire": [
       "reservation"
     ],
+    "path": [
+      "reservation"
+    ],
     "completions": [
       "text"
     ],

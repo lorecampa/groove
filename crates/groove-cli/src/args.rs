@@ -65,12 +65,91 @@ pub struct Args {
     pub git_timeout_ms: u64,
     #[command(subcommand)]
     pub command: Command,
+    #[arg(skip)]
+    pub deprecations: Vec<&'static str>,
+}
+
+impl Args {
+    /// Normalize the transitional aliases once, before routing across pools.
+    pub fn normalize(mut self) -> Result<Self, String> {
+        match &mut self.command {
+            Command::Acquire {
+                positional_task,
+                task,
+                ..
+            } => {
+                if task.is_some() {
+                    self.deprecations
+                        .push("--task is deprecated; use acquire TASK");
+                }
+                *task = positional_task.take().or(task.take());
+                if let Some(task) = task {
+                    validate_task(task)?;
+                }
+            }
+            Command::Release { lease, .. } | Command::Path { selector: lease } => {
+                normalize_selector(
+                    &mut lease.reservation,
+                    &mut lease.task,
+                    &mut lease.lease_id,
+                    &mut self.deprecations,
+                )?;
+            }
+            Command::Show { selector, .. } => {
+                normalize_selector(
+                    &mut selector.reservation,
+                    &mut selector.task,
+                    &mut selector.lease_id,
+                    &mut self.deprecations,
+                )?;
+            }
+            _ => {}
+        }
+        Ok(self)
+    }
+}
+
+fn validate_task(task: &str) -> Result<(), String> {
+    if task.is_empty()
+        || task.len() > 128
+        || !task
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+        || uuid::Uuid::parse_str(task).is_ok()
+    {
+        return Err("TASK must contain 1..128 ASCII letters, digits, dots, underscores or hyphens and must not look like a UUID".into());
+    }
+    Ok(())
+}
+
+fn normalize_selector(
+    reservation: &mut Option<String>,
+    task: &mut Option<String>,
+    id: &mut Option<LeaseId>,
+    warnings: &mut Vec<&'static str>,
+) -> Result<(), String> {
+    if task.is_some() || id.is_some() {
+        warnings.push("--task and --reservation-id are deprecated; use a positional RESERVATION");
+    }
+    if let Some(value) = reservation.take() {
+        match value.parse::<LeaseId>() {
+            Ok(value) => *id = Some(value),
+            Err(_) => {
+                validate_task(&value)?;
+                *task = Some(value);
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Selects a reservation explicitly, or infers it for release inside its workspace.
 #[derive(ClapArgs, Debug, Clone)]
 #[group(multiple = false)]
 pub struct LeaseSelector {
+    /// Task label or reservation UUID; omit inside the reservation's workspace.
+    #[arg(value_name = "RESERVATION")]
+    pub reservation: Option<String>,
     /// Reservation UUID returned by acquire.
     #[arg(long = "reservation-id", value_name = "ID")]
     pub lease_id: Option<LeaseId>,
@@ -83,6 +162,9 @@ pub struct LeaseSelector {
 #[derive(ClapArgs, Debug, Clone, Default)]
 #[group(multiple = false)]
 pub struct OptionalSelector {
+    /// Task label or reservation UUID; omit inside the reservation's workspace.
+    #[arg(value_name = "RESERVATION")]
+    pub reservation: Option<String>,
     /// Reservation UUID returned by acquire.
     #[arg(long = "reservation-id", value_name = "ID")]
     pub lease_id: Option<LeaseId>,
@@ -121,8 +203,12 @@ pub enum Command {
     /// Reserve a clean checkout of a commit until it is released.
     #[command(after_long_help = help!("acquire"))]
     Acquire {
+        /// Task label (1..128 ASCII letters, digits, dots, underscores or hyphens).
+        #[arg(value_name = "TASK", conflicts_with = "task")]
+        positional_task: Option<String>,
         /// Starting commit, branch or tag; checkout HEAD is detached.
         #[arg(
+            short = 'b',
             long,
             default_value = "HEAD",
             long_help = "Commit, branch or tag whose files the checkout starts from (HEAD detached there)."
@@ -137,15 +223,16 @@ pub enum Command {
         /// Idempotency key for safe acquisition retries.
         #[arg(
             long = "idempotency-key",
+            visible_alias = "key",
             value_name = "KEY",
             long_help = "Idempotency key: retrying the same key/base/task returns the same reservation."
         )]
         request_key: Option<String>,
         /// Wait for a free slot, e.g. 30s; 0s scans once.
-        #[arg(long = "wait", value_name = "DURATION", default_value = "0s", value_parser = parse_duration)]
+        #[arg(short = 'w', long = "wait", value_name = "DURATION", default_value = "0s", value_parser = parse_duration)]
         wait_ms: u64,
         /// Print exactly the workspace path in human output.
-        #[arg(long)]
+        #[arg(long, visible_alias = "print-path")]
         path_only: bool,
     },
     /// Return a workspace to the pool; optionally save a pinned snapshot first.
@@ -193,6 +280,11 @@ pub enum Command {
         /// Include bounded local Git status.
         #[arg(long)]
         details: bool,
+    },
+    /// Print only the selected reservation's workspace path.
+    Path {
+        #[command(flatten)]
+        selector: LeaseSelector,
     },
     /// Print a shell completion script for commands, options and fixed values.
     #[command(after_long_help = help!("completions"))]
@@ -603,6 +695,7 @@ impl Command {
             Self::Release { .. } => "release",
             Self::List { .. } => "list",
             Self::Show { .. } => "show",
+            Self::Path { .. } => "path",
             Self::Completions { .. } => "completions",
             Self::Snapshot(_) => "snapshot",
             Self::Config(_) => "config",

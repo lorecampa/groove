@@ -1,4 +1,6 @@
 EXAMPLES:
+  groove acquire fix-nav --key nav-1
+  groove acquire fix-nav -b main -w 30s --print-path
   groove acquire --task fix-parser
   groove acquire --task fix-parser --idempotency-key issue-42-attempt-1
   groove acquire --task 'investigate flake' --base main --wait 5s

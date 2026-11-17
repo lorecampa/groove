@@ -206,6 +206,7 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
             request_key,
             wait_ms,
             path_only,
+            ..
         } => lease::acquire(
             context,
             lease::AcquireRequest {
@@ -251,6 +252,15 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
                 false,
                 &Default::default(),
                 crate::args::SlotSort::Slot,
+            )
+        }
+        Command::Path { selector } => {
+            let pool = context.pool()?;
+            let id = select_id(&pool, selector, context.repo)?;
+            let lease = pool.lease_info(id)?;
+            Output::raw(
+                serde_json::to_value(&lease)?,
+                format!("{}\n", lease.worktree_path.display()),
             )
         }
         Command::Completions { shell } => completions::run(*shell),

@@ -1,4 +1,5 @@
 EXAMPLES:
+  groove release fix-nav
   groove release --save                          # inside an acquired workspace
   groove release --save --task fix-parser
   groove release --save --reservation-id UUID --description 'parser fix'

@@ -42,15 +42,18 @@ fn short(oid: &str) -> &str {
 
 pub fn acquire(context: &Context<'_>, request: AcquireRequest) -> Result<Output> {
     let pool = context.pool()?;
-    let lease = pool.reserve(ReservationOptions {
-        acquire: groove_core::AcquireOptions {
-            base: request.base,
-            wait: request.wait,
-            git_timeout: context.git_timeout,
-        },
-        task: request.task,
-        request_key: request.request_key,
-    })?;
+    let lease = pool.reserve(
+        ReservationOptions {
+            acquire: groove_core::AcquireOptions {
+                base: request.base,
+                wait: request.wait,
+                git_timeout: context.git_timeout,
+            },
+            task: request.task,
+            request_key: request.request_key,
+        }
+        .with_generated_task(),
+    )?;
     tracing::info!(event = "workspace.reserved", slot = %lease.slot_id, lease_id = %lease.lease_id, "Workspace reserved");
     if request.path_only {
         Output::raw(
