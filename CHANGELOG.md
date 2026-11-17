@@ -1,5 +1,10 @@
 # Changelog
 
+- Identify Cargo Git/path/alternate-registry installations during upgrade checks
+  and retain their source instead of querying crates.io or switching installers.
+  Offline registry failures now explain DNS/network recovery and the reviewed
+  Git-tag installation fallback. Installation docs warn about lagging mirrors.
+
 - Reuse unchanged verified ready checkouts without repeating checkout or clean.
   The shortcut requires unchanged physical inventory, index and conversion policy;
   independent final verification still runs before handoff. Cleanup policy is now
