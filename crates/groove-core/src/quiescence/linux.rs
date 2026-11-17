@@ -191,3 +191,14 @@ pub(super) fn parent_of(pid: u32) -> Option<u32> {
     let after_name = &stat[stat.rfind(')')? + 1..];
     after_name.split_whitespace().nth(1)?.parse().ok()
 }
+
+/// An unreaped child still answers kill(pid, 0), but no longer owns its files.
+pub(super) fn has_exited(pid: u32) -> bool {
+    fs::read_to_string(format!("/proc/{pid}/stat"))
+        .ok()
+        .and_then(|stat| {
+            stat.rsplit_once(')')
+                .map(|(_, fields)| fields.trim_start().starts_with("Z "))
+        })
+        .unwrap_or(false)
+}
