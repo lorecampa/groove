@@ -192,8 +192,8 @@ jobs:
           mkdir "$mount/scratch/CaseProbe"
           test ! -e "$mount/scratch/caseprobe"
           rmdir "$mount/scratch/CaseProbe"
-          GROOVE_TEST_ROOT="$mount/scratch" TMPDIR="$mount/scratch" cargo test -p groove-core --test snapshots --test ready --test quiescence --test fork_inheritance --locked
-          GROOVE_TEST_ROOT="$mount/scratch" TMPDIR="$mount/scratch" cargo test -p groove-cli --test durable --test ready --test quiescence --locked
+          GROOVE_TEST_ROOT="$mount/scratch" cargo test -p groove-core --test snapshots --test ready --test quiescence --test fork_inheritance --locked
+          GROOVE_TEST_ROOT="$mount/scratch" cargo test -p groove-cli --test durable --test ready --test quiescence --locked
   audit:
     uses: ./.github/workflows/security.yml
     with:
