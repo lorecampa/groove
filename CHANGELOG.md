@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Changed
+
+- Accept positional pool names on `pool init`, `show`, `get`, `set` and `destroy`.
+  Legacy `--pool` remains accepted; conflicting explicit names are rejected.
+  These additive selectors retain JSON API version 2 and its existing result types.
+
 ## [0.5.0] - 2026-11-17
 
 ### Changed

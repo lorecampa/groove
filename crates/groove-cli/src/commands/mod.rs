@@ -48,7 +48,7 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
     match command {
         Command::Upgrade(options) => upgrade::run(options),
         Command::Pool(command) => match command {
-            PoolCommand::Get { key } => pool::get(context, key),
+            PoolCommand::Get { key, .. } => pool::get(context, key),
             PoolCommand::List {
                 all,
                 disk_usage,
@@ -59,6 +59,7 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
                 dry_run,
                 discard_changes,
                 pool_id,
+                ..
             } => pool::destroy(context, *dry_run, *discard_changes, *pool_id),
             PoolCommand::Init {
                 ready_target,
@@ -69,6 +70,7 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
                 cleanup,
                 worktree_root,
                 resume,
+                ..
             } => {
                 let defaults = crate::preferences::load()?.pool_defaults;
                 pool::init(
@@ -90,6 +92,7 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
                 disk_usage,
                 page,
                 sort,
+                ..
             } => pool::show(
                 context,
                 &Default::default(),
@@ -105,6 +108,7 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
                 idle_timeout,
                 ready_base,
                 ready_git_timeout,
+                ..
             } => pool::set(
                 context,
                 groove_core::PoolUpdate {

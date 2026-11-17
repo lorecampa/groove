@@ -409,8 +409,10 @@ pub enum SnapshotCommand {
 #[derive(Subcommand)]
 pub enum PoolCommand {
     /// Print one pool setting (capacity, cleanup, ready-target, idle-timeout, ready-base, ready-git-timeout, workspace-root).
-    #[command(after_long_help = help!("pool-get"))]
+    #[command(after_long_help = help!("pool-get"), allow_missing_positional = true)]
     Get {
+        /// Pool to inspect; also accepts the legacy --pool selection.
+        name: Option<PoolName>,
         /// Setting to read; unknown keys are rejected.
         key: String,
     },
@@ -432,6 +434,8 @@ pub enum PoolCommand {
     /// Delete an idle pool's checkouts and legacy caches, retaining snapshots.
     #[command(after_long_help = help!("pool-destroy"))]
     Destroy {
+        /// Pool to delete; also accepts the legacy --pool selection.
+        name: Option<PoolName>,
         /// Validate and preview deletion without removing data or changing lifecycle state.
         #[arg(short = 'n', long)]
         dry_run: bool,
@@ -445,6 +449,8 @@ pub enum PoolCommand {
     /// Create a pool of reusable worktree slots for this repository.
     #[command(after_long_help = help!("pool-init"))]
     Init {
+        /// Name of the pool to create (default: default).
+        name: Option<PoolName>,
         /// Desired ready, unreserved checkouts (default: pool_defaults.ready_target, 0).
         #[arg(long)]
         ready_target: Option<usize>,
@@ -473,6 +479,8 @@ pub enum PoolCommand {
     /// Show pool settings, slots and background preparation.
     #[command(after_long_help = help!("pool-show"))]
     Show {
+        /// Pool to inspect; also accepts the legacy --pool selection.
+        name: Option<PoolName>,
         /// Include bounded Git status for every slot.
         #[arg(long)]
         details: bool,
@@ -489,6 +497,8 @@ pub enum PoolCommand {
     #[command(after_long_help = help!("pool-set"), group(clap::ArgGroup::new("settings").required(true).multiple(true)
         .args(["capacity", "cleanup", "ready_target", "idle_timeout", "ready_base", "ready_git_timeout"])))]
     Set {
+        /// Pool to configure; also accepts the legacy --pool selection.
+        name: Option<PoolName>,
         /// Desired ready, unreserved checkouts; cannot exceed resulting capacity. Zero disables replenishment.
         #[arg(long)]
         ready_target: Option<usize>,
@@ -508,6 +518,19 @@ pub enum PoolCommand {
         #[arg(long, value_enum)]
         cleanup: Option<Cleanup>,
     },
+}
+
+impl PoolCommand {
+    pub fn name(&self) -> Option<&PoolName> {
+        match self {
+            Self::Get { name, .. }
+            | Self::Destroy { name, .. }
+            | Self::Init { name, .. }
+            | Self::Show { name, .. }
+            | Self::Set { name, .. } => name.as_ref(),
+            Self::List { .. } => None,
+        }
+    }
 }
 
 #[derive(Subcommand)]

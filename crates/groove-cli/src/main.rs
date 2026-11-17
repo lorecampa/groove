@@ -199,7 +199,30 @@ fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {
     );
     let started = std::time::Instant::now();
     tracing::debug!(event = "command.started", "Command started");
-    let inferred_pool = if args.pool.is_none()
+    let positional_pool = match &args.command {
+        Command::Pool(command) => command.name(),
+        _ => None,
+    };
+    if args
+        .pool
+        .as_ref()
+        .zip(positional_pool)
+        .is_some_and(|(flag, positional)| flag != positional)
+    {
+        return output::emit_error(
+            format,
+            request_id,
+            &Error::new(
+                ErrorCode::InvalidArgument,
+                "The positional pool name conflicts with --pool",
+            ),
+            terminal,
+            Some(args),
+            None,
+        );
+    }
+    let explicit_pool = positional_pool.or(args.pool.as_ref());
+    let inferred_pool = if explicit_pool.is_none()
         && !matches!(
             args.command,
             Command::Config(_)
@@ -221,7 +244,7 @@ fn run_command(args: &Args, terminal: &terminal::Terminal) -> u8 {
     } else {
         None
     };
-    let selected_pool = args.pool.as_ref().or(inferred_pool.as_ref());
+    let selected_pool = explicit_pool.or(inferred_pool.as_ref());
     tracing::info!(event = "pool.selected", pool = %selected_pool.cloned().unwrap_or_default(), "Selected pool");
     let context = commands::Context {
         repo: &args.repo,
