@@ -1,11 +1,12 @@
 name: CI
-# No automatic runner usage while hosted compute is unavailable. Keep the matrix
-# available for deliberate manual runs and explicitly requested releases.
 on:
+  pull_request:
+  push:
+    branches: [main]
   workflow_call:
     inputs:
       release_ref:
-        description: 'Exact release tag to check during a release rehearsal'
+        description: 'Validated immutable release commit to check'
         required: false
         type: string
   workflow_dispatch:

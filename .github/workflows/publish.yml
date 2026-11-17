@@ -25,6 +25,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       version: ${{ steps.version.outputs.version }}
+      commit: ${{ steps.version.outputs.commit }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -38,12 +39,13 @@ jobs:
         run: |
           version=$(bash scripts/release.sh validate --tag "$RELEASE_TAG" --branch origin/main)
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   checks:
     needs: validate
     uses: ./.github/workflows/ci.yml
     with:
-      release_ref: ${{ inputs.tag || github.ref }}
+      release_ref: ${{ needs.validate.outputs.commit }}
 
   binaries:
     needs: validate
@@ -69,7 +71,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ needs.validate.outputs.commit }}
       - name: Install the binary dependency metadata tool
         run: cargo install --locked cargo-auditable@0.7.7
       - name: Build packaged release sources without test hooks
@@ -113,6 +115,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+          ref: ${{ needs.validate.outputs.commit }}
       - name: Obtain a short-lived crates.io token
         id: auth
         uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
@@ -136,7 +139,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ needs.validate.outputs.commit }}
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: release-binaries-*

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Run CI on pull requests and main pushes. Resolve release tags to one immutable
+  commit for Linux/macOS checks, native builds and publication; require the full
+  matrix before publishing and remove the documented offline bypass.
+
 - Identify Cargo Git/path/alternate-registry installations during upgrade checks
   and retain their source instead of querying crates.io or switching installers.
   Offline registry failures now explain DNS/network recovery and the reviewed
@@ -9,10 +17,6 @@
   The shortcut requires unchanged physical inventory, index and conversion policy;
   independent final verification still runs before handoff. Cleanup policy is now
   part of the marker fingerprint, so old markers conservatively take the full path.
-
-## Unreleased
-
-### Fixed
 
 - Skip `git clean` when an untracked-aware status inventory is already empty,
   retaining the final baseline verification and pristine ignored-file cleanup.

@@ -1,9 +1,11 @@
 # Releases
 
 Groove is a Linux/macOS alpha. Keep one version across both public packages and
-GitHub assets. Routine pushes and PRs do not run hosted CI while compute is
-unavailable. Reviewed `vVERSION` tags explicitly invoke the release pipeline,
-including its CI matrix, and therefore still require hosted compute.
+GitHub assets. Pull requests and pushes to main run CI. Reviewed `vVERSION` tags
+invoke the release pipeline, including its Linux and macOS CI matrix on the exact
+validated commit. Publication requires every check and native build to pass.
+Unavailable hosted compute blocks publication; local checks cannot replace macOS
+runtime validation or authorize bypassing the release gate.
 The repository can remain private throughout preparation and rehearsal.
 
 GitHub Releases work independently of crates.io. Local registry publication
@@ -17,14 +19,14 @@ Cargo is the only package-manager route for now; there are no Homebrew/npm jobs.
 ## Prepare a release
 
 For local crates.io publication, prepare and merge the release changes below,
-then create/validate the local version tag. Run
+then create/validate the local version tag. Require a successful complete CI run,
+including both macOS architectures, on that exact commit before running
 `bash scripts/release.sh publish --tag vVERSION --execute`; this publishes core,
 then CLI, and installs/smoke-tests the registry version. Do not run `cargo logout`
 if using a maintainer's existing long-lived login; preserve their credentials.
-Before pushing a version tag without hosted compute, disable the Release workflow
-with `gh workflow disable publish.yml --repo lorecampa/groove`. Enable it again
-explicitly when hosted release builds are wanted. GitHub release/binary creation
-is a separate step; crate publication does not provide native archives.
+Do not disable the Release workflow to bypass unavailable checks. GitHub
+release/binary creation is a separate step; crate publication does not provide
+native archives.
 
 From a clean checkout, collect user-visible changes under `## Unreleased`, then:
 
@@ -40,9 +42,9 @@ Preparation updates the workspace version, internal dependency, Cargo.lock and
 dated changelog. It does not commit, tag, push or upload. It supports the current
 version for the first release and rejects downgrades or duplicate release entries.
 Review the date if the release is delayed. Commit the changes, submit a release
-PR and merge after review and the required local checks. When hosted compute is
-available, run the optional CI matrix as well. The actual release pipeline still
-requires its remote checks. Version, notes, source and binaries must agree.
+PR and merge after review and the required local and hosted checks. Version,
+notes, source and binaries must agree. A preparation commit does not authorize
+publication: obtain the maintainer's release decision before tagging or uploading.
 
 Then select the reviewed commit on main and explicitly push its annotated tag:
 
@@ -62,7 +64,8 @@ or reuse a released tag to fix code; prepare a new version.
 The tag-triggered [Release workflow](../.github/workflows/publish.yml):
 
 1. Validates version, dated notes, clean tagged commit and main ancestry.
-2. Runs the reusable CI matrix against the exact tag, including package and audit
+2. Resolves the validated tag to an immutable commit and runs the reusable Linux
+   and macOS CI matrix against it, including package and audit
    jobs, while building native production archives without `test-hooks`.
 3. Optionally publishes crates when explicitly enabled. With the default disabled
    setting, no registry credentials or `crates-io` environment are required.

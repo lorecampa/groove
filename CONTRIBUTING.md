@@ -7,9 +7,9 @@ Small fixes can go straight to a pull request. Report vulnerabilities through
 [SECURITY.md](SECURITY.md).
 
 Coding agents must also follow [AGENTS.md](AGENTS.md). The checked-in
-`rust-toolchain.toml` pins the contributor toolchain. Automatic GitHub CI is
-disabled while hosted compute is unavailable; run the required local checks.
-The optional manual/release CI matrix covers minimum Rust and current stable.
+`rust-toolchain.toml` pins the contributor toolchain. GitHub CI runs on pull
+requests and main pushes, covering minimum Rust, current stable, Linux and macOS.
+Run the required local checks too; unavailable hosted compute is not a passing run.
 
 Groove is a Linux/macOS Rust workspace. Rust 1.89 and Git 2.40 are compatibility
 minimums; use the patched contributor toolchain and a security-maintained Git.
@@ -117,7 +117,7 @@ the issue or prior discussion:
   and the changelog when applicable.
 
 Before marking a code change ready for merge, run the local pre-push gate below.
-Hosted CI is not automatic; absence of a failed GitHub check is not validation.
+Absence of a failed GitHub check is not validation; required checks must complete.
 Maintainers review correctness, safety, compatibility, tests and clarity before
 merging. Reply to review feedback and keep the PR description current as the
 implementation changes. Maintainers may squash a small PR or preserve a useful
