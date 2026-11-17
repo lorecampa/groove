@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Give snapshot commands an independent `--lock-timeout` budget, so a short
+  contention wait does not also impose a tiny repository-discovery Git timeout.
+
 - Distinguish passive read-only observers outside checkouts from writable
   descriptors and workspace processes. New macOS default checkout roots use
   `.worktrees.noindex` to avoid Spotlight indexing; existing roots stay fixed.

@@ -17,11 +17,18 @@ const CAPTURE_PHASES: &[&str] = &[
 ];
 
 fn invoke(path: &Path, args: &[&str], verbose: bool) -> (Output, Value, Vec<Value>) {
+    invoke_command(support::groove_in(path), args, verbose)
+}
+
+fn invoke_command(
+    mut command: std::process::Command,
+    args: &[&str],
+    verbose: bool,
+) -> (Output, Value, Vec<Value>) {
     let logs = tempfile::tempdir().unwrap();
     // Let the logger create its private directory with mode 0700, independently
     // of the test runner's umask.
     let directory = logs.path().join("logs");
-    let mut command = support::groove_in(path);
     command
         .env("GROOVE_LOG_ENABLED", "true")
         .env("GROOVE_LOG_DIR", &directory);
@@ -291,9 +298,30 @@ fn lock_timeout_reports_failed_wait_and_overall_without_starting_capture() {
     // SAFETY: flock borrows a valid descriptor; nonblocking acquisition cannot hang.
     let locked = unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
     assert_eq!(locked, 0);
-    let (output, response, events) = invoke(
-        &repo.path,
-        &["--git-timeout", "25ms", "snapshot", "save"],
+    // Make discovery slower than the lock wait on every host. A short lock
+    // budget must not become a short Git command budget before reaching flock.
+    use std::os::unix::fs::PermissionsExt;
+    let wrapper = repo.temp.path().join("slow-git");
+    fs::create_dir(&wrapper).unwrap();
+    fs::write(
+        wrapper.join("git"),
+        "#!/bin/sh\nsleep 0.1\nexec \"$GROOVE_REAL_GIT\" \"$@\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(wrapper.join("git"), fs::Permissions::from_mode(0o755)).unwrap();
+    let mut command = support::groove_in(&repo.path);
+    command
+        .env(
+            "PATH",
+            format!("{}:{}", wrapper.display(), std::env::var("PATH").unwrap()),
+        )
+        .env(
+            "GROOVE_REAL_GIT",
+            std::env::var_os("GROOVE_TEST_GIT").unwrap(),
+        );
+    let (output, response, events) = invoke_command(
+        command,
+        &["snapshot", "--lock-timeout", "25ms", "save"],
         true,
     );
     assert_eq!(output.status.code(), Some(2), "{response}");

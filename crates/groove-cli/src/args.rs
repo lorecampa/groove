@@ -202,11 +202,20 @@ pub enum Command {
         shell: clap_complete::Shell,
     },
     /// Save, inspect, restore and delete local checkpoints.
-    #[command(subcommand, after_long_help = help!("snapshot"))]
-    Snapshot(SnapshotCommand),
+    #[command(after_long_help = help!("snapshot"))]
+    Snapshot(SnapshotArgs),
     /// User preferences shared by every repository.
     #[command(subcommand, after_long_help = help!("config"))]
     Config(ConfigCommand),
+}
+
+#[derive(ClapArgs)]
+pub struct SnapshotArgs {
+    /// Wait for snapshot exclusion independently of Git subprocess timeouts.
+    #[arg(long = "lock-timeout", global = true, default_value = "2m", value_parser = parse_positive_duration, value_name = "DURATION")]
+    pub lock_timeout_ms: u64,
+    #[command(subcommand)]
+    pub command: SnapshotCommand,
 }
 
 #[derive(ClapArgs)]

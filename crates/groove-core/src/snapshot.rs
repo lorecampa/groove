@@ -185,6 +185,7 @@ pub struct Snapshots {
     git_dir: PathBuf,
     state: PathBuf,
     timeout: Duration,
+    lock_timeout: Duration,
     pool: Option<crate::Pool>,
     repository: repository::Repository,
 }
@@ -238,6 +239,7 @@ impl Snapshots {
             git_dir: repository.common.clone(),
             state: repository.common.join("groove-snapshots"),
             timeout,
+            lock_timeout: timeout,
             pool: None,
             repository: repository.clone(),
         }
@@ -272,6 +274,23 @@ impl Snapshots {
     /// repositories and unsupported repository layouts. No pool is initialized.
     pub fn open(path: impl AsRef<Path>, timeout: Duration) -> Result<Self> {
         Self::open_with_admission(path.as_ref(), timeout, true)
+    }
+
+    /// Set the snapshot lock wait budget without changing Git subprocess timeouts.
+    ///
+    /// Zero attempts exclusion once. The default is the timeout passed to
+    /// [`Self::open`]. This never expires or breaks another owner's lock.
+    ///
+    /// ```no_run
+    /// # use std::time::Duration;
+    /// # use groove_core::snapshot::Snapshots;
+    /// let snapshots = Snapshots::open(".", Duration::from_secs(120))?
+    ///     .with_lock_timeout(Duration::from_millis(100));
+    /// # Ok::<(), groove_core::Error>(())
+    /// ```
+    pub fn with_lock_timeout(mut self, timeout: Duration) -> Self {
+        self.lock_timeout = timeout;
+        self
     }
 
     /// Destruction already holds exclusive lifecycle admission. Re-entering
@@ -310,6 +329,7 @@ impl Snapshots {
             git_dir,
             state,
             timeout,
+            lock_timeout: timeout,
             pool,
             repository: repo,
         })
@@ -324,7 +344,7 @@ impl Snapshots {
                 crate::state::checkpoint("snapshot-lock-contended");
                 first_contention = false;
             }
-            if started.elapsed() >= self.timeout {
+            if started.elapsed() >= self.lock_timeout {
                 let mut error =
                     invalid("Another snapshot operation is running; retry when it finishes");
                 error.retryable = true;
@@ -333,7 +353,7 @@ impl Snapshots {
             // Other tasks and surviving mutation children retain this permanent lock.
             // Honor the caller's wait budget without treating age as ownership.
             std::thread::sleep(
-                Duration::from_millis(2).min(self.timeout.saturating_sub(started.elapsed())),
+                Duration::from_millis(2).min(self.lock_timeout.saturating_sub(started.elapsed())),
             );
         }
         // Only the lock owner can have active scratch data. Mutation children retain it.
