@@ -30,3 +30,20 @@ fn publication_requires_the_complete_matrix_on_the_validated_commit() {
     assert!(ci.contains("os: [macos-15, macos-15-intel]"));
     assert!(ci.contains("rust: ['1.89.0', stable]"));
 }
+
+#[test]
+fn case_sensitive_checks_keep_compiler_and_capture_scratch_off_the_test_volume() {
+    let ci = include_str!("../../../.github/workflows/ci.yml");
+    let fixture_commands: Vec<_> = ci
+        .lines()
+        .filter(|line| line.contains("GROOVE_TEST_ROOT=") && line.contains("cargo test"))
+        .collect();
+    assert_eq!(fixture_commands.len(), 2);
+    for command in fixture_commands {
+        assert!(
+            command.contains("GROOVE_TEST_ROOT=\"$mount/scratch\""),
+            "{command}"
+        );
+        assert!(!command.contains("TMPDIR="), "Compiler and harness scratch must not compete with managed APFS fixture data: {command}");
+    }
+}

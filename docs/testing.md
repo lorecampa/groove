@@ -262,7 +262,10 @@ large-repository latency or concurrent throughput.
 
 `GROOVE_TEST_ROOT`
 selects ordinary fixture storage; macOS uses short temporary paths to fit Unix
-socket limits. Platform tests establish only the OS/filesystem versions actually
+socket limits. Case-sensitive APFS checks put managed repositories and worktrees
+on the test volume through this variable. Keep `TMPDIR` on the host volume so
+compiler scratch and subprocess output capture do not compete with fixture I/O.
+Platform tests establish only the OS/filesystem versions actually
 run, not minimum-version compatibility automatically.
 
 SIGKILL is not power loss or storage corruption. Filesystem rejection checks do
