@@ -12,6 +12,8 @@ fn harness_peer() {
     match std::env::var("GROOVE_HARNESS_PEER").as_deref() {
         Ok("isolated-git") => {
             use std::os::unix::fs::PermissionsExt;
+            let temporary = tempfile::tempdir().unwrap();
+            assert_eq!(temporary.path(), temporary.path().canonicalize().unwrap());
             assert_eq!(std::env::var("GIT_CONFIG_GLOBAL").unwrap(), "/dev/null");
             assert_eq!(std::env::var("GIT_CONFIG_SYSTEM").unwrap(), "/dev/null");
             assert_eq!(std::env::var("GIT_CONFIG_NOSYSTEM").unwrap(), "1");
@@ -68,9 +70,14 @@ fn cargo_runner_isolates_git_wrappers_configuration_and_umask() {
     std::fs::write(&wrapper, "#!/bin/sh\nexit 91\n").unwrap();
     std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
     let runner = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/runner.sh");
+    let temporary = temp.path().join("temporary");
+    std::fs::create_dir(&temporary).unwrap();
+    let alias = temp.path().join("temporary-alias");
+    std::os::unix::fs::symlink(&temporary, &alias).unwrap();
     let mut command = Command::new("bash");
     command
         .arg(runner)
+        .env("TMPDIR", alias)
         .arg(std::env::current_exe().unwrap())
         .args(["--exact", "harness_peer", "--nocapture"])
         .env_remove("GROOVE_TEST_GIT")
