@@ -52,6 +52,8 @@ mod locking;
 mod namespace;
 mod platform;
 mod pool;
+mod progress;
+pub use progress::current_phase;
 mod quiescence;
 mod ready;
 mod recovery;
@@ -69,7 +71,9 @@ pub mod upgrade;
 mod workspace_files;
 
 pub use destruction::{DestroyOptions, DestroyResult};
-pub use error::{CapacityFailure, Error, ErrorCode, ErrorDetails, GitFailure, Result};
+pub use error::{
+    CapacityFailure, ConfigurationSetting, Error, ErrorCode, ErrorDetails, GitFailure, Result,
+};
 pub use finish::FinishResult;
 pub use identifiers::{CommitOid, LeaseId, PoolId, PoolName, SlotId};
 pub use inspection::{PoolInspection, SlotInspection, SlotStatus, WorkspaceGitStatus};
@@ -78,7 +82,7 @@ pub use lifecycle::Phase as PoolPhase;
 pub use namespace::PoolSummary;
 pub use pool::Pool;
 pub use quiescence::{ProcessUse, WorkspaceProcess};
-pub use ready::{IdleTimeout, ReadyReport, ReadySettings};
+pub use ready::{IdleTimeout, ReadyGitTimeout, ReadyReport, ReadySettings};
 pub use reservation::ReservationOptions;
 pub use storage::StorageUsage;
 pub use types::*;

@@ -215,6 +215,16 @@
         "details": {
           "type": "object",
           "properties": {
+            "setting": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["key", "value", "origin"],
+              "properties": {
+                "key": {"type": "string"},
+                "value": {"type": "string"},
+                "origin": {"type": "string"}
+              }
+            },
             "path": {
               "type": "string"
             },
@@ -420,6 +430,10 @@
         "idle_timeout": {
           "type": "string",
           "pattern": "^(never|[1-9][0-9]*[smhd])$"
+        },
+        "ready_git_timeout": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*(ms|s|m|h)$"
         },
         "ready_base": {
           "type": "string",
@@ -907,6 +921,10 @@
         "idle_timeout": {
           "type": "string",
           "pattern": "^(never|[1-9][0-9]*[smhd])$"
+        },
+        "ready_git_timeout": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*(ms|s|m|h)$"
         },
         "ready_base": {
           "type": "string",

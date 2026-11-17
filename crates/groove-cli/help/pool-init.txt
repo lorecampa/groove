@@ -52,3 +52,7 @@ lazy behavior until explicitly configured. Use one supporting Groove version acr
 this repository: older writers reject enabled pools' new metadata.
 Disable automatic work with --ready-target 0 --idle-timeout never.
 Use `groove pool show` to inspect background progress and failures.
+
+--ready-git-timeout DURATION persists the background worker's per-Git-operation
+budget (positive ms/s/m/h). Unset inherits the triggering command's --git-timeout.
+Large repositories should persist the value their acquires need, e.g. 45m.

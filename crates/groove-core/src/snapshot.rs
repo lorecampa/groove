@@ -271,13 +271,23 @@ impl Snapshots {
     /// Reports repository discovery, filesystem and Git failures, including bare
     /// repositories and unsupported repository layouts. No pool is initialized.
     pub fn open(path: impl AsRef<Path>, timeout: Duration) -> Result<Self> {
+        Self::open_with_admission(path.as_ref(), timeout, true)
+    }
+
+    /// Destruction already holds exclusive lifecycle admission. Re-entering
+    /// shared admission would conflict with the caller's own gate.
+    pub(crate) fn open_admitted(path: &Path, timeout: Duration) -> Result<Self> {
+        Self::open_with_admission(path, timeout, false)
+    }
+
+    fn open_with_admission(path: &Path, timeout: Duration, admit_pool: bool) -> Result<Self> {
         let git = Git::new(timeout);
-        let repo = repository::Repository::discover(path.as_ref(), timeout)?;
-        if text(git.run(path.as_ref(), &["rev-parse", "--is-bare-repository"], &[])?)? == "true" {
+        let repo = repository::Repository::discover(path, timeout)?;
+        if text(git.run(path, &["rev-parse", "--is-bare-repository"], &[])?)? == "true" {
             return Err(unsupported("Snapshots require a working tree; bare repositories cannot be captured. Pass --repo with a working-tree path"));
         }
         let root = PathBuf::from(text(git.run(
-            path.as_ref(),
+            path,
             &["rev-parse", "--show-toplevel"],
             &[],
         )?)?);
@@ -287,7 +297,7 @@ impl Snapshots {
             &[],
         )?)?);
         let state = repo.common.join("groove-snapshots");
-        let pool = if git_dir != repo.common {
+        let pool = if admit_pool && git_dir != repo.common {
             crate::namespace::managed_pool(&repo, &root, timeout)?
         } else {
             None

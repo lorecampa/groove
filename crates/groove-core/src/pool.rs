@@ -97,6 +97,7 @@ impl Pool {
             ));
         }
         let repo = Repository::discover_named(repo.as_ref(), name, options.git_timeout)?;
+        recovery::validate_config(&Git::new(options.git_timeout), &repo)?;
         let resolved_ready = options
             .ready
             .clone()
@@ -586,7 +587,7 @@ impl Pool {
         let oid = oid.parse::<crate::CommitOid>().map_err(|e| {
             Error::new(crate::ErrorCode::GitError, "Git returned an invalid OID").with_source(e)
         })?;
-        recovery::validate_config(&git, &self.repo, &oid)?;
+        recovery::validate_checkout(&git, &self.repo, &oid)?;
         let scan_seed = Uuid::new_v4().as_u128();
         let start = Instant::now();
         let mut failed = BTreeMap::new();
@@ -752,13 +753,30 @@ impl Pool {
                         return Ok(Lease::new(current.clone(), guard, info));
                     }
                     Err(mut e) => {
-                        let record = SlotRecord {
-                            released_head: None,
-                            idle_since_unix_ms: None,
-                            schema_version: state::SCHEMA_VERSION,
-                            phase: crate::state::SlotPhase::Quarantined,
-                            lease: None,
-                            failure: Some(e.summary()),
+                        // A timeout says the checkout was slow, not inconsistent;
+                        // inconsistent checkouts still quarantine.
+                        let existing = state::read::<SlotRecord>(&self.repo.record_path(slot));
+                        let record = match existing {
+                            Ok(mut record)
+                                if e.is_git_timeout()
+                                    && record.schema_version == state::SCHEMA_VERSION
+                                    && matches!(
+                                        record.phase,
+                                        crate::state::SlotPhase::Available
+                                            | crate::state::SlotPhase::Released
+                                    ) =>
+                            {
+                                record.failure = Some(e.summary());
+                                record
+                            }
+                            _ => SlotRecord {
+                                released_head: None,
+                                idle_since_unix_ms: None,
+                                schema_version: state::SCHEMA_VERSION,
+                                phase: crate::state::SlotPhase::Quarantined,
+                                lease: None,
+                                failure: Some(e.summary()),
+                            },
                         };
                         let _ = state::write(&self.repo.record_path(slot), &record);
                         failed.insert(slot.clone(), e.summary());

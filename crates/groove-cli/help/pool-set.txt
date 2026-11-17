@@ -40,3 +40,7 @@ In-flight background work may finish using previously observed settings.
 
 Legacy pools remain lazy until explicitly configured. Pools without a lifecycle
 generation must be explicitly recreated before enabling automatic work.
+
+--ready-git-timeout DURATION persists the background worker's per-Git-operation
+budget (positive ms/s/m/h). Unset inherits the triggering command's --git-timeout.
+Large repositories should persist the value their acquires need, e.g. 45m.

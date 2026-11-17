@@ -50,34 +50,122 @@ fn filter_scratch_guard(git: &Git, repo: &Repository) -> Result<SlotGuard> {
     Ok(scratch_guard)
 }
 
-pub(crate) fn validate_config(git: &Git, repo: &Repository, oid: &crate::CommitOid) -> Result<()> {
+pub(crate) fn validate_checkout(
+    git: &Git,
+    repo: &Repository,
+    oid: &crate::CommitOid,
+) -> Result<()> {
     if git.has_gitlinks(&repo.common, oid.as_str())? {
         return Err(Error::new(
             crate::ErrorCode::UnsupportedConfiguration,
             "Submodules are not supported",
         ));
     }
-    // Checkout filters execute arbitrary programs and may outlive Git. Reject configured
-    // filters instead of silently producing a different baseline (including Git LFS).
-    let config = git.run(&repo.common, &["config", "--null", "--list"], &[])?;
-    for entry in config.split(|b| *b == 0) {
+    validate_config(git, repo)?;
+    validate_user_filters(git, repo, oid)
+}
+
+fn rejected_setting(key: &[u8], value: &[u8]) -> Option<&'static str> {
+    if key.starts_with(b"filter.") {
+        Some("filters execute arbitrary programs during checkout")
+    } else if key == b"core.worktree" {
+        Some("core.worktree redirects every linked worktree")
+    } else if (key == b"core.sparsecheckout" || key == b"core.sparsecheckoutcone")
+        && value != b"false"
+        && value != b"0"
+    {
+        Some("sparse checkout changes the file set")
+    } else if key == b"extensions.worktreeconfig" {
+        Some("worktree-specific configuration can make slots differ from the main checkout")
+    } else {
+        None
+    }
+}
+
+fn configuration_error(key: &[u8], value: &[u8], origin: &[u8], reason: &str) -> Error {
+    let setting = crate::ConfigurationSetting {
+        key: String::from_utf8_lossy(key).into_owned(),
+        value: String::from_utf8_lossy(value).into_owned(),
+        origin: String::from_utf8_lossy(origin).into_owned(),
+    };
+    Error::new(
+        crate::ErrorCode::UnsupportedConfiguration,
+        format!(
+            "Unsupported repository configuration: {}={} (set in {}): {reason}",
+            setting.key, setting.value, setting.origin
+        ),
+    )
+    .with_details(|details| details.setting = Some(setting))
+}
+
+pub(crate) fn validate_config(git: &Git, repo: &Repository) -> Result<()> {
+    let config = git.run(
+        &repo.common,
+        &["config", "--null", "--show-origin", "--list"],
+        &[],
+    )?;
+    let mut entries = config.split(|b| *b == 0);
+    while let Some(origin) = entries.next() {
+        if origin.is_empty() {
+            break;
+        }
+        // Git reports local origins relative to its cwd; diagnostics outlive
+        // that subprocess and must still identify the actual configuration file.
+        let absolute_origin = origin.strip_prefix(b"file:").and_then(|file| {
+            use std::os::unix::ffi::OsStrExt;
+            let path = Path::new(OsStr::from_bytes(file));
+            path.is_relative()
+                .then(|| format!("file:{}", repo.common.join(path).display()))
+        });
+        let origin = absolute_origin
+            .as_ref()
+            .map_or(origin, |origin| origin.as_bytes());
+        let entry = entries.next().ok_or_else(|| {
+            Error::new(
+                crate::ErrorCode::ProtocolError,
+                "Incomplete Git configuration origin inventory",
+            )
+        })?;
         let mut parts = entry.splitn(2, |b| *b == b'\n');
         let key = parts.next().unwrap_or_default();
         let value = parts.next().unwrap_or_default();
-        if key.starts_with(b"filter.")
-            || key == b"core.worktree"
-            || key == b"extensions.worktreeconfig"
-            || ((key == b"core.sparsecheckout" || key == b"core.sparsecheckoutcone")
-                && value != b"false"
-                && value != b"0")
-        {
-            return Err(Error::new(
-                crate::ErrorCode::UnsupportedConfiguration,
-                "Filters, worktree-specific configuration and sparse checkout are not supported",
-            ));
+        if key == b"extensions.worktreeconfig" && matches!(value, b"true" | b"1") {
+            validate_worktree_config(git, repo)?;
+            tracing::debug!("Allowing worktreeConfig with compatible main-checkout settings");
+        } else if let Some(reason) = rejected_setting(key, value) {
+            return Err(configuration_error(key, value, origin, reason));
         }
     }
-    validate_user_filters(git, repo, oid)
+    Ok(())
+}
+
+fn validate_worktree_config(git: &Git, repo: &Repository) -> Result<()> {
+    // The common Git directory selects the main checkout's config.worktree,
+    // independently of which linked checkout initiated preparation.
+    let config = git.run(
+        &repo.common,
+        &["config", "--worktree", "--null", "--list"],
+        &[],
+    )?;
+    for entry in config.split(|b| *b == 0).filter(|entry| !entry.is_empty()) {
+        let mut parts = entry.splitn(2, |b| *b == b'\n');
+        let key = parts.next().unwrap_or_default();
+        let value = parts.next().unwrap_or_default();
+        let restricted = (key.starts_with(b"core.") || key.starts_with(b"extensions."))
+            && !matches!(
+                key,
+                b"core.bare" | b"core.filemode" | b"core.repositoryformatversion"
+            );
+        if let Some(reason) = rejected_setting(key, value).or_else(|| {
+            restricted.then_some(
+                "worktree-specific configuration can make slots differ from the main checkout",
+            )
+        }) {
+            let origin = format!("file:{}", repo.common.join("config.worktree").display());
+            return Err(configuration_error(key, value, origin.as_bytes(), reason));
+        }
+    }
+    Ok(())
 }
 
 fn validate_user_filters(git: &Git, repo: &Repository, oid: &crate::CommitOid) -> Result<()> {
@@ -258,8 +346,10 @@ pub(crate) fn prepare(
     // expose a still-mutating registration or slot to another cooperating process.
     let fds = [fd, admin.file.as_raw_fd()];
     validate_slot_path(repo, config, slot)?;
+    crate::progress::set_phase("removing checkout");
     remove_owned(repo, &path)?;
     state::checkpoint("old-worktree-removed");
+    crate::progress::set_phase("registering worktree");
     register(&git, repo, &path, oid, &fds)?;
     state::checkpoint("worktree-created");
     // Registration is complete and natively locked. Only this slot's
@@ -392,11 +482,13 @@ pub(crate) fn normalize(
             }
         }
     }
+    crate::progress::set_phase("checking out");
     git.run(
         path,
         &["checkout", "--detach", "--force", oid.as_str(), "--"],
         fds,
     )?;
+    crate::progress::set_phase("cleaning");
     git.run(
         path,
         &[
@@ -489,6 +581,7 @@ fn conversion_context(git: &Git, path: &Path) -> Result<Vec<u8>> {
 }
 
 fn mark_verified(git: &Git, path: &Path) -> Result<()> {
+    crate::progress::set_phase("recording inventory");
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
     let admin = registration_from_file(path)?;
@@ -656,6 +749,7 @@ pub(crate) fn verify(
     oid: &crate::CommitOid,
     policy: CleanupPolicy,
 ) -> Result<()> {
+    crate::progress::set_phase("verifying");
     registration(repo, path)?;
     if interrupted(repo, path)? {
         return Err(Error::new(

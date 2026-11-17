@@ -362,3 +362,35 @@ never delete them to force reuse. Completed logs, history and artifacts remain o
 disk. This version provides no run-history or log-cleanup commands.
 
 Repository compatibility is listed under [requirements](#requirements).
+
+Background preparation has an optional pool-specific Git timeout. Persist the
+budget required by large-repository acquires with `pool set --ready-git-timeout
+45m`; otherwise each worker inherits the triggering command's `--git-timeout`.
+Preparation failures include the elapsed budget and the setting to adjust.
+
+A Git preparation timeout leaves an available or released slot eligible for retry;
+it is evidence of slowness rather than corruption. Inspect the failure in slot
+views or the ready report, increase the relevant budget, and retry. Successful
+acquisition clears the failure. Inconsistent or foreign checkouts still quarantine.
+
+Recovery hints carry the selected pool and repository. Inside a managed workspace,
+the inferred owning pool is retained in copied commands even when `--pool` was
+omitted, so saved-release advice applies to the original reservation.
+
+Pool destruction accepts residual files when they still match the pinned snapshot
+from `release --save`. Later edits and ignored files still refuse deletion without
+an explicit loss acknowledgement. Saved snapshots remain recoverable after deletion.
+
+## Repository compatibility
+
+Pool initialization and acquisition reject configured `filter.*` programs,
+`core.worktree` redirection, and enabled `core.sparseCheckout*`. Errors name the
+key, value and Git configuration origin. `extensions.worktreeConfig=true` is
+allowed only when the main checkout's `config.worktree` contains no rejected key
+and no other `core.*` or `extensions.*` setting except `core.bare`, `core.filemode`
+and `core.repositoryformatversion`. Groove does not rewrite repository settings.
+
+Long commands report their current operation phase in JSON progress events and
+interactive spinners. Debug Git completion events identify the subcommand and
+working-directory basename without recording full arguments or checkout paths.
+Phases are advisory process-wide observations, not completion percentages.

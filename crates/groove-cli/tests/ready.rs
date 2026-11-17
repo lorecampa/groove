@@ -1,5 +1,7 @@
 mod support;
-use groove_core::{Pool, PoolOptions, ReadySettings};
+use groove_core::Pool;
+#[cfg(feature = "test-hooks")]
+use groove_core::{PoolOptions, ReadySettings};
 use serde_json::Value;
 use std::{
     fs,

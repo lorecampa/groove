@@ -12,6 +12,20 @@ pub(super) struct Phase {
 
 impl Phase {
     pub(super) fn new(operation: &'static str, phase: &'static str) -> Self {
+        let reported = match phase {
+            "validation" | "preflight" => "validating",
+            "special_file_scan" => "scanning special files",
+            "scratch_index_tree" | "staging" | "staged_sizes" | "work_tree" => "staging",
+            "stability" => "checking stability",
+            "manifest" | "publish" => "publishing",
+            "lock_wait" => "waiting for snapshot lock",
+            "recovery_creation" => "creating recovery checkout",
+            "apply" => "restoring files",
+            "safety_pin" => "pinning safety snapshot",
+            "safety_unpin" => "finishing restore",
+            _ => operation,
+        };
+        crate::progress::set_phase(reported);
         Self {
             started: tracing::enabled!(tracing::Level::DEBUG).then(Instant::now),
             operation,

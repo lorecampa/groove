@@ -3,6 +3,68 @@ use crate::{Error, ErrorCode, Result};
 use serde::{Deserialize, Serialize};
 use std::{fmt, str::FromStr, time::Duration};
 
+/// Positive Git preparation budget, parsed from `ms`, `s`, `m` or `h`.
+///
+/// Parsing rejects zero, missing units and durations exceeding `u64` milliseconds.
+/// For example, `"120s".parse::<ReadyGitTimeout>()?.to_string()` is `"2m"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct ReadyGitTimeout(Duration);
+impl ReadyGitTimeout {
+    /// Return the positive per-Git-operation timeout.
+    pub fn duration(self) -> Duration {
+        self.0
+    }
+}
+impl FromStr for ReadyGitTimeout {
+    type Err = Error;
+    fn from_str(value: &str) -> Result<Self> {
+        let invalid = || {
+            Error::new(
+                ErrorCode::InvalidArgument,
+                "Ready Git timeout must be a positive integer followed by ms, s, m or h",
+            )
+        };
+        let (number, multiplier) = [("ms", 1), ("s", 1000), ("m", 60_000), ("h", 3_600_000)]
+            .into_iter()
+            .find_map(|(unit, multiplier)| value.strip_suffix(unit).map(|n| (n, multiplier)))
+            .ok_or_else(invalid)?;
+        if !number.starts_with(|c: char| matches!(c, '1'..='9'))
+            || !number.bytes().all(|b| b.is_ascii_digit())
+        {
+            return Err(invalid());
+        }
+        let millis = number
+            .parse::<u64>()
+            .ok()
+            .and_then(|n| n.checked_mul(multiplier))
+            .ok_or_else(invalid)?;
+        Ok(Self(Duration::from_millis(millis)))
+    }
+}
+impl TryFrom<String> for ReadyGitTimeout {
+    type Error = Error;
+    fn try_from(value: String) -> Result<Self> {
+        value.parse()
+    }
+}
+impl From<ReadyGitTimeout> for String {
+    fn from(value: ReadyGitTimeout) -> Self {
+        value.to_string()
+    }
+}
+impl fmt::Display for ReadyGitTimeout {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let millis = self.0.as_millis();
+        for (unit, divisor) in [("h", 3_600_000), ("m", 60_000), ("s", 1000), ("ms", 1)] {
+            if millis.is_multiple_of(divisor) {
+                return write!(f, "{}{unit}", millis / divisor);
+            }
+        }
+        unreachable!("every integer is divisible by one")
+    }
+}
+
 /// Positive idle duration (`s`, `m`, `h`, `d`) or `never` to disable eviction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
@@ -87,6 +149,9 @@ pub struct ReadySettings {
     pub idle_timeout: IdleTimeout,
     /// Local revision for preparation; HEAD is resolved at initialization.
     pub ready_base: String,
+    /// Persisted background Git budget; unset inherits the triggering CLI budget.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ready_git_timeout: Option<ReadyGitTimeout>,
 }
 impl Default for ReadySettings {
     fn default() -> Self {
@@ -94,6 +159,7 @@ impl Default for ReadySettings {
             ready_target: 0,
             idle_timeout: IdleTimeout::default(),
             ready_base: "HEAD".into(),
+            ready_git_timeout: None,
         }
     }
 }
@@ -249,6 +315,17 @@ pub(crate) fn cancel_worker(
 }
 
 impl Pool {
+    fn failure_text(&self, error: &Error) -> String {
+        if error.is_git_timeout() {
+            format!(
+                "{} after {}; set `pool set --ready-git-timeout` for slow preparation",
+                error.summary(),
+                ReadyGitTimeout(self.git_timeout)
+            )
+        } else {
+            error.summary()
+        }
+    }
     fn ready_cancelled(&self, token: &WorkerToken) -> Result<bool> {
         let path = self.repo.root.join("ready-cancel.json");
         if !path.try_exists()? {
@@ -484,7 +561,7 @@ impl Pool {
             &[],
         )?;
         let oid: crate::CommitOid = String::from_utf8_lossy(&raw).trim().parse()?;
-        crate::recovery::validate_config(&git, &self.repo, &oid)?;
+        crate::recovery::validate_checkout(&git, &self.repo, &oid)?;
         // Retain prepared spares before considering newer releases. These hints
         // are revalidated under ownership, including the current lease identity.
         let mut slots = Vec::new();
@@ -505,7 +582,9 @@ impl Pool {
                     ));
                 }
                 Err(error) => {
-                    report.failures.insert(slot.clone(), error.summary());
+                    report
+                        .failures
+                        .insert(slot.clone(), self.failure_text(&error));
                 }
             }
         }
@@ -533,7 +612,7 @@ impl Pool {
                 Ok(true) => report.ready += 1,
                 Ok(false) => (),
                 Err(error) => {
-                    report.failures.insert(slot, error.summary());
+                    report.failures.insert(slot, self.failure_text(&error));
                 }
             }
             state::checkpoint("ready-between-slots");
@@ -558,6 +637,33 @@ impl Pool {
         else {
             return Ok(false);
         };
+        let result = self.ready_slot_locked(slot, oid, policy, retained, &guard);
+        if let Err(error) = &result {
+            self.note_slot_failure(slot, error);
+        }
+        result
+    }
+
+    fn note_slot_failure(&self, slot: &SlotId, error: &Error) {
+        if let Ok(mut record) = state::read::<SlotRecord>(&self.repo.record_path(slot)) {
+            if record.schema_version == state::SCHEMA_VERSION
+                && matches!(record.phase, SlotPhase::Available | SlotPhase::Released)
+            {
+                record.failure = Some(self.failure_text(error));
+                let _ = state::write(&self.repo.record_path(slot), &record);
+            }
+        }
+    }
+
+    fn ready_slot_locked(
+        &self,
+        slot: &SlotId,
+        oid: &crate::CommitOid,
+        policy: &ReadySettings,
+        retained: usize,
+        guard: &SlotGuard,
+    ) -> Result<bool> {
+        let protection = self.repo.protection_path(slot);
         if protection.try_exists()? {
             return Ok(false);
         }
@@ -682,6 +788,7 @@ impl Pool {
         }
         record.idle_since_unix_ms.get_or_insert(now);
         if evicting || (retained >= policy.ready_target && expired && path.try_exists()?) {
+            crate::progress::set_phase("evicting");
             let _admin = self.ready_admin()?;
             crate::recovery::validate_disposal(&self.repo, &path)?;
             state::write(
@@ -720,8 +827,12 @@ impl Pool {
             )
             .is_ok()
         {
+            if record.failure.take().is_some() {
+                state::write(&self.repo.record_path(slot), &record)?;
+            }
             return Ok(true);
         }
+        record.failure = None;
         state::write(&self.repo.record_path(slot), &record)?;
         state::write(
             &work_path,
@@ -733,15 +844,9 @@ impl Pool {
                 oid: oid.clone(),
             },
         )?;
+        crate::progress::set_phase("preparing spare");
         state::checkpoint("ready-before-preparation");
-        crate::recovery::prepare(
-            &self.repo,
-            &self.config,
-            slot,
-            &guard,
-            oid,
-            self.git_timeout,
-        )?;
+        crate::recovery::prepare(&self.repo, &self.config, slot, guard, oid, self.git_timeout)?;
         state::write(
             &work_path,
             &Work {

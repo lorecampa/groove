@@ -16,6 +16,7 @@ pub fn get(context: &Context<'_>, key: &str) -> Result<Output> {
         "ready-target" => "ready_target",
         "idle-timeout" => "idle_timeout",
         "ready-base" => "ready_base",
+        "ready-git-timeout" => "ready_git_timeout",
         "workspace-root" => "worktree_root",
         _ => {
             return Err(groove_core::Error::new(

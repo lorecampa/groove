@@ -20,6 +20,12 @@
 
 ### Added
 
+- Report operation phases in progress heartbeats and spinners; Git tracing names
+  the subcommand and working-directory basename without exposing full arguments.
+
+- Persist background preparation budgets with `pool init/set --ready-git-timeout`;
+  timeout diagnostics identify the budget and recovery setting.
+
 - Infer the active reservation for `release` inside an acquired Groove workspace,
   including subdirectories and `--repo` paths. Explicit task/ID selectors still
   take precedence; failed releases report the selected reservation ID for retries.
@@ -51,6 +57,17 @@
   schema version 5, recording pinned definitions and fetched pack manifests.
 
 ### Fixed
+
+- Explain incompatible repository settings with their key, value and origin at
+  initialization and acquisition; accept harmless main-checkout worktreeConfig.
+
+- Allow pool destruction when residual files match a pinned saved release, while
+  continuing to refuse later edits, special files and ignored caches.
+
+- Verify copied saved-release advice retains a managed workspace's inferred pool.
+
+- Keep slow preparation slots available after Git timeouts; report background
+  failures consistently in slot views and suggest the foreground timeout budget.
 
 - Keep the real index's cached stats after an in-place snapshot restore. The
   final index write discarded them, so the next save or restore treated every

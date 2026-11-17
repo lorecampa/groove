@@ -172,7 +172,31 @@ impl Git {
         args: impl IntoIterator<Item = &'a OsStr>,
         mut invocation: Invocation<'_>,
     ) -> Result<Capture> {
-        tracing::trace!(event = "git.started", "Starting Git operation");
+        let args: Vec<_> = args.into_iter().collect();
+        let mut words = args.iter().copied();
+        let program = loop {
+            let Some(word) = words.next() else {
+                break "unknown";
+            };
+            if matches!(
+                word.to_str(),
+                Some(
+                    "-c" | "-C"
+                        | "--git-dir"
+                        | "--work-tree"
+                        | "--namespace"
+                        | "--config-env"
+                        | "--exec-path"
+                        | "--super-prefix"
+                )
+            ) {
+                words.next();
+            } else if !word.as_encoded_bytes().starts_with(b"-") {
+                break word.to_str().unwrap_or("unknown");
+            }
+        };
+        let directory = cwd.file_name().unwrap_or_default().to_string_lossy();
+        tracing::trace!(event = "git.started", program, cwd = %directory, "Starting Git operation");
         let output_mode = invocation.output;
         // Allocate before spawning: a quota/storage error must not strand Git.
         let spool = if output_mode == OutputMode::Spool {
@@ -197,7 +221,7 @@ impl Git {
                 "-c",
                 "core.quotePath=false",
             ])
-            .args(args)
+            .args(&args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -415,6 +439,8 @@ impl Git {
         }
         tracing::debug!(
             event = "git.completed",
+            program,
+            cwd = %directory,
             elapsed_ms = start.elapsed().as_millis() as u64,
             exit_code = status.and_then(|s| s.code()),
             timed_out = status.is_none(),

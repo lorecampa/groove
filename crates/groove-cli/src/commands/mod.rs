@@ -64,6 +64,7 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
                 ready_target,
                 idle_timeout,
                 ready_base,
+                ready_git_timeout,
                 capacity,
                 cleanup,
                 worktree_root,
@@ -80,6 +81,7 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
                         ready_target: ready_target.unwrap_or(defaults.ready_target),
                         idle_timeout: idle_timeout.unwrap_or(defaults.idle_timeout),
                         ready_base: ready_base.clone().unwrap_or_else(|| "HEAD".into()),
+                        ready_git_timeout: *ready_git_timeout,
                     },
                 )
             }
@@ -102,6 +104,7 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
                 ready_target,
                 idle_timeout,
                 ready_base,
+                ready_git_timeout,
             } => pool::set(
                 context,
                 groove_core::PoolUpdate {
@@ -110,6 +113,7 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
                     ready_target: *ready_target,
                     idle_timeout: *idle_timeout,
                     ready_base: ready_base.clone(),
+                    ready_git_timeout: *ready_git_timeout,
                     timeout: context.git_timeout,
                 },
             ),

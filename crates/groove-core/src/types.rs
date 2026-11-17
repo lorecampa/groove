@@ -203,6 +203,8 @@ pub struct PoolUpdate {
     pub idle_timeout: Option<crate::IdleTimeout>,
     /// Local revision used to prepare unused checkouts. Never fetches.
     pub ready_base: Option<String>,
+    /// Persisted background Git budget; None leaves the current setting unchanged.
+    pub ready_git_timeout: Option<crate::ReadyGitTimeout>,
     /// New capacity, `1..=`[`MAX_CAPACITY`]. Shrinking is rejected.
     pub capacity: Option<usize>,
     /// Cleanup policy for future acquisitions.
@@ -216,6 +218,7 @@ impl Default for PoolUpdate {
             ready_target: None,
             idle_timeout: None,
             ready_base: None,
+            ready_git_timeout: None,
             capacity: None,
             cleanup_policy: None,
             timeout: DEFAULT_GIT_TIMEOUT,
