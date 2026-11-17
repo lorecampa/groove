@@ -157,6 +157,7 @@ pub fn destroy(
         discard_changes,
         pool_id,
         git_timeout: context.git_timeout,
+        lock_timeout: None,
     };
     let result = match context.selected_pool {
         Some(name) => Pool::destroy_named(context.repo, name, options)?,

@@ -39,7 +39,8 @@ different binary versions on one pool have separate compatibility requirements.
 User preference structure is described by schemas/user-v1.schema.json in the
 source distribution; the loader additionally checks cross-field constraints.
 
-worktrees.root replaces the default $HOME/.worktrees parent used by new pools:
+worktrees.root replaces the default $HOME/.worktrees parent ($HOME/.worktrees.noindex
+on macOS) used by new pools:
 <root>/<project>-<repo-id>/<pool>. It must be absolute. pool create --root
 overrides it with an exact pool path. Changing/unsetting this preference never
 relocates existing pools; use pool show to inspect a pool's recorded path.

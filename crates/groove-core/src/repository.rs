@@ -152,7 +152,15 @@ impl Repository {
     pub fn default_worktree_root(&self, base: Option<PathBuf>) -> Result<PathBuf> {
         use sha2::{Digest, Sha256};
         let base = base
-            .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".worktrees")))
+            .or_else(|| {
+                std::env::var_os("HOME").map(|home| {
+                    PathBuf::from(home).join(if cfg!(target_os = "macos") {
+                        ".worktrees.noindex"
+                    } else {
+                        ".worktrees"
+                    })
+                })
+            })
             .filter(|path| path.is_absolute())
             .ok_or_else(|| {
                 Error::new(

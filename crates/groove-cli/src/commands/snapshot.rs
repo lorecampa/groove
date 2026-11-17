@@ -75,8 +75,10 @@ fn resolve_id(service: &Snapshots, selector: &str) -> Result<String> {
     }
 }
 
-pub fn run(context: &Context<'_>, command: &SnapshotCommand) -> Result<Output> {
-    let service = Snapshots::open(context.repo, context.git_timeout)?;
+pub fn run(context: &Context<'_>, options: &crate::args::SnapshotArgs) -> Result<Output> {
+    let service = Snapshots::open(context.repo, context.git_timeout)?
+        .with_lock_timeout(std::time::Duration::from_millis(options.lock_timeout_ms));
+    let command = &options.command;
     match command {
         SnapshotCommand::Save {
             description,

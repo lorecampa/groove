@@ -69,6 +69,45 @@
   Legacy `--pool` remains accepted; conflicting explicit names are rejected.
   These additive selectors retain JSON API version 2 and its existing result types.
 
+### Fixed
+
+- Bound snapshot EOL audits to changed physical and staged paths in verified LF
+  pool checkouts. Keep full audits for ordinary checkouts, changed conversion
+  rules and missing verification evidence; normalized CRLF bytes remain refused.
+
+- Run CI on pull requests and main pushes. Resolve release tags to one immutable
+  commit for Linux/macOS checks, native builds and publication; require the full
+  matrix before publishing and remove the documented offline bypass.
+
+- Identify Cargo Git/path/alternate-registry installations during upgrade checks
+  and retain their source instead of querying crates.io or switching installers.
+  Offline registry failures now explain DNS/network recovery and the reviewed
+  Git-tag installation fallback. Installation docs warn about lagging mirrors.
+
+- Reuse unchanged verified ready checkouts without repeating checkout or clean.
+  The shortcut requires unchanged physical inventory, index and conversion policy;
+  independent final verification still runs before handoff. Cleanup policy is now
+  part of the marker fingerprint, so old markers conservatively take the full path.
+
+- Skip `git clean` when an untracked-aware status inventory is already empty,
+  retaining the final baseline verification and pristine ignored-file cleanup.
+
+- Give snapshot commands an independent `--lock-timeout` budget, so a short
+  contention wait does not also impose a tiny repository-discovery Git timeout.
+
+- Distinguish passive read-only observers outside checkouts from writable
+  descriptors and workspace processes. New macOS default checkout roots use
+  `.worktrees.noindex` to avoid Spotlight indexing; existing roots stay fixed.
+
+- Apply acquisition's capacity wait limit to preparing spares as well as active
+  reservations; zero wait no longer consumes the Git timeout waiting on a child.
+
+- Accept repositories with worktree configuration enabled before their optional
+  `config.worktree` file has been created.
+- Match Linux inspection admission on macOS: briefly wait for pre-admission
+  Groove Git children and recognize connected pipeline readers without exempting
+  unrelated workspace writers.
+
 ## [0.5.0] - 2026-11-17
 
 ### Changed

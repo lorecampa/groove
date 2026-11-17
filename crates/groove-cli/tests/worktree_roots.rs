@@ -37,7 +37,11 @@ fn a_symlinked_home_resolves_the_base_before_creating_managed_paths() {
         &["pool", "init", "--capacity", "1", "--ready-target", "0"],
     );
     let root = Path::new(initialized["workspace_root"].as_str().unwrap());
-    assert!(root.starts_with(home.join(".worktrees")));
+    assert!(root.starts_with(home.join(if cfg!(target_os = "macos") {
+        ".worktrees.noindex"
+    } else {
+        ".worktrees"
+    })));
     assert!(!root.starts_with(&alias));
     let lease = run(&repo, &alias, &["acquire"]);
     assert!(Path::new(lease["workspace_path"].as_str().unwrap()).starts_with(root));
@@ -54,7 +58,13 @@ fn root_precedence_and_global_changes_apply_only_to_new_pools() {
     let h = home.path();
     let original = run(&repo, h, &["pool", "init", "--capacity", "1"]);
     let original_root = Path::new(original["workspace_root"].as_str().unwrap());
-    assert!(original_root.starts_with(h.join(".worktrees")));
+    assert!(
+        original_root.starts_with(h.join(if cfg!(target_os = "macos") {
+            ".worktrees.noindex"
+        } else {
+            ".worktrees"
+        }))
+    );
     assert_eq!(original_root.file_name().unwrap(), "default");
 
     let base = h.join("custom worktrees");

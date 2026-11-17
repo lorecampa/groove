@@ -32,21 +32,27 @@ pub fn worktree_root(path: &Path, name: &str) -> PathBuf {
     };
     state.join("worktrees")
 }
+/// Canonicalize temporary roots before exercising managed-path validation.
+pub fn tempdir() -> TempDir {
+    // Short Darwin roots leave room for process-fixture socket names.
+    let root = std::env::var_os("GROOVE_TEST_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            if cfg!(target_os = "macos") {
+                PathBuf::from("/private/tmp")
+            } else {
+                std::env::temp_dir()
+            }
+        });
+    tempfile::tempdir_in(root.canonicalize().unwrap()).unwrap()
+}
+
 impl Repo {
     pub fn new() -> Self {
         Self::format("sha1")
     }
     pub fn format(format: &str) -> Self {
-        // Darwin's default TMPDIR can leave too little room for Unix socket
-        // names. Keep process fixtures short without changing global env vars.
-        let temp = if let Some(root) = std::env::var_os("GROOVE_TEST_ROOT") {
-            tempfile::tempdir_in(root)
-        } else if cfg!(target_os = "macos") {
-            tempfile::tempdir_in("/private/tmp")
-        } else {
-            tempfile::tempdir()
-        }
-        .unwrap();
+        let temp = tempdir();
         let path = temp.path().join("repo with spaces è");
         fs::create_dir(&path).unwrap();
         let repo = Self { temp, path };

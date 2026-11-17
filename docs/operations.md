@@ -101,7 +101,10 @@ and outside Git administration. Relative paths resolve from the caller's directo
 
 
 State stays in `<GIT_COMMON_DIR>/groove/`; new checkout roots default to
-`~/.worktrees/<project>-<repo-id>/<pool>` on Linux and macOS. Change the parent with
+`~/.worktrees/<project>-<repo-id>/<pool>` on Linux and
+`~/.worktrees.noindex/<project>-<repo-id>/<pool>` on macOS, keeping new default
+checkouts out of Spotlight indexing. Existing and custom roots stay unchanged.
+Change the parent with
 `groove config set worktrees.root=/absolute/worktrees`, or choose an exact
 pool root with `pool create NAME --root`. See `pool create --help` for naming and precedence.
 Existing pools retain their recorded roots, including legacy roots in `.git`.
@@ -224,6 +227,12 @@ normal signal status (130 in a shell), rather than an ACQUIRE_TIMEOUT response.
 A signal can end a command before JSON is emitted. Use the original request key
 to resolve an interrupted acquisition whose outcome is uncertain.
 
+`acquire --wait` bounds all capacity waiting, including spares still held by a
+preparer or its surviving children. Zero scans once. The Git budget applies to
+preparing the caller's own acquired slot, not waiting for another owner's slot.
+If descriptors remain held without a live preparation lock owner, stop surviving
+writers; Groove reports the condition but never breaks their locks.
+
 [The portable skill](../skills/groove/SKILL.md) covers acquire, retry, work and
 release --save. Task commands accept a positional label or reservation UUID; slot IDs
 identify reusable directories for diagnostics.
@@ -267,6 +276,10 @@ residue and may be lost during rebuild. External caches can be used with pristin
 slots. Capacity bounds reservations, not process count, artifacts or disk usage.
 
 Acquisition preserves inode and mtime for untouched tracked files across leases.
+When the entire verified physical inventory and index remain unchanged at the
+requested commit, acquisition skips redundant checkout and clean. This benefits
+ready spares. It still verifies the detached HEAD and clean baseline before
+handoff. Cleanup-policy or conversion-context changes invalidate the shortcut.
 Authorized cleanup makes owned directories readable, searchable and writable
 before cleaning or removing them, so read-only build directories do not jam reuse.
 Inspection and unsaved-work checks do not repair permissions.
@@ -358,7 +371,13 @@ The release/destruction process scan observes accessible same-user processes and
 release excludes the caller and its ancestors. A connected pipeline reader's cwd
 alone does not block release; the rest of the process group is checked. Linux
 also checks shared writable mappings after their file descriptors close.
-Destruction excludes none of these. Stop all writers explicitly. The scan
+Destruction excludes none of these. On both platforms, verified read-only file
+observers whose cwd and executable are outside the checkout are retried for up to
+100 ms and reported in debug tracing, without blocking handoff or deletion.
+Writable or unclassified descriptors, cwd/executables inside the checkout, and
+Linux shared writable mappings still block. No process-name exemptions apply.
+Deletion checks processes again at execution time, since a successful preview
+cannot establish that no writer started afterwards. Stop all writers explicitly. The scan
 compares visible paths. Other users, mount namespaces and alternate mount paths
 can hide workspace users. A successful scan does not establish that all writers
 stopped: callers must stop their workers, watchers and descendants before release.

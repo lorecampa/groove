@@ -319,6 +319,64 @@ fn unsupported_sources_and_downgrades_never_run_an_installer() {
 }
 
 #[test]
+fn git_installs_report_their_source_without_querying_an_unrelated_registry() {
+    if !support::in_subprocess(
+        "git_installs_report_their_source_without_querying_an_unrelated_registry",
+    ) {
+        return;
+    }
+    let fixture = Fixture::new();
+    let path = fixture.root.join(".crates2.json");
+    let mut receipt: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    let installs = receipt["installs"].as_object_mut().unwrap();
+    let old = installs.keys().next().unwrap().clone();
+    let entry = installs.remove(&old).unwrap();
+    installs.insert(format!("groove-cli {} (git+https://github.com/lorecampa/groove?tag=v0.5.0#a010bce74fbe24f42ed67d08ffc9c3ec62032880)", env!("CARGO_PKG_VERSION")), entry);
+    fs::write(path, serde_json::to_vec(&receipt).unwrap()).unwrap();
+    script(
+        &fixture.root.join("peers/curl"),
+        "echo 'curl: could not resolve host: index.crates.io' >&2\nexit 6\n",
+    );
+    let output = fixture.run(&["upgrade", "--check"]);
+    assert!(output.status.success(), "{output:?}");
+    let value = response(&output);
+    let component = &value["result"]["components"][0];
+    assert_eq!(component["source"], "cargo:git");
+    assert!(component["update_available"].is_null());
+    assert!(component["message"].as_str().unwrap().contains("--tag"));
+    assert!(!fixture.root.join("cargo-args").exists());
+}
+
+#[test]
+fn offline_registry_failures_explain_network_and_mirror_recovery_without_installing() {
+    if !support::in_subprocess(
+        "offline_registry_failures_explain_network_and_mirror_recovery_without_installing",
+    ) {
+        return;
+    }
+    let fixture = Fixture::new();
+    script(
+        &fixture.root.join("peers/curl"),
+        "echo 'curl: could not resolve host: index.crates.io' >&2\nexit 6\n",
+    );
+    let output = fixture.run(&["upgrade", "--check"]);
+    assert_eq!(output.status.code(), Some(7));
+    let value = response(&output);
+    let message = value["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains("network/DNS")
+            && message.contains("mirrored")
+            && message.contains("--tag"),
+        "{message}"
+    );
+    assert_eq!(
+        value["error"]["details"]["upgrade"]["components"][0]["source"],
+        "cargo:crates-io"
+    );
+    assert!(!fixture.root.join("cargo-args").exists());
+}
+
+#[test]
 fn plugin_failures_preserve_the_cli_upgrade_and_continue_other_harnesses() {
     if !support::in_subprocess(
         "plugin_failures_preserve_the_cli_upgrade_and_continue_other_harnesses",
@@ -548,8 +606,8 @@ fn terminal_run(command: &mut Command) -> (Output, String) {
                 &mut master,
                 &mut slave,
                 std::ptr::null_mut(),
-                std::ptr::null(),
-                std::ptr::null(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
             )
         },
         0

@@ -16,6 +16,24 @@ use crate::{Error, ErrorCode, LeaseId, Pool, Result, WorkspaceGitStatus};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, fs, time::Duration};
 
+/// Report passive readers and give short-lived observations time to finish.
+/// They hold no writable descriptor, cwd or executable inside the checkout.
+fn retry_observed_readers(readers: &[u32], started: std::time::Instant) -> bool {
+    if readers.is_empty() {
+        return false;
+    }
+    if started.elapsed() < Duration::from_millis(100) {
+        std::thread::sleep(Duration::from_millis(10));
+        return true;
+    }
+    tracing::debug!(
+        event = "workspace.observed_readers",
+        ?readers,
+        "Read-only observers remain outside the workspace"
+    );
+    false
+}
+
 fn processes_using(root: &std::path::Path) -> Result<Vec<WorkspaceProcess>> {
     os::processes_using(root, true)
 }
@@ -49,11 +67,12 @@ pub struct WorkspaceProcess {
 }
 
 impl Pool {
-    /// List other processes whose working directory, executable or open files are
+    /// List other processes whose working directory, executable or writable files are
     /// inside the reservation's workspace. The calling process and its ancestors (the
     /// shell that ran this command) are excluded. A connected pipeline reader's
     /// working directory alone does not block release. Only processes this user may
-    /// inspect are seen.
+    /// inspect are seen. Read-only observers with cwd and executable outside the
+    /// workspace are retried briefly and reported through tracing instead.
     ///
     /// # Errors
     /// Rejects unknown or stale lease IDs and reports process-enumeration failures.

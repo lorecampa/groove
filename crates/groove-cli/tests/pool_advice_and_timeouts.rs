@@ -111,6 +111,198 @@ fn foreground_acquisition_uses_the_saved_pool_budget_unless_overridden() {
 }
 
 #[test]
+fn a_clean_released_checkout_does_not_depend_on_running_git_clean() {
+    let repo = Repo::new();
+    init(&repo, "default", "1");
+    cli(&repo.path, &["acquire", "--task", "initial"]);
+    cli(&repo.path, &["release", "--task", "initial"]);
+    let wrapper = repo.temp.path().join("reject-clean");
+    fs::create_dir(&wrapper).unwrap();
+    fs::write(
+        wrapper.join("git"),
+        r#"#!/bin/sh
+case " $* " in *" clean "*) echo 'unexpected clean on verified clean checkout' >&2; exit 64 ;; esac
+exec "$GROOVE_REAL_GIT" "$@"
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(wrapper.join("git"), fs::Permissions::from_mode(0o755)).unwrap();
+    let output = support::groove_in(&repo.path)
+        .env(
+            "PATH",
+            format!("{}:{}", wrapper.display(), std::env::var("PATH").unwrap()),
+        )
+        .env(
+            "GROOVE_REAL_GIT",
+            std::env::var_os("GROOVE_TEST_GIT").unwrap(),
+        )
+        .args(["acquire", "--task", "clean-reuse"])
+        .output()
+        .unwrap();
+    check(output, 0);
+    assert_eq!(
+        fs::read(repo.slot(1).join("tracked.txt")).unwrap(),
+        b"baseline\n"
+    );
+    cli(&repo.path, &["release", "--task", "clean-reuse"]);
+    // Residual untracked and ignored files must still be removed in pristine pools.
+    fs::write(repo.slot(1).join("untracked"), "residual").unwrap();
+    fs::create_dir(repo.slot(1).join("ignored")).unwrap();
+    fs::write(repo.slot(1).join("ignored/cache"), "cache").unwrap();
+    cli(&repo.path, &["acquire", "--task", "dirty-reuse"]);
+    assert!(!repo.slot(1).join("untracked").exists());
+    assert!(!repo.slot(1).join("ignored").exists());
+    cli(&repo.path, &["release", "--task", "dirty-reuse"]);
+}
+
+#[test]
+fn a_verified_ready_spare_can_be_acquired_without_repeating_checkout() {
+    let repo = Repo::new();
+    groove_core::Pool::init(
+        &repo.path,
+        groove_core::PoolOptions {
+            capacity: 1,
+            worktree_root: Some(support::worktree_root(&repo.path, "default")),
+            ready: Some(groove_core::ReadySettings {
+                ready_target: 1,
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let pool = groove_core::Pool::open(&repo.path).unwrap();
+    pool.request_ready().unwrap();
+    pool.run_ready(pool.ready_generation().unwrap().unwrap())
+        .unwrap();
+    let wrapper = repo.temp.path().join("reject-checkout");
+    fs::create_dir(&wrapper).unwrap();
+    fs::write(wrapper.join("git"), r#"#!/bin/sh
+case " $* " in *" checkout "*|*" clean "*) echo 'prepared checkout was needlessly rewritten' >&2; exit 64 ;; esac
+exec "$GROOVE_REAL_GIT" "$@"
+"#).unwrap();
+    fs::set_permissions(wrapper.join("git"), fs::Permissions::from_mode(0o755)).unwrap();
+    let output = support::groove_in(&repo.path)
+        .env(
+            "PATH",
+            format!("{}:{}", wrapper.display(), std::env::var("PATH").unwrap()),
+        )
+        .env(
+            "GROOVE_REAL_GIT",
+            std::env::var_os("GROOVE_TEST_GIT").unwrap(),
+        )
+        .args(["acquire", "--task", "prepared"])
+        .output()
+        .unwrap();
+    check(output, 0);
+    assert_eq!(
+        fs::read(repo.slot(1).join("tracked.txt")).unwrap(),
+        b"baseline\n"
+    );
+    cli(&repo.path, &["release", "--task", "prepared"]);
+}
+
+#[test]
+fn snapshot_audits_changed_physical_paths_without_rescanning_verified_text() {
+    let repo = Repo::new();
+    fs::write(repo.path.join(".gitattributes"), "*.txt text=auto\n").unwrap();
+    repo.git(&["add", "."]);
+    repo.git(&["commit", "-qm", "text baseline"]);
+    init(&repo, "default", "1");
+    cli(&repo.path, &["acquire", "--task", "capture"]);
+    let workspace = repo.slot(1);
+    fs::write(workspace.join("tracked.txt"), "edited\n").unwrap();
+    let wrapper = repo.temp.path().join("bounded-audit");
+    fs::create_dir(&wrapper).unwrap();
+    fs::write(
+        wrapper.join("git"),
+        r#"#!/bin/sh
+case " $* " in
+  *' --eol '*':(attr:text)'*) echo 'full text audit revisits verified files' >&2; exit 64 ;;
+esac
+exec "$GROOVE_REAL_GIT" "$@"
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(wrapper.join("git"), fs::Permissions::from_mode(0o755)).unwrap();
+    let capture = || {
+        support::groove_in(&workspace)
+            .env(
+                "PATH",
+                format!("{}:{}", wrapper.display(), std::env::var("PATH").unwrap()),
+            )
+            .env(
+                "GROOVE_REAL_GIT",
+                std::env::var_os("GROOVE_TEST_GIT").unwrap(),
+            )
+            .args(["snapshot", "save", "bounded audit"])
+            .output()
+            .unwrap()
+    };
+    check(capture(), 0);
+    // Refreshing Git's index hides normalization changes from status, but must
+    // never hide the physical CRLF bytes from Groove's capture validation.
+    fs::write(workspace.join("tracked.txt"), "baseline\r\n").unwrap();
+    support::command(&workspace, "git")
+        .args(["add", "tracked.txt"])
+        .output()
+        .unwrap();
+    let rejected = check(capture(), 2);
+    assert_eq!(rejected["error"]["code"], "UNSUPPORTED_CONFIGURATION");
+    assert_eq!(
+        fs::read(workspace.join("tracked.txt")).unwrap(),
+        b"baseline\r\n"
+    );
+}
+
+#[test]
+fn managed_snapshot_rechecks_conversion_rules_and_a_renormalized_index() {
+    let repo = Repo::new();
+    fs::write(repo.path.join(".gitattributes"), "*.txt text=auto\n").unwrap();
+    repo.git(&["add", "."]);
+    repo.git(&["commit", "-qm", "text baseline"]);
+    init(&repo, "default", "1");
+    cli(&repo.path, &["acquire", "--task", "conversion"]);
+    let workspace = repo.slot(1);
+    let git = |args: &[&str]| {
+        let output = support::command(&workspace, "git")
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+    };
+    git(&["config", "core.eol", "crlf"]);
+    fs::remove_file(workspace.join("tracked.txt")).unwrap();
+    git(&["checkout", "--", "tracked.txt"]);
+    assert_eq!(
+        fs::read(workspace.join("tracked.txt")).unwrap(),
+        b"baseline\r\n"
+    );
+    let rejected = check(
+        support::groove_in(&workspace)
+            .args(["snapshot", "save"])
+            .output()
+            .unwrap(),
+        2,
+    );
+    assert_eq!(rejected["error"]["code"], "UNSUPPORTED_CONFIGURATION");
+    git(&["config", "core.eol", "lf"]);
+    git(&["add", "--renormalize", "."]);
+    let rejected = check(
+        support::groove_in(&workspace)
+            .args(["snapshot", "save"])
+            .output()
+            .unwrap(),
+        2,
+    );
+    assert_eq!(rejected["error"]["code"], "UNSUPPORTED_CONFIGURATION");
+    assert_eq!(
+        fs::read(workspace.join("tracked.txt")).unwrap(),
+        b"baseline\r\n"
+    );
+}
+
+#[test]
 fn ready_git_timeout_is_optional_normalized_and_pool_local() {
     let repo = Repo::new();
     assert!(init(&repo, "default", "1")
@@ -382,6 +574,16 @@ fn destruction_accepts_saved_release_files_but_refuses_later_edits_and_ignored_f
 }
 
 #[test]
+fn missing_worktree_configuration_file_is_compatible_with_init_and_acquire() {
+    let repo = Repo::new();
+    support::git(&repo.path, &["config", "extensions.worktreeConfig", "true"]);
+    assert!(!repo.path.join(".git/config.worktree").exists());
+    init(&repo, "default", "1");
+    assert_eq!(cli(&repo.path, &["acquire"])["slot_id"], "wt-0001");
+    assert!(!repo.path.join(".git/config.worktree").exists());
+}
+
+#[test]
 fn empty_worktree_configuration_is_compatible_with_init_and_acquire() {
     let repo = Repo::new();
     support::git(&repo.path, &["config", "extensions.worktreeConfig", "true"]);
@@ -483,10 +685,15 @@ fn slow_checkout_progress_reports_the_current_phase() {
         })
         .collect();
     check(output, 0);
+    // Under load the first heartbeat may precede checkout. The rate limit can
+    // then suppress another heartbeat before completion; every emitted event
+    // must still identify its current phase instead of reporting null.
+    assert!(!events.is_empty());
     assert!(
-        events
-            .iter()
-            .any(|event| event["event"] == "progress" && event["phase"] == "checking out"),
+        events.iter().all(|event| event["event"] == "progress"
+            && event["phase"]
+                .as_str()
+                .is_some_and(|phase| !phase.is_empty())),
         "{events:?}"
     );
 }

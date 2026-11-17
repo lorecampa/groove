@@ -471,6 +471,9 @@ fn file_modes_deletions_symlinks_and_platform_filenames() {
     if !support::in_subprocess("file_modes_deletions_symlinks_and_platform_filenames") {
         return;
     }
+    // SAFETY: this fixture runs alone in its subprocess; no concurrent fixture
+    // observes the process-wide mask. Git checkout honors this restrictive mask.
+    unsafe { libc::umask(0o027) };
     let repo = Repo::format("sha256");
     let s = service(&repo);
     fs::remove_file(repo.path.join("tracked.txt")).unwrap();
@@ -491,8 +494,8 @@ fn file_modes_deletions_symlinks_and_platform_filenames() {
         std::path::Path::new("absent")
     );
     assert_eq!(
-        fs::metadata(dest.join(name)).unwrap().permissions().mode() & 0o111,
-        0o111
+        fs::metadata(dest.join(name)).unwrap().permissions().mode() & 0o100,
+        0o100
     );
 }
 
@@ -514,55 +517,70 @@ fn apfs_rejects_non_utf8_filenames_before_changing_workspace_contents() {
     assert!(repo.git(&["status", "--porcelain"]).is_empty());
 }
 
-#[test]
-fn snapshots_preserve_actual_line_endings_under_every_autocrlf_setting() {
-    if !support::in_subprocess(
-        "snapshots_preserve_actual_line_endings_under_every_autocrlf_setting",
-    ) {
-        return;
-    }
-    for setting in ["true", "yes", "on", "1", "input", "false"] {
-        let repo = Repo::new();
-        repo.git(&["config", "core.autocrlf", setting]);
-        let staged = b"staged\r\n";
-        fs::write(repo.path.join("tracked.txt"), staged).unwrap();
-        // The real index intentionally differs from the working bytes.
-        repo.git(&["-c", "core.autocrlf=false", "add", "tracked.txt"]);
-        let working = b"working\nsecond line\r\n";
-        fs::write(repo.path.join("tracked.txt"), working).unwrap();
-        fs::write(repo.path.join("untracked.txt"), b"untracked\n").unwrap();
-        let index = fs::read(repo.path.join(".git/index")).unwrap();
-        let s = service(&repo);
-        let snapshot = save(&s);
-        assert_eq!(fs::read(repo.path.join(".git/index")).unwrap(), index);
-        // A change in preferences after capture must not change recovered bytes.
-        repo.git(&["config", "core.autocrlf", "true"]);
-        let destination = repo.temp.path().join("recovered");
-        s.restore(&snapshot.id, Some(&destination)).unwrap();
-        assert_eq!(
-            fs::read(destination.join("tracked.txt")).unwrap(),
-            working,
-            "{setting}"
-        );
-        assert_eq!(
-            fs::read(destination.join("untracked.txt")).unwrap(),
-            b"untracked\n",
-            "{setting}"
-        );
-        let blob = support::command(&destination, "git")
-            .args(["show", ":tracked.txt"])
-            .output()
-            .unwrap();
-        assert!(blob.status.success());
-        assert_eq!(blob.stdout, staged, "{setting}");
-        fs::write(repo.path.join("tracked.txt"), "later\n").unwrap();
-        s.restore(&snapshot.id, None).unwrap();
-        assert_eq!(
-            fs::read(repo.path.join("tracked.txt")).unwrap(),
-            working,
-            "{setting}"
-        );
-    }
+macro_rules! autocrlf_roundtrip {
+    ($test:ident, $setting:literal) => {
+        #[test]
+        fn $test() {
+            if support::in_subprocess(stringify!($test)) {
+                preserve_actual_line_endings($setting);
+            }
+        }
+    };
+}
+autocrlf_roundtrip!(snapshots_preserve_actual_line_endings_autocrlf_true, "true");
+autocrlf_roundtrip!(snapshots_preserve_actual_line_endings_autocrlf_yes, "yes");
+autocrlf_roundtrip!(snapshots_preserve_actual_line_endings_autocrlf_on, "on");
+autocrlf_roundtrip!(snapshots_preserve_actual_line_endings_autocrlf_one, "1");
+autocrlf_roundtrip!(
+    snapshots_preserve_actual_line_endings_autocrlf_input,
+    "input"
+);
+autocrlf_roundtrip!(
+    snapshots_preserve_actual_line_endings_autocrlf_false,
+    "false"
+);
+
+fn preserve_actual_line_endings(setting: &str) {
+    let repo = Repo::new();
+    repo.git(&["config", "core.autocrlf", setting]);
+    let staged = b"staged\r\n";
+    fs::write(repo.path.join("tracked.txt"), staged).unwrap();
+    // The real index intentionally differs from the working bytes.
+    repo.git(&["-c", "core.autocrlf=false", "add", "tracked.txt"]);
+    let working = b"working\nsecond line\r\n";
+    fs::write(repo.path.join("tracked.txt"), working).unwrap();
+    fs::write(repo.path.join("untracked.txt"), b"untracked\n").unwrap();
+    let index = fs::read(repo.path.join(".git/index")).unwrap();
+    let s = service(&repo);
+    let snapshot = save(&s);
+    assert_eq!(fs::read(repo.path.join(".git/index")).unwrap(), index);
+    // A change in preferences after capture must not change recovered bytes.
+    repo.git(&["config", "core.autocrlf", "true"]);
+    let destination = repo.temp.path().join("recovered");
+    s.restore(&snapshot.id, Some(&destination)).unwrap();
+    assert_eq!(
+        fs::read(destination.join("tracked.txt")).unwrap(),
+        working,
+        "{setting}"
+    );
+    assert_eq!(
+        fs::read(destination.join("untracked.txt")).unwrap(),
+        b"untracked\n",
+        "{setting}"
+    );
+    let blob = support::command(&destination, "git")
+        .args(["show", ":tracked.txt"])
+        .output()
+        .unwrap();
+    assert!(blob.status.success());
+    assert_eq!(blob.stdout, staged, "{setting}");
+    fs::write(repo.path.join("tracked.txt"), "later\n").unwrap();
+    s.restore(&snapshot.id, None).unwrap();
+    assert_eq!(
+        fs::read(repo.path.join("tracked.txt")).unwrap(),
+        working,
+        "{setting}"
+    );
 }
 
 #[test]
@@ -570,6 +588,9 @@ fn snapshots_keep_symlinks_and_chmod_even_when_git_ignores_them() {
     if !support::in_subprocess("snapshots_keep_symlinks_and_chmod_even_when_git_ignores_them") {
         return;
     }
+    // SAFETY: this fixture runs alone in its subprocess; no concurrent fixture
+    // observes the process-wide mask. Git checkout honors this restrictive mask.
+    unsafe { libc::umask(0o027) };
     let repo = Repo::new();
     repo.git(&["config", "core.filemode", "false"]);
     repo.git(&["config", "core.symlinks", "false"]);
@@ -594,8 +615,8 @@ fn snapshots_keep_symlinks_and_chmod_even_when_git_ignores_them() {
             .unwrap()
             .permissions()
             .mode()
-            & 0o111,
-        0o111
+            & 0o100,
+        0o100
     );
     assert_eq!(
         support::git(&destination, &["ls-files", "--stage", "tracked.txt"])

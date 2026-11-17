@@ -20,7 +20,9 @@ warm only when your workflow validates retained ignored residue; rebuilding a
 checkout can discard it. External build-tool caches can also serve pristine pools.
 
 Creates NAME (default: default). The checkout root
-defaults to $HOME/.worktrees/<project>-<repo-id>/<pool> on Linux and macOS.
+defaults to $HOME/.worktrees/<project>-<repo-id>/<pool> on Linux and
+$HOME/.worktrees.noindex/<project>-<repo-id>/<pool> on macOS, avoiding Spotlight
+indexing of new default checkouts.
 The project name is sanitized and the ID hashes the canonical common Git directory,
 so linked worktrees agree and separate clones of the same project stay separate.
 Set worktrees.root in global configuration to replace the ~/.worktrees parent.

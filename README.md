@@ -65,7 +65,7 @@ groove release fix-parser --save -m 'parser fix'
 ```
 
 New pools put checkouts in `~/.worktrees/<project>-<repo-id>/<pool>` on Linux and
-macOS. Set a different parent with
+`~/.worktrees.noindex/<project>-<repo-id>/<pool>` on macOS. Set a different parent with
 `groove config set worktrees.root=/absolute/worktrees`, or choose an exact
 pool location with `pool create NAME --root`. Existing pools keep their locations.
 

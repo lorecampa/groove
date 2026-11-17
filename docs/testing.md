@@ -80,8 +80,14 @@ Do not turn on automatic retries to conceal flaky tests.
 
 ## Process isolation and failure paths
 
-CI explicitly disables the runner's system/global Git configuration. Snapshot
-fixtures must not inherit installed content filters or automatic CRLF conversion.
+The Cargo test runner isolates system/global Git configuration, sets umask 022,
+and pins a native Git executable ahead of shell wrappers before libtest starts.
+It selects the first native Git on PATH, or the absolute executable supplied by
+`GROOVE_TEST_GIT`. This also preserves CI's minimum-Git selection. Set that override
+on hosts whose only apparent Git is a wrapper; the runner refuses to execute a
+script to discover what it wraps. Tests can still explicitly install their own
+wrapper/configuration to exercise failures. Ordinary `cargo run` is unchanged.
+Snapshot fixtures must not inherit installed content filters or automatic CRLF conversion.
 Use `support::groove_in` for repository CLI fixtures, including checkpoint children;
 tests of user preferences can explicitly override their configuration paths.
 `checkpoint_finish_ignores_parent_git_filters` exercises the release --save/recovery crash

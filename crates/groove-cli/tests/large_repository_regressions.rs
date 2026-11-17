@@ -63,7 +63,6 @@ fn release_waits_for_concurrent_detailed_inspection() {
 }
 
 #[test]
-#[cfg(target_os = "linux")]
 fn release_supports_transitive_pipeline_readers() {
     use std::os::unix::process::CommandExt;
     for stages in ["cat", "cat | cat", "cat | cat | cat"] {
@@ -89,7 +88,6 @@ fn release_supports_transitive_pipeline_readers() {
 }
 
 #[test]
-#[cfg(target_os = "linux")]
 fn transitive_pipeline_does_not_exempt_background_workspace_writers() {
     use std::os::unix::process::CommandExt;
     let repo = Repo::new();

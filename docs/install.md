@@ -12,7 +12,22 @@ Git 2.40+ and Rust/Cargo 1.89+ to build; use maintained, patched toolchains.
 cargo install --locked groove-cli
 ```
 
-This installs the latest published release. Only select a specific version if
+This installs the latest release visible to the configured registry. A corporate
+mirror can lag crates.io and may offer an older version than the one already
+installed. Check `groove --version` before and after installation; avoid replacing
+a newer working binary with an older mirrored version.
+
+When the registry lags and GitHub is reachable, install the reviewed release tag:
+
+```sh
+cargo install --locked --git https://github.com/lorecampa/groove --tag vX.Y.Z groove-cli
+```
+
+Replace `vX.Y.Z` with the intended published tag from the repository's releases.
+Git-tag installations retain their source; `groove upgrade --check` identifies
+them and gives manual update guidance without querying an unrelated registry.
+
+Only select a specific version if
 the user requests one. The package is `groove-cli`; the command is `groove`.
 If it isn't on PATH, locate Cargo's installation directory and make it available
 to your terminal.

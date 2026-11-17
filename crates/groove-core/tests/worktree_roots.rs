@@ -8,7 +8,7 @@ use support::Repo;
 fn external_defaults_separate_clones_and_pools_but_agree_from_linked_callers() {
     let first = Repo::new();
     let second = Repo::new();
-    let storage = tempfile::tempdir().unwrap();
+    let storage = support::tempdir();
     let options = PoolOptions {
         capacity: 1,
         worktree_base: Some(storage.path().to_owned()),

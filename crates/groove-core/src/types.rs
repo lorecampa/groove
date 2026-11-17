@@ -38,7 +38,8 @@ pub struct PoolOptions {
     /// Exact dedicated checkout root, overriding [`Self::worktree_base`].
     pub worktree_root: Option<PathBuf>,
     /// Parent for automatically named roots: `<base>/<project>-<repo-id>/<pool>`.
-    /// Defaults to `$HOME/.worktrees`. Must be absolute; only new pools use it.
+    /// Defaults to `$HOME/.worktrees` (`.worktrees.noindex` on macOS).
+    /// Must be absolute; only new pools use it.
     pub worktree_base: Option<PathBuf>,
     /// Positive timeout for each Git operation, not the entire acquisition.
     pub git_timeout: Duration,
@@ -182,6 +183,7 @@ pub struct InitResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PoolSettings {
     /// Persisted foreground Git budget; defaults to two minutes in older pools.
+    #[serde(default)]
     pub git_timeout: crate::ReadyGitTimeout,
     /// Persisted automatic checkout policy, absent for legacy lazy pools.
     #[serde(flatten)]

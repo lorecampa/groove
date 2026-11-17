@@ -186,7 +186,12 @@ pub fn run(options: &Options) -> Result<Report> {
             }
             if !options.check && !options.dry_run {
                 let applied = if let Some(installation) = installation.as_ref() {
-                    if component.status == Status::Planned {
+                    if !installation.supports_upgrade() {
+                        Err(Error::new(
+                            ErrorCode::UnsupportedConfiguration,
+                            &component.message,
+                        ))
+                    } else if component.status == Status::Planned {
                         cargo::apply(
                             installation,
                             &mut component,
@@ -213,7 +218,10 @@ pub fn run(options: &Options) -> Result<Report> {
         Err(error) => {
             report.components.push(Component {
                 name: "cli".into(),
-                source: "cargo".into(),
+                source: installation
+                    .as_ref()
+                    .map_or("unmanaged", |installation| installation.source())
+                    .into(),
                 path: std::env::current_exe().ok(),
                 current_version: Some(current.to_string()),
                 target_version: explicit.as_ref().map(ToString::to_string),

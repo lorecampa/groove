@@ -154,13 +154,19 @@ fn dispatch(raw: &[std::ffi::OsString]) -> ExitCode {
             }
             if matches!(
                 args.command,
-                Command::Snapshot(args::SnapshotCommand::Prune { apply: true, .. })
+                Command::Snapshot(args::SnapshotArgs {
+                    command: args::SnapshotCommand::Prune { apply: true, .. },
+                    ..
+                })
             ) {
                 args.deprecations.push("--apply is deprecated; use --yes");
             }
             if matches!(
                 args.command,
-                Command::Snapshot(args::SnapshotCommand::Delete { .. })
+                Command::Snapshot(args::SnapshotArgs {
+                    command: args::SnapshotCommand::Delete { .. },
+                    ..
+                })
             ) && raw.iter().any(|arg| arg == "--force")
             {
                 args.deprecations

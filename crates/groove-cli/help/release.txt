@@ -33,11 +33,12 @@ or remove them first. Ignored special files are excluded like ignored regular fi
 Forced release without --save allows cleanup to discard them before reuse.
 Export required ignored artifacts separately before releasing.
 Detailed read-only inspections use shared descriptor admission; release waits for
-them up to --git-timeout. WORKSPACE_IN_USE is retryable: stop all actual
-writers before retrying. On Linux, other commands running the same Groove
-executable are exempt from release's process scan; their Git children can still
-block release while using the workspace.
-Parallel saves wait for snapshot access up to --git-timeout (default 2m).
+them up to --timeout. WORKSPACE_IN_USE is retryable: stop all actual
+writers before retrying. Other commands running the same Groove executable use
+descriptor admission; their pre-admission Git children are retried briefly.
+Unrelated Git writers still block release.
+Parallel saved releases wait for snapshot access up to the foreground timeout
+(default: the pool's saved git-timeout).
 A timeout keeps the reservation protected; retry with the same reservation ID.
 After a saved retry completes release, superseded checkpoints are unpinned but
 remain recoverable until deleted. Interrupted pin cleanup resumes on that retry.
@@ -48,10 +49,12 @@ commits with a branch or snapshot before normal release.
 Shared branches, tags, stash and snapshot refs preserve commits; private
 refs/worktree/* and refs/bisect/* in the slot do not count.
 Both forms refuse with WORKSPACE_IN_USE if other processes have
-their working directory, executable or open files in the workspace. The caller,
+their working directory, executable or writable open files in the workspace. The caller,
 and its ancestors are ignored. A connected pipeline reader's working directory
 alone does not block release; other processes in the same group are checked.
 On Linux, shared writable file mappings also block release after descriptor closure.
+Read-only observers whose cwd and executable are outside the workspace are
+reported through tracing after a short bounded retry; they do not count as writers.
 The process check only sees your processes and is best effort.
 Permissions, other mount namespaces and alternate mount paths can hide writers;
 an empty scan never replaces the requirement to stop them yourself.

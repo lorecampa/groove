@@ -93,7 +93,9 @@ impl NoticeCheck {
     /// Errors only concern optional discovery and must not fail the user's command.
     /// Returns `None` for unmanaged installations. No repository state is opened.
     pub fn start() -> Result<Option<Self>> {
-        if cargo::Installation::detect()?.is_none() {
+        if cargo::Installation::detect()?
+            .is_none_or(|installation| !installation.supports_upgrade())
+        {
             return Ok(None);
         }
         let directory = directory("XDG_CACHE_HOME", ".cache")?;

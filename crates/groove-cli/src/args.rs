@@ -190,9 +190,13 @@ impl Args {
                     &mut self.deprecations,
                 )?;
             }
-            Command::Snapshot(SnapshotCommand::Save {
-                message,
-                description,
+            Command::Snapshot(SnapshotArgs {
+                command:
+                    SnapshotCommand::Save {
+                        message,
+                        description,
+                        ..
+                    },
                 ..
             }) => {
                 if !description.is_empty() {
@@ -438,11 +442,20 @@ pub enum Command {
         shell: clap_complete::Shell,
     },
     /// Save, inspect, restore and delete local checkpoints.
-    #[command(subcommand, after_long_help = help!("snapshot"))]
-    Snapshot(SnapshotCommand),
+    #[command(after_long_help = help!("snapshot"))]
+    Snapshot(SnapshotArgs),
     /// User preferences shared by every repository.
     #[command(subcommand, after_long_help = help!("config"))]
     Config(ConfigCommand),
+}
+
+#[derive(ClapArgs)]
+pub struct SnapshotArgs {
+    /// Wait for snapshot exclusion independently of Git subprocess timeouts.
+    #[arg(long = "lock-timeout", global = true, default_value = "2m", value_parser = parse_positive_duration, value_name = "DURATION")]
+    pub lock_timeout_ms: u64,
+    #[command(subcommand)]
+    pub command: SnapshotCommand,
 }
 
 #[derive(ClapArgs)]
@@ -619,7 +632,7 @@ pub enum SnapshotCommand {
         /// Confirm deletion without an interactive prompt.
         #[arg(short = 'y', long, conflicts_with = "dry_run")]
         yes: bool,
-        /// Explicitly preview without deleting anything (the default).
+        /// Preview without deleting anything.
         #[arg(short = 'n', long, conflicts_with = "apply")]
         dry_run: bool,
     },
