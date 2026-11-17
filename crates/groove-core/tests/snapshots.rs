@@ -471,6 +471,9 @@ fn file_modes_deletions_symlinks_and_platform_filenames() {
     if !support::in_subprocess("file_modes_deletions_symlinks_and_platform_filenames") {
         return;
     }
+    // SAFETY: this fixture runs alone in its subprocess; no concurrent fixture
+    // observes the process-wide mask. Git checkout honors this restrictive mask.
+    unsafe { libc::umask(0o027) };
     let repo = Repo::format("sha256");
     let s = service(&repo);
     fs::remove_file(repo.path.join("tracked.txt")).unwrap();
@@ -491,8 +494,8 @@ fn file_modes_deletions_symlinks_and_platform_filenames() {
         std::path::Path::new("absent")
     );
     assert_eq!(
-        fs::metadata(dest.join(name)).unwrap().permissions().mode() & 0o111,
-        0o111
+        fs::metadata(dest.join(name)).unwrap().permissions().mode() & 0o100,
+        0o100
     );
 }
 
@@ -570,6 +573,9 @@ fn snapshots_keep_symlinks_and_chmod_even_when_git_ignores_them() {
     if !support::in_subprocess("snapshots_keep_symlinks_and_chmod_even_when_git_ignores_them") {
         return;
     }
+    // SAFETY: this fixture runs alone in its subprocess; no concurrent fixture
+    // observes the process-wide mask. Git checkout honors this restrictive mask.
+    unsafe { libc::umask(0o027) };
     let repo = Repo::new();
     repo.git(&["config", "core.filemode", "false"]);
     repo.git(&["config", "core.symlinks", "false"]);
@@ -594,8 +600,8 @@ fn snapshots_keep_symlinks_and_chmod_even_when_git_ignores_them() {
             .unwrap()
             .permissions()
             .mode()
-            & 0o111,
-        0o111
+            & 0o100,
+        0o100
     );
     assert_eq!(
         support::git(&destination, &["ls-files", "--stage", "tracked.txt"])
