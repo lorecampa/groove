@@ -17,6 +17,102 @@ fn invoke(repo: &Repo, args: &[&str], code: i32) -> Value {
 }
 
 #[test]
+fn settings_assignments_round_trip_and_reject_ambiguous_updates() {
+    let repo = Repo::new();
+    invoke(
+        &repo,
+        &["pool", "init", "--capacity", "1", "--idle-timeout", "never"],
+        0,
+    );
+    invoke(
+        &repo,
+        &[
+            "pool",
+            "set",
+            "capacity=2",
+            "ready_target=0",
+            "cleanup=warm",
+        ],
+        0,
+    );
+    invoke(
+        &repo,
+        &["pool", "set", "default", "capacity=3", "idle-timeout=never"],
+        0,
+    );
+    for key in ["ready-target", "ready_target"] {
+        assert_eq!(
+            invoke(&repo, &["pool", "get", key], 0)["result"]["value"],
+            0
+        );
+    }
+    for arguments in [
+        vec!["pool", "set", "capacity=4", "capacity=5"],
+        vec!["pool", "set", "capacity=4", "--capacity", "5"],
+        vec!["pool", "set", "capacity=4", "unknown=5"],
+        vec!["pool", "set", "root=/tmp/elsewhere"],
+        vec!["pool", "set", "capacity=4", "default"],
+    ] {
+        invoke(&repo, &arguments, 2);
+        assert_eq!(
+            invoke(&repo, &["pool", "get", "capacity"], 0)["result"]["value"],
+            3
+        );
+    }
+    invoke(
+        &repo,
+        &[
+            "config",
+            "set",
+            "pool-defaults.ready-target=0",
+            "logging.max-files=7",
+        ],
+        0,
+    );
+    for key in ["logging.max-files", "logging.max_files"] {
+        assert_eq!(
+            invoke(&repo, &["config", "get", key], 0)["result"]["value"],
+            7
+        );
+    }
+    invoke(&repo, &["config", "unset", "logging.max-files"], 0);
+}
+
+#[test]
+fn command_help_only_advertises_applicable_context_flags() {
+    let repo = Repo::new();
+    for command in ["config", "upgrade", "completions"] {
+        let help = invoke(&repo, &[command, "--help"], 0);
+        let help = help["result"]["text"].as_str().unwrap();
+        assert!(
+            !help
+                .lines()
+                .any(|line| line.trim_start().starts_with("--pool ")),
+            "{help}"
+        );
+        assert!(
+            !help
+                .lines()
+                .any(|line| line.trim_start().starts_with("--git-timeout ")),
+            "{help}"
+        );
+    }
+    let snapshot = invoke(&repo, &["snapshot", "--help"], 0);
+    let text = snapshot["result"]["text"].as_str().unwrap();
+    assert!(
+        !text
+            .lines()
+            .any(|line| line.trim_start().starts_with("--pool ")),
+        "{text}"
+    );
+    assert!(text.contains("--git-timeout"), "{text}");
+    let acquire = invoke(&repo, &["acquire", "--help"], 0);
+    let text = acquire["result"]["text"].as_str().unwrap();
+    assert!(text.contains("--pool"), "{text}");
+    assert!(text.contains("--git-timeout"), "{text}");
+}
+
+#[test]
 fn pool_objects_accept_positional_names_and_legacy_flags_without_ambiguity() {
     let repo = Repo::new();
     for name in ["default", "frontend"] {

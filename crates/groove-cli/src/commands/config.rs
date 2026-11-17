@@ -11,18 +11,22 @@ use serde_json::json;
 
 pub fn run(_context: &Context<'_>, command: &ConfigCommand) -> Result<Output> {
     let result = match command {
-        ConfigCommand::Get { key } => return setting_output(key, preferences::get(key)?),
+        ConfigCommand::Get { key } => {
+            return setting_output(key, preferences::get(&key.replace('-', "_"))?)
+        }
         ConfigCommand::Show => preferences::show()?,
         ConfigCommand::Path => json!({ "config_path": preferences::path()? }),
         ConfigCommand::Edit => preferences::change(Change::Edit)?,
         ConfigCommand::Set { settings } => preferences::change(Change::Update(
             settings
                 .iter()
-                .map(|(key, value)| (key.clone(), Some(value.clone())))
+                .map(|(key, value)| (key.replace('-', "_"), Some(value.clone())))
                 .collect(),
         ))?,
         ConfigCommand::Unset { keys } => preferences::change(Change::Update(
-            keys.iter().map(|key| (key.clone(), None)).collect(),
+            keys.iter()
+                .map(|key| (key.replace('-', "_"), None))
+                .collect(),
         ))?,
     };
     Output::fields(result)

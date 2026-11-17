@@ -1,8 +1,11 @@
 EXAMPLES:
   groove pool show
   groove pool set --capacity 8 --cleanup warm
+  groove pool set frontend capacity=8 cleanup=warm
+  groove pool set ready-target=0 idle-timeout=never
 
-Pool settings are a fixed typed set of flags; preferences use an extensible key space in a file.
+Settings accept KEY=VALUE and legacy flags. Keys use kebab-case; underscore
+spellings remain accepted. A key may appear only once per update. root is read-only.
 
 `pool show`/`pool set` read or change the selected pool (see --pool).
 Growth preserves existing reservations and locks; shrinking is unsupported.

@@ -10,14 +10,15 @@ use serde_json::json;
 use std::path::PathBuf;
 
 pub fn get(context: &Context<'_>, key: &str) -> Result<Output> {
-    let field = match key {
+    let normalized = key.replace('_', "-");
+    let field = match normalized.as_str() {
         "capacity" => "capacity",
         "cleanup" => "cleanup_policy",
         "ready-target" => "ready_target",
         "idle-timeout" => "idle_timeout",
         "ready-base" => "ready_base",
         "ready-git-timeout" => "ready_git_timeout",
-        "workspace-root" => "worktree_root",
+        "workspace-root" | "root" => "worktree_root",
         _ => {
             return Err(groove_core::Error::new(
                 groove_core::ErrorCode::InvalidArgument,
@@ -468,7 +469,73 @@ pub fn show(
     Output::text(value, text)?.paginated(pagination)
 }
 
-pub fn set(context: &Context<'_>, update: groove_core::PoolUpdate) -> Result<Output> {
+pub fn set(
+    context: &Context<'_>,
+    values: &[crate::args::PoolSettingArgument],
+    mut update: groove_core::PoolUpdate,
+) -> Result<Output> {
+    use crate::args::PoolSettingArgument;
+    let invalid =
+        |message| groove_core::Error::new(groove_core::ErrorCode::InvalidArgument, message);
+    let mut seen = std::collections::BTreeSet::new();
+    for (index, argument) in values.iter().enumerate() {
+        let (key, value) = match argument {
+            PoolSettingArgument::Name(_) if index == 0 => continue,
+            PoolSettingArgument::Name(_) => {
+                return Err(invalid("Pool name must precede settings".into()))
+            }
+            PoolSettingArgument::Setting(key, value) => (key.replace('_', "-"), value),
+        };
+        if !seen.insert(key.clone()) {
+            return Err(invalid(format!("Setting supplied more than once: {key}")));
+        }
+        macro_rules! assign {
+            ($field:ident, $parsed:expr) => {{
+                if update.$field.is_some() {
+                    return Err(invalid(format!(
+                        "Setting supplied by both flag and assignment: {key}"
+                    )));
+                }
+                update.$field = Some($parsed);
+            }};
+        }
+        match key.as_str() {
+            "capacity" => assign!(
+                capacity,
+                value
+                    .parse()
+                    .map_err(|_| invalid(format!("Invalid capacity: {value}")))?
+            ),
+            "cleanup" => assign!(
+                cleanup_policy,
+                match value.as_str() {
+                    "warm" => groove_core::CleanupPolicy::Warm,
+                    "pristine" => groove_core::CleanupPolicy::Pristine,
+                    _ => return Err(invalid(format!("Invalid cleanup: {value}"))),
+                }
+            ),
+            "ready-target" => assign!(
+                ready_target,
+                value
+                    .parse()
+                    .map_err(|_| invalid(format!("Invalid ready-target: {value}")))?
+            ),
+            "ready-base" => assign!(ready_base, value.clone()),
+            "idle-timeout" => assign!(idle_timeout, value.parse()?),
+            "ready-git-timeout" => assign!(ready_git_timeout, value.parse()?),
+            "root" | "workspace-root" => return Err(invalid("Pool root is read-only".into())),
+            _ => return Err(invalid(format!("Unknown setting: {key}"))),
+        }
+    }
+    if update.capacity.is_none()
+        && update.cleanup_policy.is_none()
+        && update.ready_target.is_none()
+        && update.ready_base.is_none()
+        && update.idle_timeout.is_none()
+        && update.ready_git_timeout.is_none()
+    {
+        return Err(invalid("Supply at least one KEY=VALUE setting".into()));
+    }
     let result = context.pool()?.configure(update)?;
     let headline = if result.updated {
         "Pool settings updated."

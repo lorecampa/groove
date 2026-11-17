@@ -495,10 +495,11 @@ pub enum PoolCommand {
     },
     /// Grow capacity and/or change cleanup for future acquisitions.
     #[command(after_long_help = help!("pool-set"), group(clap::ArgGroup::new("settings").required(true).multiple(true)
-        .args(["capacity", "cleanup", "ready_target", "idle_timeout", "ready_base", "ready_git_timeout"])))]
+        .args(["values", "capacity", "cleanup", "ready_target", "idle_timeout", "ready_base", "ready_git_timeout"])))]
     Set {
-        /// Pool to configure; also accepts the legacy --pool selection.
-        name: Option<PoolName>,
+        /// Optional pool name followed by KEY=VALUE settings (for example capacity=4).
+        #[arg(value_name = "NAME|KEY=VALUE")]
+        values: Vec<PoolSettingArgument>,
         /// Desired ready, unreserved checkouts; cannot exceed resulting capacity. Zero disables replenishment.
         #[arg(long)]
         ready_target: Option<usize>,
@@ -526,9 +527,34 @@ impl PoolCommand {
             Self::Get { name, .. }
             | Self::Destroy { name, .. }
             | Self::Init { name, .. }
-            | Self::Show { name, .. }
-            | Self::Set { name, .. } => name.as_ref(),
+            | Self::Show { name, .. } => name.as_ref(),
+            Self::Set { values, .. } => values.iter().find_map(|value| match value {
+                PoolSettingArgument::Name(name) => Some(name),
+                PoolSettingArgument::Setting(_, _) => None,
+            }),
             Self::List { .. } => None,
+        }
+    }
+}
+
+/// Pool settings retain their typed namespace separately from assignment strings.
+#[derive(Clone, Debug)]
+pub enum PoolSettingArgument {
+    Name(PoolName),
+    Setting(String, String),
+}
+
+impl std::str::FromStr for PoolSettingArgument {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        if let Some((key, value)) = value.split_once('=') {
+            Ok(Self::Setting(key.into(), value.into()))
+        } else {
+            value
+                .parse()
+                .map(Self::Name)
+                .map_err(|error: groove_core::Error| error.to_string())
         }
     }
 }

@@ -14,7 +14,65 @@ fn schema() -> Value {
 
 /// Build the actual parser, including schema-derived output help on every command.
 pub fn command() -> clap::Command {
-    decorate(Args::command(), "", &schema())
+    let command = Args::command();
+    let context: Vec<_> = command
+        .get_arguments()
+        .filter(|argument| matches!(argument.get_id().as_str(), "pool" | "git_timeout_ms"))
+        .cloned()
+        .collect();
+    scope_context_help(decorate(command, "", &schema()), "", &context)
+}
+
+// Keep the legacy global parser during the additive rollout, but advertise
+// context only where it is used. Child overrides prevent inherited help leaks.
+fn scope_context_help(
+    mut command: clap::Command,
+    path: &str,
+    context: &[clap::Arg],
+) -> clap::Command {
+    for argument in context {
+        let pool = argument.get_id() == "pool";
+        let visible = if pool {
+            matches!(
+                path,
+                "acquire"
+                    | "release"
+                    | "show"
+                    | "list"
+                    | "pool init"
+                    | "pool show"
+                    | "pool get"
+                    | "pool set"
+                    | "pool destroy"
+            )
+        } else {
+            matches!(
+                path.split(' ').next(),
+                Some("acquire" | "release" | "show" | "list" | "pool" | "snapshot")
+            )
+        };
+        let argument = argument.clone().hide(!visible).help_heading("Options");
+        if command
+            .get_arguments()
+            .any(|existing| existing.get_id() == argument.get_id())
+        {
+            let id = argument.get_id().clone();
+            command = command.mut_arg(id, |_| argument);
+        } else {
+            command = command.arg(argument);
+        }
+    }
+    let children: Vec<_> = command.get_subcommands().cloned().collect();
+    for child in children {
+        let name = child.get_name().to_owned();
+        let child_path = if path.is_empty() {
+            name.clone()
+        } else {
+            format!("{path} {name}")
+        };
+        command = command.mut_subcommand(name, |_| scope_context_help(child, &child_path, context));
+    }
+    command
 }
 
 fn decorate(mut command: clap::Command, path: &str, schema: &Value) -> clap::Command {

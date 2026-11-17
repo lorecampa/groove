@@ -1,5 +1,9 @@
 # Changelog
 
+- Additive CLI rollout: pool settings accept `KEY=VALUE`; pool/config keys accept
+  kebab-case and legacy underscores. Context flags are advertised only by the
+  commands that use them. Existing global parsing remains during this phase.
+
 ## Unreleased
 
 ### Changed

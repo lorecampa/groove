@@ -178,6 +178,7 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
                 *sort,
             ),
             PoolCommand::Set {
+                values,
                 capacity,
                 cleanup,
                 ready_target,
@@ -187,6 +188,7 @@ pub fn run(context: &Context<'_>, command: &Command) -> Result<Output> {
                 ..
             } => pool::set(
                 context,
+                values,
                 groove_core::PoolUpdate {
                     capacity: *capacity,
                     cleanup_policy: cleanup.map(Into::into),
