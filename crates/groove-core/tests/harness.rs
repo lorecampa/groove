@@ -7,9 +7,26 @@ use std::{
     time::Duration,
 };
 
+#[cfg(target_os = "macos")]
+#[test]
+fn expired_child_deadlines_capture_a_bounded_native_stack_without_passing() {
+    let mut child = support::TestChild::spawn(&mut peer("sample"));
+    let error = child.wait_timeout(Duration::ZERO).unwrap_err();
+    let still_running = child.try_wait().unwrap().is_none();
+    child.kill().unwrap();
+    child.wait().unwrap();
+    assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+    assert!(still_running, "sampling must not terminate the fixture");
+    let diagnostic = error.to_string();
+    assert!(diagnostic.contains("native stack sample:"), "{diagnostic}");
+    assert!(diagnostic.contains("Process:"), "{diagnostic}");
+    assert!(diagnostic.len() < 70 * 1024);
+}
+
 #[test]
 fn harness_peer() {
     match std::env::var("GROOVE_HARNESS_PEER").as_deref() {
+        Ok("sample") => std::thread::sleep(Duration::from_secs(30)),
         Ok("isolated-git") => {
             use std::os::unix::fs::PermissionsExt;
             let temporary = tempfile::tempdir().unwrap();
