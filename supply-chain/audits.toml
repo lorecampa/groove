@@ -1,4 +1,45 @@
 
 # cargo-vet audits file
 
-[audits]
+[[audits.deranged]]
+who = "Codex (OpenAI)"
+criteria = "safe-to-deploy"
+delta = "0.5.8 -> 0.5.9"
+notes = """
+Reviewed the complete source/manifest delta, including optional adapters.
+No build script, filesystem, network or process capabilities. New overflowing
+arithmetic checks range invariants and delegates to checked/wrapping operations;
+unchecked construction in the full-range branch accepts every underlying value.
+Quickcheck generation uses unsigned wrapped range widths and handles the full
+range separately. Optional deserialization validates values and now handles
+None explicitly. Remaining changes concern documentation, lints and tests.
+"""
+
+[[audits.powerfmt]]
+who = "Codex (OpenAI)"
+criteria = "safe-to-deploy"
+delta = "0.2.0 -> 0.2.1"
+notes = """
+Reviewed the complete source/manifest delta. No build script or new ambient
+capabilities. Buffer initialization uses MaybeUninit arrays; dereferencing
+remains limited to the initialized UTF-8 prefix, and writes bounds-check the
+destination before advancing length. Slice casts preserve layout and ownership.
+Other changes are inline annotations, lint/MSRV updates and formatter options.
+"""
+
+[[audits.time]]
+who = "Codex (OpenAI)"
+criteria = "safe-to-deploy"
+version = "0.3.47"
+notes = """
+Reviewed the registry source, manifest, features, unsafe boundaries and ambient
+capabilities. No build script, process execution or networking. Date/time
+constructors validate ranges before unchecked arithmetic; reviewed packed
+representations, nonzero invariants, initialized formatting caches, bounded
+month/weekday parsing and the Unix/Windows timezone FFI and refresh APIs.
+Optional random/serialization adapters retain checked ranges. Groove enables
+std, formatting, parsing and macros, not local-offset or large-dates; it uses
+UTC only. Transitive crates and procedural macros have separate audit evidence.
+This is a source security review, not exhaustive functional verification or
+native macOS runtime validation.
+"""

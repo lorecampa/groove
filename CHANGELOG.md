@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Replace unmaintained Chrono with UTC-only `time` formatting and parsing,
+  preserving millisecond log timestamps and release-date validation. Record
+  dependency review evidence without adding an advisory exception.
+
 - Bound snapshot EOL audits to changed physical and staged paths in verified LF
   pool checkouts. Keep full audits for ordinary checkouts, changed conversion
   rules and missing verification evidence; normalized CRLF bytes remain refused.

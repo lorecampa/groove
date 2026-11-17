@@ -265,7 +265,12 @@ impl Visit for Fields {
     }
 }
 fn timestamp() -> String {
-    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+    time::OffsetDateTime::now_utc()
+        .format(time::macros::format_description!(
+            "[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:3]Z"
+        ))
+        // This format only requests components present in every UTC datetime.
+        .expect("UTC timestamp has all requested date and time components")
 }
 
 struct LogLayer(Arc<Sink>);

@@ -221,7 +221,7 @@ impl Release {
                 )?;
             }
             self.validate(None, None)?;
-            let today = chrono::Utc::now().date_naive();
+            let today = time::OffsetDateTime::now_utc().date();
             fs::write(
                 &paths[2],
                 changelog.replacen(
@@ -256,8 +256,11 @@ pub(crate) fn notes(root: &Path, version: &str) -> Result<String> {
         if line.starts_with("## ") {
             collecting = false;
             if let Some(date) = line.strip_prefix(&prefix) {
-                let parsed = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")
-                    .map_err(|e| Error::Invalid(format!("Invalid release date: {e}")))?;
+                let parsed = time::Date::parse(
+                    date,
+                    time::macros::format_description!("[year]-[month]-[day]"),
+                )
+                .map_err(|e| Error::Invalid(format!("Invalid release date: {e}")))?;
                 require(
                     parsed.to_string() == date,
                     "Release date must use YYYY-MM-DD",
