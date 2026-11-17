@@ -32,11 +32,14 @@ fn refuses_workspace_user(usage: ProcessUse) {
         }
         ProcessUse::Executable => {
             let program = lease.worktree_path.join("workspace-sleep");
-            fs::copy("/bin/sleep", &program).unwrap();
+            // Use our Cargo-built executable. Copied Apple system binaries can
+            // lose their execution privileges and be killed before exec completes.
+            fs::copy(std::env::current_exe().unwrap(), &program).unwrap();
+            command = support::command(repo.temp.path(), program);
             command
-                .args(["-c", "printf ready > \"$1\"; exec \"$2\" 30", "fixture"])
-                .arg(&ready)
-                .arg(program);
+                .process_group(0)
+                .args(["--exact", "workspace_executable_helper", "--nocapture"])
+                .env("GROOVE_EXECUTABLE_HELPER_READY", &ready);
         }
         ProcessUse::OpenFile => {
             command
@@ -97,6 +100,15 @@ fn refuses_workspace_user(usage: ProcessUse) {
         .unwrap();
     pool.release_protected(&lease.slot_id, lease.lease_id)
         .unwrap();
+}
+
+#[test]
+fn workspace_executable_helper() {
+    let Some(ready) = std::env::var_os("GROOVE_EXECUTABLE_HELPER_READY") else {
+        return;
+    };
+    fs::write(ready, "ready").unwrap();
+    std::thread::sleep(Duration::from_secs(30));
 }
 
 #[test]
