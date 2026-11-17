@@ -365,6 +365,16 @@ fn destruction_accepts_saved_release_files_but_refuses_later_edits_and_ignored_f
 }
 
 #[test]
+fn missing_worktree_configuration_file_is_compatible_with_init_and_acquire() {
+    let repo = Repo::new();
+    support::git(&repo.path, &["config", "extensions.worktreeConfig", "true"]);
+    assert!(!repo.path.join(".git/config.worktree").exists());
+    init(&repo, "default", "1");
+    assert_eq!(cli(&repo.path, &["acquire"])["slot_id"], "wt-0001");
+    assert!(!repo.path.join(".git/config.worktree").exists());
+}
+
+#[test]
 fn empty_worktree_configuration_is_compatible_with_init_and_acquire() {
     let repo = Repo::new();
     support::git(&repo.path, &["config", "extensions.worktreeConfig", "true"]);

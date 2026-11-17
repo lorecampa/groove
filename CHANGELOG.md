@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- Accept repositories with worktree configuration enabled before their optional
+  `config.worktree` file has been created.
+
 ## [0.5.0] - 2026-11-17
 
 ### Changed

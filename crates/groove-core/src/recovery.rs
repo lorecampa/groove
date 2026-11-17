@@ -140,6 +140,11 @@ pub(crate) fn validate_config(git: &Git, repo: &Repository) -> Result<()> {
 }
 
 fn validate_worktree_config(git: &Git, repo: &Repository) -> Result<()> {
+    // Enabling worktreeConfig does not create this optional file. Preserve
+    // other filesystem failures instead of treating unreadable settings as empty.
+    if !repo.common.join("config.worktree").try_exists()? {
+        return Ok(());
+    }
     // The common Git directory selects the main checkout's config.worktree,
     // independently of which linked checkout initiated preparation.
     let config = git.run(
