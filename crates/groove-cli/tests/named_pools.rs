@@ -187,7 +187,7 @@ fn pool_selection_is_explicit_scoped_and_schema_conformant() {
             "--pool=backend",
             "acquire",
             "--task",
-            "same",
+            "backend-task",
             "--idempotency-key",
             "same",
         ],
@@ -273,7 +273,7 @@ fn pool_selection_is_explicit_scoped_and_schema_conformant() {
     assert_eq!(pools[1]["phase"], "deleted");
     let shown = assert_success(&cli(
         &repo,
-        &["--pool", "backend", "show", "--task", "same"],
+        &["--pool", "backend", "show", "--task", "backend-task"],
     ));
     assert_eq!(
         shown["result"]["reservation"]["reservation_id"],

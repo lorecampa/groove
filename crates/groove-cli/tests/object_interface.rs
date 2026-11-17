@@ -17,6 +17,137 @@ fn invoke(repo: &Repo, args: &[&str], code: i32) -> Value {
 }
 
 #[test]
+fn concurrent_acquirers_cannot_publish_the_same_label_in_different_pools() {
+    use std::os::unix::fs::MetadataExt;
+    let repo = Repo::new();
+    for pool in ["frontend", "backend"] {
+        invoke(
+            &repo,
+            &[
+                "pool",
+                "init",
+                pool,
+                "--capacity",
+                "1",
+                "--idle-timeout",
+                "never",
+            ],
+            0,
+        );
+    }
+    let children: Vec<_> = ["frontend", "backend"]
+        .into_iter()
+        .map(|pool| {
+            support::TestChild::spawn(
+                support::groove_in(&repo.path).args(["--pool", pool, "acquire", "fix"]),
+            )
+        })
+        .collect();
+    let results: Vec<_> = children
+        .into_iter()
+        .map(|child| child.wait_with_output().unwrap())
+        .collect();
+    assert_eq!(
+        results
+            .iter()
+            .filter(|result| result.status.success())
+            .count(),
+        1,
+        "{results:?}"
+    );
+    let rejected = results
+        .iter()
+        .find(|result| !result.status.success())
+        .unwrap();
+    assert_eq!(rejected.status.code(), Some(2));
+    let error: Value = serde_json::from_slice(&rejected.stdout).unwrap();
+    assert_eq!(error["error"]["code"], "INVALID_ARGUMENT");
+    let registry = repo.state().join("task-labels");
+    let identities = || {
+        std::fs::read_dir(&registry)
+            .unwrap()
+            .filter_map(|entry| {
+                let path = entry.unwrap().path();
+                (path
+                    .extension()
+                    .is_some_and(|extension| extension == "lock"))
+                .then(|| {
+                    let metadata = std::fs::metadata(&path).unwrap();
+                    (path, metadata.dev(), metadata.ino())
+                })
+            })
+            .collect::<Vec<_>>()
+    };
+    let before = identities();
+    assert_eq!(before.len(), 1);
+    invoke(&repo, &["release", "fix"], 0);
+    invoke(&repo, &["--pool", "backend", "acquire", "fix"], 0);
+    assert_eq!(identities(), before);
+    invoke(&repo, &["release", "fix"], 0);
+}
+
+#[test]
+fn legacy_duplicate_labels_require_uuid_migration_without_changing_reservations() {
+    let repo = Repo::new();
+    let mut ids = Vec::new();
+    for pool in ["frontend", "backend"] {
+        invoke(
+            &repo,
+            &[
+                "pool",
+                "init",
+                pool,
+                "--capacity",
+                "2",
+                "--idle-timeout",
+                "never",
+            ],
+            0,
+        );
+        let lease = invoke(&repo, &["--pool", pool, "acquire", pool], 0);
+        ids.push(
+            lease["result"]["reservation_id"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+        );
+        // Model pre-upgrade durable metadata. Protection and slot records agree;
+        // permanent lock identities and the reservation UUID stay untouched.
+        let slots = repo.state().join("pools").join(pool).join("slots");
+        for entry in std::fs::read_dir(slots).unwrap() {
+            let path = entry.unwrap().path();
+            if path
+                .extension()
+                .is_some_and(|extension| extension == "json")
+            {
+                let mut record: Value =
+                    serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+                if record["lease"]["reservation_id"].is_string()
+                    || record["lease"]["lease_id"].is_string()
+                {
+                    record["lease"]["task"] = "legacy".into();
+                    std::fs::write(path, serde_json::to_vec(&record).unwrap()).unwrap();
+                }
+            }
+        }
+    }
+    let rejected = invoke(&repo, &["show", "legacy"], 2);
+    assert!(rejected["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("duplicate"));
+    let rejected = invoke(&repo, &["--pool", "frontend", "acquire", "legacy"], 2);
+    assert!(rejected["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("legacy duplicate"));
+    for id in ids {
+        invoke(&repo, &["show", &id], 0);
+        invoke(&repo, &["release", &id], 0);
+    }
+}
+
+#[test]
 fn positional_reservations_generated_labels_and_path_preserve_retry_identity() {
     let repo = Repo::new();
     invoke(

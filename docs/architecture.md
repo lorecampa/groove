@@ -116,6 +116,22 @@ inspection; in-flight preparation may use its earlier observed policy.
 
 ## Allocation and cleanup
 
+Durable task labels are unique across the repository. Acquisition takes its pool
+admission, request-key lock, then a repository label bucket lock before scanning
+protections and publishing the new reservation. The 256 permanent bucket inodes
+live in `groove/task-labels`; old per-pool label locks are retained. No scan takes
+another label lock. Read-only cross-pool admission probes fail on lifecycle
+contention instead of waiting while holding an administrative lock.
+
+The label registry records the last reservation associated with a label. Records
+are advisory and may outlive release. Each acquisition reconciles against every
+pool's durable protections under the label lock, covering old installations and
+crashes before registry publication. Existing duplicate labels fail with migration
+guidance: release by reservation UUID and reacquire with distinct labels. UUID
+release remains available, and no migration renames or releases another task.
+Use one Groove version across all pools during this transition; older binaries
+do not participate in repository label locking.
+
 Pool mutations first take shared admission on `locks/lifecycle.lock` and check
 their pool generation. This guard covers the entire operation, including request
 infrastructure before slot acquisition and saved-release receipts after slot release.

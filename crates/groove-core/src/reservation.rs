@@ -15,7 +15,7 @@ use std::{
 };
 
 /// Longest accepted task label, in bytes.
-const MAX_TASK_BYTES: usize = 256;
+const MAX_TASK_BYTES: usize = 128;
 /// Longest accepted request key, in bytes.
 const MAX_REQUEST_KEY_BYTES: usize = 128;
 
@@ -34,7 +34,7 @@ pub(crate) fn now_ms() -> u64 {
 /// use groove_core::{Pool, ReservationOptions};
 /// let pool = Pool::open("/path/to/repo")?;
 /// let lease = pool.reserve(ReservationOptions {
-///     task: Some("fix parser".into()),
+///     task: Some("fix-parser".into()),
 ///     request_key: Some("fix-parser-1".into()),
 ///     ..Default::default()
 /// })?;
@@ -45,7 +45,8 @@ pub(crate) fn now_ms() -> u64 {
 pub struct ReservationOptions {
     /// Baseline, wait budget and Git timeout.
     pub acquire: AcquireOptions,
-    /// Task label, at most 256 bytes, usable with [`Pool::lease_by_task`]; never an
+    /// Repository-unique task label, 1..128 ASCII letters, digits, dots, underscores
+    /// or hyphens, excluding UUID-shaped strings. Usable with [`Pool::lease_by_task`]; never an
     /// ownership credential.
     pub task: Option<String>,
     /// Unique logical operation key, 1..128 bytes. Reuse only to retry the same task/base.
@@ -86,8 +87,17 @@ impl ReservationOptions {
         {
             return Err(Error::new(
                 ErrorCode::InvalidArgument,
-                "Task must be 1..256 bytes and request key 1..128 bytes",
+                "Task and request key must be 1..128 bytes",
             ));
+        }
+        if self.task.as_ref().is_some_and(|task| {
+            !task
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
+                || uuid::Uuid::parse_str(task).is_ok()
+        }) {
+            return Err(Error::new(ErrorCode::InvalidArgument,
+                "Task must use ASCII letters, digits, dots, underscores or hyphens and must not resemble a UUID"));
         }
         // Labels are shown in terminals and tables; control characters could
         // forge output or run terminal escape sequences.
@@ -305,7 +315,46 @@ impl Pool {
 
     /// Permanent lock serializing reservations that share one task label.
     fn label_lock_path(&self, task: &str) -> Result<PathBuf> {
-        request_lock_path(&self.repo, task, true)
+        let directory = self.repo.namespace_root().join("task-labels");
+        repository::mkdir(&directory)?;
+        repository::owned_dir(&directory)?;
+        let digest = state::hex(Sha256::digest(task.as_bytes()));
+        Ok(directory.join(format!("{}.lock", &digest[..2])))
+    }
+
+    // Registry records accelerate diagnosis, but never confer ownership. Always
+    // reconcile against protections under the repository label lock, including
+    // pools created by older versions and crashes before registry publication.
+    fn label_reservations(&self, task: &str) -> Result<Vec<(crate::PoolName, LeaseInfo)>> {
+        let mut matches = Vec::new();
+        for repo in crate::namespace::repositories(&self.repo)? {
+            if crate::namespace::summary(&repo)?.phase != crate::PoolPhase::Ready {
+                continue;
+            }
+            let pool = Pool::load(repo, self.git_timeout)?;
+            for lease in pool.protected_leases()? {
+                if lease.task.as_deref() == Some(task) {
+                    matches.push((pool.repo.name.clone(), lease));
+                }
+            }
+        }
+        Ok(matches)
+    }
+
+    fn record_label(&self, lease: &LeaseInfo) -> Result<()> {
+        if let Some(task) = &lease.task {
+            let digest = state::hex(Sha256::digest(task.as_bytes()));
+            state::write(
+                &self
+                    .repo
+                    .namespace_root()
+                    .join("task-labels")
+                    .join(format!("{digest}.json")),
+                &serde_json::json!({"schema_version": state::SCHEMA_VERSION, "task": task,
+                    "pool": self.repo.name, "reservation_id": lease.lease_id}),
+            )?;
+        }
+        Ok(())
     }
 
     /// Open (creating if needed) and wait for a permanent request/label lock.
@@ -394,9 +443,6 @@ impl Pool {
         let _key_guard = match &options.request_key {
             Some(key) => {
                 let guard = self.lock_request_key(key, &options.acquire)?;
-                if let Some(info) = self.resume_request(key, &options)? {
-                    return Ok(info);
-                }
                 Some(guard)
             }
             None => None,
@@ -404,27 +450,46 @@ impl Pool {
         // Task labels select reservations, so at most one active reservation may
         // carry each label. A permanent per-label lock serializes the check with
         // protection publication, so concurrent acquisitions cannot both pass.
-        let _label_guard = match &options.task {
+        let _label_guard = options
+            .task
+            .as_ref()
+            .map(|task| self.lock_permanent(&self.label_lock_path(task)?, &options.acquire))
+            .transpose()?;
+        let resumed = options
+            .request_key
+            .as_ref()
+            .map(|key| self.resume_request(key, &options))
+            .transpose()?
+            .flatten();
+        match &options.task {
             Some(task) => {
-                let guard = self.lock_permanent(&self.label_lock_path(task)?, &options.acquire)?;
-                if let Some(existing) = self
-                    .protected_leases()?
-                    .into_iter()
-                    .find(|lease| lease.task.as_deref() == Some(task.as_str()))
-                {
+                let matches = self.label_reservations(task)?;
+                if matches.len() > 1 {
+                    return Err(Error::new(ErrorCode::InvalidArgument, format!(
+                        "Task '{task}' has legacy duplicate reservations in pools {}. Release each by reservation UUID and reacquire with distinct labels; no reservation was changed",
+                        matches.iter().map(|(name, _)| name.to_string()).collect::<Vec<_>>().join(", "))));
+                }
+                if let Some((pool, existing)) = matches.first().filter(|(_, existing)| {
+                    resumed
+                        .as_ref()
+                        .is_none_or(|info| info.lease_id != existing.lease_id)
+                }) {
                     return Err(Error::new(
                         ErrorCode::InvalidArgument,
-                        "An active reservation already has this task label; reuse it, release it, or choose another label",
+                        format!("Task '{task}' is already active in pool '{pool}'; use its reservation, release it, or choose another label"),
                     )
                     .with_details(|d| {
                         d.lease_id = Some(existing.lease_id);
                         d.worktree_path = Some(existing.worktree_path.clone());
                     }));
                 }
-                Some(guard)
             }
-            None => None,
-        };
+            None => (),
+        }
+        if let Some(info) = resumed {
+            self.record_label(&info)?;
+            return Ok(info);
+        }
         let base = options.acquire.base.clone();
         let mut lease = self.acquire(options.acquire)?;
         lease.info.task = options.task;
@@ -444,6 +509,7 @@ impl Pool {
         )?;
         lease.protect_from_reuse()?;
         state::checkpoint("reservation-protected");
+        self.record_label(&lease.info)?;
         self.record_request(&lease.info, false)?;
         state::checkpoint("reservation-journaled");
         Ok(lease.info)

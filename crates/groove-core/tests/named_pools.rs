@@ -34,6 +34,12 @@ fn options() -> ReservationOptions {
         ..Default::default()
     }
 }
+fn named_options(task: &str) -> ReservationOptions {
+    ReservationOptions {
+        task: Some(task.into()),
+        ..options()
+    }
+}
 fn remove(repo: &Repo, value: &str) -> groove_core::DestroyResult {
     Pool::destroy_named(
         &repo.path,
@@ -47,8 +53,10 @@ fn remove(repo: &Repo, value: &str) -> groove_core::DestroyResult {
 }
 
 #[test]
-fn pools_isolate_capacity_labels_request_keys_and_settings() {
-    if !support::in_subprocess("pools_isolate_capacity_labels_request_keys_and_settings") {
+fn pools_isolate_capacity_request_keys_and_settings_with_repository_unique_labels() {
+    if !support::in_subprocess(
+        "pools_isolate_capacity_request_keys_and_settings_with_repository_unique_labels",
+    ) {
         return;
     }
     let repo = Repo::new();
@@ -56,14 +64,23 @@ fn pools_isolate_capacity_labels_request_keys_and_settings() {
     let back = create(&repo, "backend");
     let default = create(&repo, "default");
     let f = front.reserve(options()).unwrap();
-    let b = back.reserve(options()).unwrap();
-    let d = default.reserve(options()).unwrap();
+    assert_eq!(
+        back.reserve(options()).unwrap_err().code,
+        ErrorCode::InvalidArgument
+    );
+    let b = back.reserve(named_options("backend-task")).unwrap();
+    let d = default.reserve(named_options("default-task")).unwrap();
     assert_eq!(f.slot_id, b.slot_id);
     assert_eq!(b.slot_id, d.slot_id);
     assert_ne!(f.worktree_path, b.worktree_path);
     assert_ne!(b.worktree_path, d.worktree_path);
     assert_eq!(front.reserve(options()).unwrap().lease_id, f.lease_id);
-    assert_eq!(back.reserve(options()).unwrap().lease_id, b.lease_id);
+    assert_eq!(
+        back.reserve(named_options("backend-task"))
+            .unwrap()
+            .lease_id,
+        b.lease_id
+    );
     assert_eq!(
         back.acquire(Default::default()).unwrap_err().code,
         ErrorCode::PoolExhausted
@@ -89,14 +106,19 @@ fn pools_isolate_capacity_labels_request_keys_and_settings() {
         front.reserve(options()).unwrap_err().code,
         ErrorCode::InvalidLease
     );
-    assert_eq!(back.reserve(options()).unwrap().lease_id, b.lease_id);
+    assert_eq!(
+        back.reserve(named_options("backend-task"))
+            .unwrap()
+            .lease_id,
+        b.lease_id
+    );
     remove(&repo, "frontend");
     assert_eq!(
-        back.lease_by_task("same-task").unwrap().lease_id,
+        back.lease_by_task("backend-task").unwrap().lease_id,
         b.lease_id
     );
     assert_eq!(
-        default.lease_by_task("same-task").unwrap().lease_id,
+        default.lease_by_task("default-task").unwrap().lease_id,
         d.lease_id
     );
     assert_eq!(back.settings().unwrap().pool_name, name("backend"));
@@ -113,7 +135,7 @@ fn ambiguous_destruction_and_wrong_generations_preserve_every_pool() {
     let back = create(&repo, "backend");
     drop(default.acquire(Default::default()).unwrap());
     let f = front.reserve(options()).unwrap();
-    let b = back.reserve(options()).unwrap();
+    let b = back.reserve(named_options("backend-task")).unwrap();
     fs::write(b.worktree_path.join("result"), "backend result").unwrap();
     assert_eq!(
         Pool::destroy(&repo.path, Default::default())
@@ -147,7 +169,12 @@ fn ambiguous_destruction_and_wrong_generations_preserve_every_pool() {
         fs::read_to_string(b.worktree_path.join("result")).unwrap(),
         "backend result"
     );
-    assert_eq!(back.reserve(options()).unwrap().lease_id, b.lease_id);
+    assert_eq!(
+        back.reserve(named_options("backend-task"))
+            .unwrap()
+            .lease_id,
+        b.lease_id
+    );
     let catalog = Pool::list_pools(&repo.path, DEFAULT_GIT_TIMEOUT).unwrap();
     assert_eq!(
         catalog
@@ -308,7 +335,7 @@ fn legacy_default_layout_and_linked_worktree_discovery_keep_their_identity() {
     }
     let repo = Repo::new();
     let default = create(&repo, "default");
-    let d = default.reserve(options()).unwrap();
+    let d = default.reserve(named_options("default-task")).unwrap();
     let path = repo.state().join("locks/wt-0001.lock");
     let inode = fs::metadata(&path).unwrap().ino();
     // Simulate the earlier ready format: no lifecycle record, same permanent locks.
@@ -316,7 +343,13 @@ fn legacy_default_layout_and_linked_worktree_discovery_keep_their_identity() {
     let default = Pool::open(&repo.path).unwrap();
     let front = create(&repo, "frontend");
     assert_eq!(fs::metadata(path).unwrap().ino(), inode);
-    assert_eq!(default.reserve(options()).unwrap().lease_id, d.lease_id);
+    assert_eq!(
+        default
+            .reserve(named_options("default-task"))
+            .unwrap()
+            .lease_id,
+        d.lease_id
+    );
     let linked = repo.temp.path().join("linked");
     repo.git(&["worktree", "add", "--detach", linked.to_str().unwrap()]);
     fs::write(linked.join("tracked.txt"), "linked head").unwrap();

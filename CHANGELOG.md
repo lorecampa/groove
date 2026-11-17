@@ -1,5 +1,12 @@
 # Changelog
 
+- Task labels are now repository-wide, coordinated by permanent repository label
+  locks and a reconciled advisory registry. Existing duplicate labels remain
+  protected and require explicit release by UUID before reuse with distinct names.
+  Request keys remain pool-local. Upgrade all writers together; never remove old
+  per-pool or repository lock files. Core task validation now matches the CLI's
+  ASCII, 128-character, non-UUID label grammar.
+
 - Task commands accept positional labels/UUIDs and `path` prints a reservation's
   checkout path. Unnamed CLI acquisitions receive generated labels, stable across
   retries with the same key. `--task` and `--reservation-id` remain accepted with
