@@ -182,12 +182,24 @@ jobs:
       - name: Case-sensitive APFS ownership, readiness and snapshot regressions
         if: matrix.rust == '1.89.0'
         run: |
-          image="$RUNNER_TEMP/groove-apfs.sparseimage"
-          mount="$RUNNER_TEMP/groove-apfs"
-          hdiutil create -size 2g -type SPARSE -fs 'Case-sensitive APFS' -volname GrooveTests "$image"
-          mkdir -p "$mount"
-          hdiutil attach -nobrowse -mountpoint "$mount" "$image"
-          trap 'hdiutil detach "$mount"' EXIT
+          # Exercise native APFS, without a nested sparse-image backing store.
+          mount="$RUNNER_TEMP/groove-apfs.noindex"
+          test ! -e "$mount"
+          mkdir "$mount"
+          apfs_container=$(diskutil info -plist / | plutil -extract APFSContainerReference raw -)
+          [[ $apfs_container =~ ^disk[0-9]+$ ]]
+          apfs_name="GrooveTests-$(uuidgen)"
+          sudo diskutil apfs addVolume "$apfs_container" APFSX "$apfs_name" -mountpoint "$mount" -quota 2g
+          apfs_device=$(diskutil info -plist "$mount" | plutil -extract DeviceIdentifier raw -)
+          [[ $apfs_device =~ ^disk[0-9]+s[0-9]+$ ]]
+          test "$(diskutil info -plist "$apfs_device" | plutil -extract VolumeName raw -)" = "$apfs_name"
+          cleanup_apfs() {
+            # Never remove a volume whose identity differs from the one created.
+            test "$(diskutil info -plist "$apfs_device" | plutil -extract VolumeName raw -)" = "$apfs_name" || return 1
+            sudo diskutil apfs deleteVolume "$apfs_device"
+          }
+          trap cleanup_apfs EXIT
+          sudo chown "$(id -u):$(id -g)" "$mount"
           mkdir -m 700 "$mount/scratch"
           mkdir "$mount/scratch/CaseProbe"
           test ! -e "$mount/scratch/caseprobe"
