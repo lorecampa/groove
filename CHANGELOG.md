@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Buffer metadata JSON fragments before writing, without changing stored bytes,
+  atomic publication or the file and directory syncs required for durability.
+
 - Recheck advisory process observations before refusing handoff: a child that
   exited during a process scan no longer causes a stale workspace-in-use error.
   Live and permission-denied processes remain blockers; descriptor ownership

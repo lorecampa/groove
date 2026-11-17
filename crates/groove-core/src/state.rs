@@ -147,13 +147,22 @@ fn write_unlabelled<T: Serialize>(path: &Path, value: &T) -> Result<()> {
         .parent()
         .ok_or_else(|| Error::new(crate::ErrorCode::IoError, "Missing metadata parent"))?;
     let mut tmp = tempfile::NamedTempFile::new_in(parent)?;
-    serde_json::to_writer(&mut tmp, value)?;
-    tmp.write_all(b"\n")?;
+    write_json(&mut tmp, value)?;
     tmp.as_file().sync_all()?;
     checkpoint("metadata-synced");
     tmp.persist(path).map_err(|e| Error::from(e.error))?;
     checkpoint("metadata-renamed");
     File::open(parent)?.sync_all()?;
+    Ok(())
+}
+
+fn write_json<T: Serialize>(writer: impl Write, value: &T) -> Result<()> {
+    // Serde emits many punctuation/string fragments. Batch those writes with
+    // bounded memory, and propagate flush failure before syncing or publishing.
+    let mut writer = std::io::BufWriter::new(writer);
+    serde_json::to_writer(&mut writer, value)?;
+    writer.write_all(b"\n")?;
+    writer.flush()?;
     Ok(())
 }
 pub(crate) fn sync_dir(path: &Path) -> Result<()> {
@@ -189,4 +198,60 @@ pub(crate) fn hex(bytes: impl AsRef<[u8]>) -> String {
         write!(result, "{byte:02x}").expect("writing to a String cannot fail");
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Default)]
+    struct MetadataSink {
+        bytes: Vec<u8>,
+        writes: usize,
+        fail_flush: bool,
+    }
+
+    impl Write for MetadataSink {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.writes += 1;
+            self.bytes.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            if self.fail_flush {
+                Err(std::io::Error::other("metadata flush failed"))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    #[test]
+    fn metadata_serialization_batches_fragments_without_changing_bytes() {
+        let value = serde_json::json!({
+            "schema_version": 1,
+            "slots": (0..64).map(|n| (format!("wt-{n:04}"), n)).collect::<BTreeMap<_, _>>(),
+            "description": "quotes: \" and newline: \n".repeat(32),
+        });
+        let mut sink = MetadataSink::default();
+        write_json(&mut sink, &value).unwrap();
+        let mut expected = serde_json::to_vec(&value).unwrap();
+        expected.push(b'\n');
+        assert_eq!(sink.bytes, expected);
+        assert!(
+            sink.writes <= 2,
+            "small metadata used {} writes",
+            sink.writes
+        );
+    }
+
+    #[test]
+    fn metadata_flush_errors_are_not_reported_as_success() {
+        let sink = MetadataSink {
+            fail_flush: true,
+            ..Default::default()
+        };
+        assert!(write_json(sink, &serde_json::json!({"value": 1})).is_err());
+    }
 }
