@@ -9,6 +9,10 @@
 
 ### Changed
 
+- `workspace-deletion` v4 confirms deletion with `--yes`, names the default pool
+  once a second pool exists and gives the sibling pool its own task label; v3
+  failed against the current CLI.
+
 - `workspace-multi-pool` v4 qualifies task labels and request keys with their pool.
   Labels are unique across the repository, so v3 reused `prime-0` in a second pool
   and failed on every Groove version since repository-wide labels.

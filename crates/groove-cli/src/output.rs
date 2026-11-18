@@ -317,7 +317,10 @@ fn error_hint(
                             .map_or((pool_command, String::new()), |(command, options)| {
                                 (command, format!(" {options}"))
                             });
-                        format!("groove pool {command} {}{options}{selection}", pool.as_str())
+                        format!(
+                            "groove pool {command} {}{options}{selection}",
+                            pool.as_str()
+                        )
                     } else if let Some(id) = error
                         .details
                         .lease_id

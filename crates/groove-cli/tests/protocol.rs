@@ -921,7 +921,10 @@ fn common_failures_have_the_same_advice_in_human_and_json_output() {
         let hint = response["error"]["hint"].as_str().unwrap();
         assert!(hint.contains(action), "{hint}");
         assert!(!hint.contains("--force"));
-        assert!(!hint.contains("  "), "copyable commands are single-spaced: {hint}");
+        assert!(
+            !hint.contains("  "),
+            "copyable commands are single-spaced: {hint}"
+        );
         let human = support::groove_human_in(&r.path)
             .env("GROOVE_LOG_ENABLED", "false")
             .env("XDG_CONFIG_HOME", r.path.join("config-home"))

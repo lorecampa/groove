@@ -633,17 +633,20 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
         binary,
         repo,
         "survivor",
-        &["acquire", "--task", "slot-0"],
+        &["acquire", "--task", "survivor-0"],
     )?;
     let sibling_file = path(&sibling)?.join("sibling-result");
     fs::write(&sibling_file, b"preserved sibling")?;
+    // Labels are unique across the repository and acquisition needs an explicit
+    // pool once a second pool exists.
     let mut leases = Vec::new();
     if materialized {
         for i in 0..slots {
-            let (lease, _) = call(
+            let (lease, _) = named(
                 runner,
                 binary,
                 repo,
+                "default",
                 &[
                     "acquire",
                     "--task",
@@ -716,7 +719,7 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
             runner,
             binary,
             repo,
-            &["pool", "destroy"],
+            &["pool", "destroy", "--yes"],
             "INVALID_ARGUMENT",
             2,
         )?,
@@ -773,7 +776,8 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
     let id = preview["destruction"]["pool_id"]
         .as_str()
         .ok_or_else(|| Error::Invalid("Missing pool generation".into()))?;
-    args.extend(["--pool-id", id]);
+    // Deletion without a terminal requires explicit confirmation.
+    args.extend(["--pool-id", id, "--yes"]);
     let (deleted, timing) = named(runner, binary, repo, "default", &args)?;
     require(
         deleted["destruction"]["deleted"] == true,
@@ -859,7 +863,15 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
         runner,
         binary,
         repo,
-        &["--pool", "default", "pool", "destroy", "--pool-id", id],
+        &[
+            "--pool",
+            "default",
+            "pool",
+            "destroy",
+            "--pool-id",
+            id,
+            "--yes",
+        ],
         "CONFIG_CONFLICT",
         4,
     )?;
@@ -880,6 +892,8 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
             binary,
             repo,
             &[
+                "--pool",
+                "default",
                 "acquire",
                 "--task",
                 "slot-0",
@@ -927,7 +941,7 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
         binary,
         repo,
         "survivor",
-        &["show", "--task", "slot-0"],
+        &["show", "--task", "survivor-0"],
     )?;
     require(
         shown["reservation"]["reservation_id"] == sibling["reservation_id"]
@@ -939,10 +953,16 @@ fn deletion(runner: &Runner, binary: &Path, repo: &Path, case: &Case) -> Result<
         binary,
         repo,
         "survivor",
-        &["release", "--task", "slot-0", "--force"],
+        &["release", "--task", "survivor-0", "--force"],
     )?;
     evidence.checked("sibling_preserved");
-    let (fresh, _) = call(runner, binary, repo, &["acquire", "--task", "replacement"])?;
+    let (fresh, _) = named(
+        runner,
+        binary,
+        repo,
+        "default",
+        &["acquire", "--task", "replacement"],
+    )?;
     pristine(runner, repo, &fresh)?;
     release(runner, binary, repo, "replacement", false)?;
     evidence.checked("reinitialized");
