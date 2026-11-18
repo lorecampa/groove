@@ -883,7 +883,11 @@ impl Pool {
             .slots
             .get(slot)
             .ok_or_else(|| Error::new(crate::ErrorCode::InvalidLease, "Unknown slot"))?;
-        let guard = match SlotGuard::try_lock(&self.repo.lock_path(slot), Some(*identity))? {
+        let guard = match SlotGuard::claim_reserved(
+            &self.repo.lock_path(slot),
+            *identity,
+            self.git_timeout,
+        )? {
             Some(guard) => guard,
             None => {
                 // A background preparer may own an already released generation.

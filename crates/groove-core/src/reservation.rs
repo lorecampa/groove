@@ -684,13 +684,17 @@ impl Pool {
             .slots
             .get(&info.slot_id)
             .ok_or_else(|| Error::new(ErrorCode::InvalidLease, "Unknown slot"))?;
-        let guard = SlotGuard::try_lock(&pool.repo.lock_path(&info.slot_id), Some(*expected))?
-            .ok_or_else(|| {
-                Error::new(
-                    ErrorCode::InvalidLease,
-                    "Reservation has a live descriptor owner",
-                )
-            })?;
+        let guard = SlotGuard::claim_reserved(
+            &pool.repo.lock_path(&info.slot_id),
+            *expected,
+            self.git_timeout,
+        )?
+        .ok_or_else(|| {
+            Error::new(
+                ErrorCode::InvalidLease,
+                "Reservation has a live descriptor owner",
+            )
+        })?;
         let record: SlotRecord = state::read(&pool.repo.record_path(&info.slot_id))?;
         let protection: state::ReuseProtection =
             state::read(&pool.repo.protection_path(&info.slot_id))?;

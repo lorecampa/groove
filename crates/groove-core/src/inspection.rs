@@ -171,11 +171,16 @@ impl Pool {
         let mut failure = Failure::default();
         failure.keep(self.validate_ready_state(slot));
         let lock_held = failure
-            .keep(SlotGuard::try_lock(
+            .keep(SlotGuard::try_shared(
                 &self.repo.lock_path(slot),
                 Some(identity),
             ))
-            .is_some_and(|guard| guard.is_none());
+            .is_some_and(|guard| {
+                if guard.is_some() {
+                    state::checkpoint("inspection-slot-probe");
+                }
+                guard.is_none()
+            });
         let record = failure
             .keep(state::read::<SlotRecord>(&self.repo.record_path(slot)))
             .filter(|record| {

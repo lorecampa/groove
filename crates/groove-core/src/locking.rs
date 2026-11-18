@@ -71,6 +71,31 @@ impl SlotGuard {
     pub fn try_lock(path: &Path, expected: Option<Identity>) -> Result<Option<Self>> {
         Self::try_mode(path, expected, libc::LOCK_EX)
     }
+    /// Claim an existing reservation, allowing brief shared inspection probes to finish.
+    /// An exclusive descriptor owner still rejects the claim immediately.
+    pub fn claim_reserved(
+        path: &Path,
+        expected: Identity,
+        timeout: Duration,
+    ) -> Result<Option<Self>> {
+        let start = Instant::now();
+        loop {
+            let guard = Self::try_lock(path, Some(expected))?;
+            if guard.is_some() || start.elapsed() >= timeout {
+                return Ok(guard);
+            }
+            // A shared probe distinguishes compatible readers from a live owner.
+            // Drop it before retrying exclusive acquisition on a fresh descriptor.
+            if Self::try_shared(path, Some(expected))?.is_none() {
+                return Ok(None);
+            }
+            crate::state::checkpoint("waiting-for-slot-inspection");
+            std::thread::sleep(
+                Duration::from_millis(5).min(timeout.saturating_sub(start.elapsed())),
+            );
+        }
+    }
+
     pub fn try_shared(path: &Path, expected: Option<Identity>) -> Result<Option<Self>> {
         Self::try_mode(path, expected, libc::LOCK_SH)
     }
