@@ -267,7 +267,8 @@ fn sample_timed_out_child(pid: u32) -> String {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()?;
-        let deadline = Instant::now() + Duration::from_secs(3);
+        // Symbolication can outlast collection on loaded Intel macOS runners.
+        let deadline = Instant::now() + Duration::from_secs(10);
         loop {
             let status = match sampler.try_wait() {
                 Ok(status) => status,

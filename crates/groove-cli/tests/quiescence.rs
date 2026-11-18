@@ -614,6 +614,17 @@ fn a_shared_writable_mapping_blocks_release_and_reacquisition_after_fd_close() {
 #[cfg(feature = "test-hooks")]
 #[test]
 fn release_waits_for_a_concurrent_read_only_inspection() {
+    inspection_release("inspection-before-git", "waiting-for-inspection");
+}
+
+#[cfg(feature = "test-hooks")]
+#[test]
+fn release_waits_for_the_slot_ownership_probe() {
+    inspection_release("inspection-slot-probe", "waiting-for-slot-inspection");
+}
+
+#[cfg(feature = "test-hooks")]
+fn inspection_release(observation: &str, waiting_for: &str) {
     use std::{io::Write, os::unix::net::UnixListener};
     let repo = Repo::new();
     ok(&cli(
@@ -635,21 +646,21 @@ fn release_waits_for_a_concurrent_read_only_inspection() {
     let mut command = support::groove_in(&repo.path);
     command
         .args(["show", "--details", "--task", "observed"])
-        .env("GROOVE_TEST_CHECKPOINT", "inspection-before-git")
+        .env("GROOVE_TEST_CHECKPOINT", observation)
         .env("GROOVE_TEST_SOCKET", &socket);
     let mut inspector = support::TestChild::spawn(&mut command);
     let mut stream = inspector
-        .checkpoint(&listener, "inspection-before-git", support::PROCESS_TIMEOUT)
+        .checkpoint(&listener, observation, support::PROCESS_TIMEOUT)
         .unwrap();
     let waiting = UnixListener::bind(repo.temp.path().join("waiting.sock")).unwrap();
     let mut releaser = support::TestChild::spawn(
         support::groove_in(&repo.path)
             .args(["release", "--task", "observed"])
-            .env("GROOVE_TEST_CHECKPOINT", "waiting-for-inspection")
+            .env("GROOVE_TEST_CHECKPOINT", waiting_for)
             .env("GROOVE_TEST_SOCKET", repo.temp.path().join("waiting.sock")),
     );
     let mut waiting_stream = releaser
-        .checkpoint(&waiting, "waiting-for-inspection", support::PROCESS_TIMEOUT)
+        .checkpoint(&waiting, waiting_for, support::PROCESS_TIMEOUT)
         .unwrap();
     waiting_stream.write_all(b"continue\n").unwrap();
     drop(waiting_stream);
