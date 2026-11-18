@@ -4,6 +4,11 @@
 
 ### Changed
 
+- Select bounded snapshot EOL audit paths with literal pathspecs and filter their
+  text rules with one `check-attr` query. Attribute pathspecs made Git evaluate
+  every rule against every index entry, so a three-file change in a 1.5M-path
+  repository took 28 s instead of under one second; the full audit still streams.
+
 - Keep `-h` concise and `--help` detailed, with command-specific output contracts.
   `--json` changes stdout formatting only: both help forms use the existing
   `result.text` envelope without changing their content. Installed help topics

@@ -219,6 +219,7 @@ fn snapshot_audits_changed_physical_paths_without_rescanning_verified_text() {
         r#"#!/bin/sh
 case " $* " in
   *' --eol '*':(attr:text)'*) echo 'full text audit revisits verified files' >&2; exit 64 ;;
+  *' --eol '*'attr:'*) echo 'bounded audit evaluates attribute pathspecs over the whole index' >&2; exit 65 ;;
 esac
 exec "$GROOVE_REAL_GIT" "$@"
 "#,
@@ -253,6 +254,51 @@ exec "$GROOVE_REAL_GIT" "$@"
         fs::read(workspace.join("tracked.txt")).unwrap(),
         b"baseline\r\n"
     );
+}
+
+#[test]
+fn bounded_and_full_eol_audits_select_the_same_text_rules() {
+    // The bounded audit filters candidate paths with check-attr instead of
+    // attribute pathspecs; both must reject exactly the same hidden CRLF edits.
+    for (rule, hidden) in [
+        ("text", true),
+        ("text=auto", true),
+        ("eol=lf", true),
+        ("crlf", true),
+        ("crlf=input", true),
+        ("-text", false),
+        ("binary", false),
+        ("", false),
+    ] {
+        let repo = Repo::new();
+        fs::write(repo.path.join(".gitattributes"), format!("*.txt {rule}\n")).unwrap();
+        repo.git(&["add", "."]);
+        repo.git(&["commit", "-qm", "attribute baseline"]);
+        init(&repo, "default", "1");
+        cli(&repo.path, &["acquire", "--task", "audit"]);
+        let workspace = repo.slot(1);
+        let outcome = |dir: &Path| {
+            fs::write(dir.join("tracked.txt"), "baseline\r\n").unwrap();
+            let added = support::command(dir, "git")
+                .args(["add", "tracked.txt"])
+                .output()
+                .unwrap();
+            assert!(added.status.success(), "{rule}: {added:?}");
+            support::groove_in(dir)
+                .args(["snapshot", "save", "audit"])
+                .output()
+                .unwrap()
+                .status
+                .code()
+        };
+        let bounded = outcome(&workspace);
+        let full = outcome(&repo.path);
+        assert_eq!(
+            bounded, full,
+            "rule {rule:?}: bounded and full audits differ"
+        );
+        assert_eq!(bounded, Some(if hidden { 2 } else { 0 }), "rule {rule:?}");
+    }
 }
 
 #[test]
