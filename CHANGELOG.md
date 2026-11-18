@@ -4,6 +4,11 @@
 
 ### Fixed
 
+- Change detection for release, inspection and background preparation streams
+  `git status` instead of capturing it. An interrupted checkout of a large
+  repository listed more than the 1 MiB capture bound, so the slot reported
+  "Git operation exceeded its output limit" instead of its changes.
+
 - Copyable `groove pool ...` hints no longer contain a double space when the
   suggested command has no options.
 

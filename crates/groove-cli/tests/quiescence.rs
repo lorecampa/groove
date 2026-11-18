@@ -394,6 +394,23 @@ fn release_refuses_unsaved_changes_unless_forced_and_save_preserves_them() {
 }
 
 #[test]
+fn change_detection_reads_status_beyond_the_capture_bound() {
+    // An interrupted checkout can list every path. Status larger than the 1 MiB
+    // capture bound must still report changes rather than an output-limit error.
+    let repo = Repo::new();
+    ok(&cli(&repo, &["pool", "init", "--capacity", "1"]));
+    let path = acquire(&repo, "large");
+    let name = "u".repeat(100);
+    for i in 0..12_000 {
+        fs::write(Path::new(&path).join(format!("{name}-{i}")), "").unwrap();
+    }
+    let refused = error(&cli(&repo, &["release", "--task", "large"]));
+    assert_eq!(refused["code"], "UNSAVED_CHANGES", "{refused}");
+    assert_eq!(refused["details"]["changes"]["untracked"], true);
+    ok(&cli(&repo, &["release", "--force", "--task", "large"]));
+}
+
+#[test]
 fn plain_release_preserves_detached_commits_until_saved_or_explicitly_discarded() {
     for preservation in ["branch", "snapshot", "force"] {
         let repo = Repo::new();
