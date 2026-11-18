@@ -92,7 +92,10 @@ jobs:
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: target/distribution/*.tar.gz
-          sbom-path: target/distribution/groove-${{ needs.validate.outputs.version }}-${{ matrix.target }}.cdx.json
+          # The bundled CycloneDX inventory is deterministic and omits the optional
+          # serialNumber that the action uses for automatic format detection.
+          predicate-type: https://cyclonedx.org/bom
+          predicate-path: target/distribution/groove-${{ needs.validate.outputs.version }}-${{ matrix.target }}.cdx.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-binaries-${{ matrix.target }}
