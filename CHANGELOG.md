@@ -4,6 +4,10 @@
 
 ### Changed
 
+- Resolve the test runner's Git through each native candidate's `--exec-path`.
+  Compiled Git wrappers on managed hosts previously became the pinned test Git
+  and failed every isolated fixture; native executables that are not Git are skipped.
+
 - Select bounded snapshot EOL audit paths with literal pathspecs and filter their
   text rules with one `check-attr` query. Attribute pathspecs made Git evaluate
   every rule against every index entry, so a three-file change in a 1.5M-path

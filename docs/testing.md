@@ -82,8 +82,10 @@ Do not turn on automatic retries to conceal flaky tests.
 
 The Cargo test runner isolates system/global Git configuration, sets umask 022,
 and pins a native Git executable ahead of shell wrappers before libtest starts.
-It selects the first native Git on PATH, or the absolute executable supplied by
-`GROOVE_TEST_GIT`. This also preserves CI's minimum-Git selection. Set that override
+It resolves the first native Git on PATH through that executable's own
+`--exec-path`, so compiled wrappers lead to the Git they wrap and native
+executables that are not Git are skipped. `GROOVE_TEST_GIT` supplies an absolute
+executable instead. This also preserves CI's minimum-Git selection. Set that override
 on hosts whose only apparent Git is a wrapper; the runner refuses to execute a
 script to discover what it wraps. Tests can still explicitly install their own
 wrapper/configuration to exercise failures. Ordinary `cargo run` is unchanged.

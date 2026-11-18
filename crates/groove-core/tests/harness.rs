@@ -34,6 +34,9 @@ fn harness_peer() {
             assert_eq!(std::env::var("GIT_CONFIG_GLOBAL").unwrap(), "/dev/null");
             assert_eq!(std::env::var("GIT_CONFIG_SYSTEM").unwrap(), "/dev/null");
             assert_eq!(std::env::var("GIT_CONFIG_NOSYSTEM").unwrap(), "1");
+            if let Some(impostor) = std::env::var_os("GROOVE_HARNESS_IMPOSTOR_GIT") {
+                assert_ne!(std::env::var_os("GROOVE_TEST_GIT").unwrap(), impostor);
+            }
             let output = Command::new("git").arg("--version").output().unwrap();
             assert!(output.status.success(), "{output:?}");
             assert!(output.stdout.starts_with(b"git version "));
@@ -119,6 +122,37 @@ fn cargo_runner_isolates_git_wrappers_configuration_and_umask() {
             Ok(())
         });
     }
+    let output = support::TestChild::spawn(&mut command)
+        .wait_with_output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+}
+
+#[test]
+fn cargo_runner_resolves_native_git_wrappers_to_real_git() {
+    // A compiled wrapper passes the ELF/Mach-O check; the runner must still
+    // skip a native executable that is not Git and resolve the real binary.
+    let temp = support::tempdir();
+    let impostor = temp.path().join("git");
+    std::os::unix::fs::symlink(std::env::current_exe().unwrap(), &impostor).unwrap();
+    let runner = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/runner.sh");
+    let mut command = Command::new("bash");
+    command
+        .arg(runner)
+        .arg(std::env::current_exe().unwrap())
+        .args(["--exact", "harness_peer", "--nocapture"])
+        .env_remove("GROOVE_TEST_GIT")
+        .env(
+            "PATH",
+            format!(
+                "{}:{}",
+                temp.path().display(),
+                std::env::var("PATH").unwrap()
+            ),
+        )
+        .env("GROOVE_HARNESS_PEER", "isolated-git")
+        .env("GROOVE_HARNESS_IMPOSTOR_GIT", &impostor)
+        .env("GROOVE_HARNESS_MODE_FILE", temp.path().join("mode"));
     let output = support::TestChild::spawn(&mut command)
         .wait_with_output()
         .unwrap();
