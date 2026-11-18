@@ -44,7 +44,7 @@ pub struct PoolDefaults {
 impl PoolDefaults {
     fn validate(&self) -> Result<()> {
         if self.ready_target > groove_core::MAX_CAPACITY {
-            return Err(invalid("pool_defaults.ready_target cannot exceed 4096"));
+            return Err(invalid("pool-defaults.ready-target cannot exceed 4096"));
         }
         Ok(())
     }

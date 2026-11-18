@@ -9,6 +9,26 @@ use groove_core::{LeaseInfo, Pool, PoolInspection, PoolOptions, Result, SlotId, 
 use serde_json::json;
 use std::path::PathBuf;
 
+/// Human rendering of pool settings using the keys `pool get`/`pool set` accept;
+/// JSON keeps its versioned field names.
+fn settings_text(settings: &serde_json::Value, depth: usize) -> String {
+    let Some(object) = settings.as_object() else {
+        return fields(settings, depth);
+    };
+    let renamed: serde_json::Map<_, _> = object
+        .iter()
+        .map(|(key, value)| {
+            let key = match key.as_str() {
+                "cleanup_policy" => "cleanup".to_owned(),
+                "worktree_root" | "workspace_root" => "workspace-root".to_owned(),
+                other => other.replace('_', "-"),
+            };
+            (key, value.clone())
+        })
+        .collect();
+    fields(&serde_json::Value::Object(renamed), depth)
+}
+
 pub fn get(context: &Context<'_>, key: &str) -> Result<Output> {
     let normalized = key.replace('_', "-");
     let field = match normalized.as_str() {
@@ -460,7 +480,8 @@ pub fn show(
     sort_slots(&mut inspection.slots, sort);
     let (slots, pagination) = page.apply(inspection.slots);
     inspection.slots = slots;
-    let mut text = fields(&serde_json::to_value(&settings)?, 0) + "\n" + &slot_table(&inspection);
+    let mut text =
+        settings_text(&serde_json::to_value(&settings)?, 0) + "\n" + &slot_table(&inspection);
     let mut value = json!({ "pool": settings, "inspection": inspection });
     let ready = pool.ready_report()?;
     text.push_str(&format!(
@@ -564,7 +585,7 @@ pub fn set(
     };
     let text = format!(
         "{headline}\n{}",
-        fields(&serde_json::to_value(&result.pool)?, 1)
+        settings_text(&serde_json::to_value(&result.pool)?, 1)
     );
     Output::text(result, text)
 }

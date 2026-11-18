@@ -4,6 +4,12 @@
 
 ### Changed
 
+- Shorten generated task labels to `task-` plus 12 hex digits, still derived
+  from the idempotency key when one is supplied. Human `pool show` and `pool set`
+  output names settings with the keys `pool get`/`pool set` accept, such as
+  `cleanup` and `git-timeout`; JSON fields are unchanged. Help and errors spell
+  configuration keys in kebab-case.
+
 - Resolve the test runner's Git through each native candidate's `--exec-path`.
   Compiled Git wrappers on managed hosts previously became the pinned test Git
   and failed every isolated fixture; native executables that are not Git are skipped.
