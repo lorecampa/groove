@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.6.1] - 2026-11-18
+
 ### Fixed
 
 - Reservation release and checkpoint operations wait for read-only slot inspection probes while continuing to reject a live exclusive owner.
