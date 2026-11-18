@@ -63,7 +63,8 @@ impl ReservationOptions {
     /// ```
     /// use groove_core::ReservationOptions;
     /// let options = ReservationOptions::default().with_generated_task();
-    /// assert!(options.task.unwrap().starts_with("task-"));
+    /// let task = options.task.unwrap();
+    /// assert!(task.starts_with("task-") && task.len() == 17);
     /// ```
     pub fn with_generated_task(mut self) -> Self {
         if self.task.is_none() {
@@ -71,7 +72,9 @@ impl ReservationOptions {
                 || uuid::Uuid::new_v4().simple().to_string(),
                 |key| state::hex(Sha256::digest(key.as_bytes())),
             );
-            self.task = Some(format!("task-{suffix}"));
+            // 48 bits keeps labels short enough to type while collisions among
+            // a repository's active labels stay negligible; reserve rejects any.
+            self.task = Some(format!("task-{}", &suffix[..12]));
         }
         self
     }

@@ -3,7 +3,7 @@
   "fixture_version": 1,
   "profiles": [
     {
-      "id": "workspace-build", "version": 3,
+      "id": "workspace-build", "version": 4,
       "purpose": "Time to verified offline build output over 10k source-shaped paths and 32 real C compilation units: pristine, pristine with an external ccache, and warm residue in balanced case order. Repeat, source/flag changes, return to A and cache loss; measure acquire/build/validation/release and total task time. Pools disable automatic preparation and idle eviction.",
       "environment": "cli-linux-amd64-v5",
       "sampling": {"blocks": 6, "warmup_blocks": 1, "balanced_cases": true},
@@ -78,8 +78,8 @@
       ]
     },
     {
-      "id": "workspace-multi-pool", "version": 3,
-      "purpose": "First registration and warm acquire/release throughput across named pools sharing Git administration, with independent repeated task labels/keys and catalog verification. Pools disable automatic preparation and idle eviction.",
+      "id": "workspace-multi-pool", "version": 4,
+      "purpose": "First registration and warm acquire/release throughput across named pools sharing Git administration, with pool-qualified task labels/keys and catalog verification. Pools disable automatic preparation and idle eviction.",
       "environment": "cli-linux-amd64-v5",
       "sampling": {"blocks": 10, "warmup_blocks": 1},
       "estimated_minutes": [1, 5],
@@ -89,7 +89,7 @@
       ]
     },
     {
-      "id": "workspace-deletion", "version": 3,
+      "id": "workspace-deletion", "version": 4,
       "purpose": "Preview, ambiguity rejection, pool deletion/retry and reinitialization for lazy, populated, dirty and external cached checkouts with automatic spare preparation and idle eviction disabled; verify retained results/locks and an untouched protected sibling.",
       "environment": "cli-linux-amd64-v5",
       "sampling": {"blocks": 10, "warmup_blocks": 1},

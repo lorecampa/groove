@@ -376,8 +376,14 @@ impl Pool {
         timeout: Duration,
         inherit: &[std::os::fd::RawFd],
     ) -> Result<WorkspaceGitStatus> {
+        use std::io::BufRead;
         self.validate_workspace(slot)?;
-        let bytes = crate::git::Git::new(timeout).run_with(
+        // Spool rather than capture: an interrupted checkout can list every
+        // tracked path, far beyond the capture bound, and only three facts are
+        // needed. The spool lives in pool state so it never appears in the
+        // inspected workspace.
+        let tmp = self.repo.root.join("tmp");
+        let output = crate::git::Git::new(timeout).spool(
             path,
             &[
                 "status",
@@ -392,11 +398,16 @@ impl Pool {
             crate::git::Invocation {
                 inherit,
                 reject_stderr: true,
+                spool_directory: Some(&tmp),
                 ..Default::default()
             },
         )?;
         let mut facts = WorkspaceGitStatus::default();
-        for entry in bytes.split(|byte| *byte == 0).filter(|e| !e.is_empty()) {
+        for entry in std::io::BufReader::new(output).split(0) {
+            let entry = entry?;
+            if entry.is_empty() {
+                continue;
+            }
             if entry.len() < 3 {
                 return Err(Error::new(
                     ErrorCode::GitError,

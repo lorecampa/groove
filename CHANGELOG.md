@@ -2,7 +2,47 @@
 
 ## Unreleased
 
+## [0.6.0] - 2026-11-18
+
+### Fixed
+
+- Change detection for release, inspection and background preparation streams
+  `git status` instead of capturing it. An interrupted checkout of a large
+  repository listed more than the 1 MiB capture bound, so the slot reported
+  "Git operation exceeded its output limit" instead of its changes.
+
+- Copyable `groove pool ...` hints no longer contain a double space when the
+  suggested command has no options.
+
 ### Changed
+
+- `workspace-deletion` v4 confirms deletion with `--yes`, names the default pool
+  once a second pool exists and gives the sibling pool its own task label; v3
+  failed against the current CLI.
+
+- `workspace-multi-pool` v4 qualifies task labels and request keys with their pool.
+  Labels are unique across the repository, so v3 reused `prime-0` in a second pool
+  and failed on every Groove version since repository-wide labels.
+
+- `workspace-build` v4 records the compiler command in its fixture Makefile so warm
+  reuse rebuilds after a flags change. Verified clean reuse keeps untouched mtimes,
+  so the v3 fixture failed on every Groove version; failures now name the phase,
+  cleanup policy and expected/actual output.
+
+- Shorten generated task labels to `task-` plus 12 hex digits, still derived
+  from the idempotency key when one is supplied. Human `pool show` and `pool set`
+  output names settings with the keys `pool get`/`pool set` accept, such as
+  `cleanup` and `git-timeout`; JSON fields are unchanged. Help and errors spell
+  configuration keys in kebab-case.
+
+- Resolve the test runner's Git through each native candidate's `--exec-path`.
+  Compiled Git wrappers on managed hosts previously became the pinned test Git
+  and failed every isolated fixture; native executables that are not Git are skipped.
+
+- Select bounded snapshot EOL audit paths with literal pathspecs and filter their
+  text rules with one `check-attr` query. Attribute pathspecs made Git evaluate
+  every rule against every index entry, so a three-file change in a 1.5M-path
+  repository took 28 s instead of under one second; the full audit still streams.
 
 - Keep `-h` concise and `--help` detailed, with command-specific output contracts.
   `--json` changes stdout formatting only: both help forms use the existing

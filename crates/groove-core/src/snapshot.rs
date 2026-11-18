@@ -76,6 +76,39 @@ fn now() -> u64 {
         .unwrap_or_default()
         .as_secs()
 }
+/// Reject a text path whose working CRLF bytes Git's LF normalization hides.
+fn reject_hidden_crlf(header: &[u8], path: &[u8]) -> Result<()> {
+    let mut fields = header
+        .split(|byte| *byte == b' ')
+        .filter(|field| !field.is_empty());
+    let index = fields
+        .next()
+        .and_then(|field| field.strip_prefix(b"i/"))
+        .ok_or_else(|| invalid("Malformed Git EOL inventory"))?;
+    let working = fields
+        .next()
+        .and_then(|field| field.strip_prefix(b"w/"))
+        .ok_or_else(|| invalid("Malformed Git EOL inventory"))?;
+    if !fields
+        .next()
+        .is_some_and(|field| field.starts_with(b"attr/"))
+    {
+        return Err(invalid("Malformed Git EOL inventory"));
+    }
+    // Unchanged explicit CRLF base paths restore through ordinary
+    // checkout. Changed ones are rejected by validate_attributes.
+    if header.windows(8).any(|part| part == b"eol=crlf") {
+        return Ok(());
+    }
+    if index != working && [b"crlf".as_slice(), b"mixed"].contains(&working) {
+        return Err(unsupported(format!(
+            "Text path {} has CRLF line endings that Git normalization hides from its LF index entry; snapshots preserve exact bytes and do not support checkouts that write text as CRLF (core.autocrlf or core.eol)",
+            OsStr::from_bytes(path).to_string_lossy()
+        )));
+    }
+    Ok(())
+}
+
 fn paths(bytes: &[u8]) -> impl Iterator<Item = &[u8]> {
     bytes.split(|b| *b == 0).filter(|p| !p.is_empty())
 }
@@ -742,13 +775,12 @@ impl Snapshots {
         use std::ffi::OsString;
         use std::os::unix::ffi::OsStringExt;
         let rules = ["text", "text=auto", "eol=lf", "crlf", "crlf=input"];
-        let full = || {
-            let mut args: Vec<OsString> =
-                ["ls-files", "--eol", "-z", "--"].map(Into::into).to_vec();
-            args.extend(rules.map(|rule| format!(":(attr:{rule})").into()));
-            args
-        };
-        let mut args = full();
+        let mut args: Vec<OsString> = ["ls-files", "--eol", "-z", "--"].map(Into::into).to_vec();
+        args.extend(rules.map(|rule| format!(":(attr:{rule})").into()));
+        // Attribute pathspecs make Git evaluate every rule against every index
+        // entry, so a bounded audit selects candidate paths literally and
+        // filters their attributes afterwards with one check-attr query.
+        let mut bounded = false;
         if let Some(pool) = &self.pool {
             if let Some(head) = self.head()? {
                 if let Some(mut physical) = crate::recovery::snapshot_audit_paths(
@@ -759,28 +791,27 @@ impl Snapshots {
                 )? {
                     physical.extend_from_slice(names);
                     let selected: BTreeSet<_> = paths(&physical).collect();
-                    let mut bounded: Vec<OsString> =
+                    let mut literal: Vec<OsString> =
                         ["ls-files", "--eol", "-z", "--"].map(Into::into).to_vec();
                     let mut bytes = 0;
-                    for path in selected {
-                        for rule in rules {
-                            // The physical inventory can contain a case-only
-                            // spelling change on macOS while the index retains
-                            // the original name. Audit every matching index path.
-                            let mut literal = format!(":(literal,icase,attr:{rule})").into_bytes();
-                            literal.extend_from_slice(path);
-                            bytes += literal.len() + 1;
-                            bounded.push(OsString::from_vec(literal));
-                        }
+                    for path in &selected {
+                        // The physical inventory can contain a case-only
+                        // spelling change on macOS while the index retains
+                        // the original name. Audit every matching index path.
+                        let mut spec = b":(literal,icase)".to_vec();
+                        spec.extend_from_slice(path);
+                        bytes += spec.len() + 1;
+                        literal.push(OsString::from_vec(spec));
                         if bytes > 64 * 1024 {
                             break;
                         }
                     }
                     if bytes <= 64 * 1024 {
-                        if bounded.len() == 4 {
+                        if selected.is_empty() {
                             return Ok(());
                         }
-                        args = bounded;
+                        args = literal;
+                        bounded = true;
                     }
                 }
             }
@@ -799,45 +830,82 @@ impl Snapshots {
                 ..Invocation::snapshot()
             },
         )?;
+        let split = |record: &[u8]| -> Result<(Vec<u8>, Vec<u8>)> {
+            let tab = record
+                .iter()
+                .position(|byte| *byte == b'\t')
+                .ok_or_else(|| invalid("Malformed Git EOL inventory"))?;
+            Ok((record[..tab].to_vec(), record[tab + 1..].to_vec()))
+        };
+        if !bounded {
+            // The full audit can list most of a large repository; stream it.
+            return path_batches(eols, |batch| {
+                for record in paths(batch) {
+                    let (header, path) = split(record)?;
+                    reject_hidden_crlf(&header, &path)?;
+                }
+                Ok(())
+            });
+        }
+        // A bounded audit holds at most 64 KiB of selected paths.
+        let mut records = Vec::new();
         path_batches(eols, |batch| {
             for record in paths(batch) {
-                let tab = record
-                    .iter()
-                    .position(|byte| *byte == b'\t')
-                    .ok_or_else(|| invalid("Malformed Git EOL inventory"))?;
-                let header = &record[..tab];
-                let mut fields = header
-                    .split(|byte| *byte == b' ')
-                    .filter(|field| !field.is_empty());
-                let index = fields
-                    .next()
-                    .and_then(|field| field.strip_prefix(b"i/"))
-                    .ok_or_else(|| invalid("Malformed Git EOL inventory"))?;
-                let working = fields
-                    .next()
-                    .and_then(|field| field.strip_prefix(b"w/"))
-                    .ok_or_else(|| invalid("Malformed Git EOL inventory"))?;
-                if !fields
-                    .next()
-                    .is_some_and(|field| field.starts_with(b"attr/"))
-                {
-                    return Err(invalid("Malformed Git EOL inventory"));
-                }
-                // Unchanged explicit CRLF base paths restore through ordinary
-                // checkout. Changed ones are rejected by validate_attributes.
-                if header.windows(8).any(|part| part == b"eol=crlf") {
-                    continue;
-                }
-                if index != working && [b"crlf".as_slice(), b"mixed"].contains(&working) {
-                    return Err(unsupported(format!(
-                        "Text path {} has CRLF line endings that Git normalization hides from its LF index entry; snapshots preserve exact bytes and do not support checkouts that write text as CRLF (core.autocrlf or core.eol)",
-                        OsStr::from_bytes(&record[tab + 1..]).to_string_lossy()
-                    )));
-                }
+                records.push(split(record)?);
             }
             Ok(())
         })?;
+        if records.is_empty() {
+            return Ok(());
+        }
+        let mut input = Vec::new();
+        for (_, path) in &records {
+            input.extend_from_slice(path);
+            input.push(0);
+        }
+        let text = self.text_rule_paths(&input, lock)?;
+        for (header, path) in &records {
+            if text.contains(path) {
+                reject_hidden_crlf(header, path)?;
+            }
+        }
         Ok(())
+    }
+
+    /// Paths matched by the full audit's attribute pathspecs: `text`,
+    /// `text=auto`, `eol=lf`, `crlf` and `crlf=input`, using the same
+    /// check-in attribute lookup as `ls-files` pathspec matching.
+    fn text_rule_paths(&self, names: &[u8], lock: &SnapshotLock) -> Result<BTreeSet<Vec<u8>>> {
+        let attrs = self.run(
+            &["check-attr", "-z", "--stdin", "text", "eol", "crlf"],
+            None,
+            Some(names),
+            Some(lock),
+        )?;
+        let attrs = attrs.strip_suffix(&[0]).unwrap_or(&attrs);
+        if attrs.is_empty() {
+            return Ok(BTreeSet::new());
+        }
+        let fields: Vec<_> = attrs.split(|b| *b == 0).collect();
+        let (triples, remainder) = fields.as_chunks::<3>();
+        if !remainder.is_empty() {
+            return Err(unsupported("Malformed Git attribute response"));
+        }
+        let mut matched = BTreeSet::new();
+        for [path, attr, value] in triples {
+            let rule = matches!(
+                (*attr, *value),
+                (b"text", b"set")
+                    | (b"text", b"auto")
+                    | (b"eol", b"lf")
+                    | (b"crlf", b"set")
+                    | (b"crlf", b"input")
+            );
+            if rule {
+                matched.insert(path.to_vec());
+            }
+        }
+        Ok(matched)
     }
 
     /// Permit LF-preserving text rules and reject other active conversion rules.

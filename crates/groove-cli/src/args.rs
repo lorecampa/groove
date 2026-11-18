@@ -735,7 +735,7 @@ pub enum PoolCommand {
         saved_timeout: Option<u64>,
         /// Name of the pool to create (default: default).
         name: Option<PoolName>,
-        /// Desired ready, unreserved checkouts (default: pool_defaults.ready_target, 0).
+        /// Desired ready, unreserved checkouts (default: pool-defaults.ready-target, 0).
         #[arg(long)]
         ready_target: Option<usize>,
         /// Evict excess idle checkouts after this duration, e.g. 7d, or never.

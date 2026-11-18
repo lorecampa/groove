@@ -487,6 +487,8 @@ fn positional_reservations_generated_labels_and_path_preserve_retry_identity() {
     let generated = invoke(&repo, &["acquire", "--key", "generated-1"], 0);
     let task = generated["result"]["task"].as_str().unwrap();
     assert!(task.starts_with("task-"));
+    assert_eq!(task.len(), "task-".len() + 12, "{task}");
+    assert!(task["task-".len()..].bytes().all(|b| b.is_ascii_hexdigit()));
     assert_eq!(
         invoke(&repo, &["acquire", "--key", "generated-1"], 0)["result"]["reservation_id"],
         generated["result"]["reservation_id"]

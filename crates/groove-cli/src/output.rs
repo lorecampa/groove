@@ -312,10 +312,13 @@ fn error_hint(
             .map(|(index, part)| {
                 let part = if index % 2 == 1 && part.starts_with("groove ") {
                     if let Some(pool_command) = part.strip_prefix("groove pool ") {
-                        let (command, options) =
-                            pool_command.split_once(' ').unwrap_or((pool_command, ""));
+                        let (command, options) = pool_command
+                            .split_once(' ')
+                            .map_or((pool_command, String::new()), |(command, options)| {
+                                (command, format!(" {options}"))
+                            });
                         format!(
-                            "groove pool {command} {} {options}{selection}",
+                            "groove pool {command} {}{options}{selection}",
                             pool.as_str()
                         )
                     } else if let Some(id) = error

@@ -16,6 +16,21 @@ native_git() {
   esac
 }
 
+# A native executable can still be a wrapper (some managed hosts install compiled
+# Git shims). Git's own executable lives in its exec path and reports that same
+# directory, so resolve each native candidate there; skip candidates that are not
+# Git or whose exec path does not contain a consistent native Git.
+real_git() {
+  native_git "$1" || return 1
+  local exec_path
+  exec_path=$(env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    "$1" --exec-path 2>/dev/null) || return 1
+  [[ "$exec_path" == /* ]] && native_git "$exec_path/git" || return 1
+  [[ "$(env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    "$exec_path/git" --exec-path 2>/dev/null)" == "$exec_path" ]] || return 1
+  test_git="$exec_path/git"
+}
+
 test_git=${GROOVE_TEST_GIT:-}
 if [[ -n "$test_git" ]]; then
   if [[ "$test_git" != /* ]] || ! native_git "$test_git"; then
@@ -26,8 +41,7 @@ else
   IFS=: read -r -a search_path <<< "$PATH"
   for directory in "${search_path[@]}" /usr/lib/git-core /usr/libexec/git-core /usr/bin; do
     [[ "$directory" == /* ]] || continue
-    if native_git "$directory/git"; then
-      test_git="$directory/git"
+    if real_git "$directory/git"; then
       break
     fi
   done
