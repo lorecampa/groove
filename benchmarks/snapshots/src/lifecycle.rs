@@ -436,13 +436,16 @@ fn multi_pool(
         evidence.record("pool_init", timing)?;
     }
     let total = pools * workers;
+    // Task labels are unique across the repository, so each pool's workers
+    // use pool-qualified labels and request keys.
+    let label = |kind: &str, i: usize| format!("{}-{kind}-{}", names[i / workers], i % workers);
     let first = parallel(total, |i| {
         named(
             runner,
             binary,
             repo,
             &names[i / workers],
-            &["acquire", "--task", &format!("prime-{}", i % workers)],
+            &["acquire", "--task", &label("prime", i)],
         )
     })?;
     for (i, (lease, timing)) in first.into_iter().enumerate() {
@@ -453,7 +456,7 @@ fn multi_pool(
             binary,
             repo,
             &names[i / workers],
-            &["release", "--task", &format!("prime-{}", i % workers)],
+            &["release", "--task", &label("prime", i)],
         )?;
     }
     let started = Instant::now();
@@ -466,9 +469,9 @@ fn multi_pool(
             &[
                 "acquire",
                 "--task",
-                &format!("worker-{}", i % workers),
+                &label("worker", i),
                 "--idempotency-key",
-                &format!("request-{}", i % workers),
+                &label("request", i),
                 "--wait",
                 "60000ms",
             ],
@@ -535,7 +538,7 @@ fn multi_pool(
     let started = Instant::now();
     let completed = parallel(total, |i| {
         let pool = &names[i / workers];
-        let task = format!("worker-{}", i % workers);
+        let task = label("worker", i);
         let (_, released) = named(runner, binary, repo, pool, &["release", "--task", &task])?;
         Ok(released)
     })?;

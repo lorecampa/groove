@@ -2,7 +2,16 @@
 
 ## Unreleased
 
+### Fixed
+
+- Copyable `groove pool ...` hints no longer contain a double space when the
+  suggested command has no options.
+
 ### Changed
+
+- `workspace-multi-pool` v4 qualifies task labels and request keys with their pool.
+  Labels are unique across the repository, so v3 reused `prime-0` in a second pool
+  and failed on every Groove version since repository-wide labels.
 
 - `workspace-build` v4 records the compiler command in its fixture Makefile so warm
   reuse rebuilds after a flags change. Verified clean reuse keeps untouched mtimes,
