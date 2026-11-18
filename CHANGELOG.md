@@ -4,6 +4,11 @@
 
 ### Changed
 
+- `workspace-build` v4 records the compiler command in its fixture Makefile so warm
+  reuse rebuilds after a flags change. Verified clean reuse keeps untouched mtimes,
+  so the v3 fixture failed on every Groove version; failures now name the phase,
+  cleanup policy and expected/actual output.
+
 - Shorten generated task labels to `task-` plus 12 hex digits, still derived
   from the idempotency key when one is supplied. Human `pool show` and `pool set`
   output names settings with the keys `pool get`/`pool set` accept, such as

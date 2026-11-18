@@ -108,21 +108,27 @@ pub(crate) fn prepare(runner: &Runner, repo: &Path, units: usize) -> Result<()> 
     fs::write(source.join("main.c"), main)?;
     fs::write(
         repo.join("Makefile"),
+        // Retained warm output is only valid if the build tracks its inputs. Make
+        // does not track flags, so record the compiler command in a stamp that is
+        // rewritten only when it changes; untouched sources keep their mtimes.
         concat!(
             "SOURCES := $(wildcard buildsrc/*.c)\n",
             "OBJECTS := $(patsubst buildsrc/%.c,ignored/build/%.o,$(SOURCES))\n",
+            "COMMAND := $(CC) $(CFLAGS)\n",
+            "STAMP := ignored/build/compiler-command\n",
+            "$(shell mkdir -p ignored/build; test \"$$(cat $(STAMP) 2>/dev/null)\" = '$(COMMAND)' || printf '%s\\n' '$(COMMAND)' > $(STAMP))\n",
             "all: ignored/build/app\n",
-            "ignored/build/%.o: buildsrc/%.c buildsrc/config.h Makefile\n",
+            "ignored/build/%.o: buildsrc/%.c buildsrc/config.h Makefile $(STAMP)\n",
             "\t@mkdir -p ignored/build\n\t$(CC) $(CFLAGS) -c $< -o $@\n",
             "ignored/build/app: $(OBJECTS)\n\t$(CC) $(OBJECTS) -o $@\n",
         ),
     )?;
     runner.git(repo, ["add", "-A"])?;
-    runner.git(repo, ["commit", "-qm", "offline-build-a-v1"])?;
+    runner.git(repo, ["commit", "-qm", "offline-build-a-v2"])?;
     runner.git(repo, ["tag", "build-a"])?;
     fs::write(source.join("config.h"), "#define INPUT 11u\n")?;
     runner.git(repo, ["add", "buildsrc/config.h"])?;
-    runner.git(repo, ["commit", "-qm", "offline-build-b-v1"])?;
+    runner.git(repo, ["commit", "-qm", "offline-build-b-v2"])?;
     runner.git(repo, ["tag", "build-b"])?;
     runner.git(repo, ["reset", "--hard", "build-a"])?;
     Ok(())
@@ -314,9 +320,15 @@ pub(crate) fn measure(
             &workspace,
             &[],
         )?;
+        let want = expected(units, input, factor);
         require(
-            output.status.success() && output.stdout == expected(units, input, factor).as_bytes(),
-            "Executed build output differs from independent specification",
+            output.status.success() && output.stdout == want.as_bytes(),
+            format!(
+                "Executed build output differs from independent specification in phase {name} ({cleanup} cleanup): expected {:?}, got {:?} (status {})",
+                want.trim_end(),
+                String::from_utf8_lossy(&output.stdout).trim_end(),
+                output.status
+            ),
         )?;
         evidence.record("validate", validation)?;
         let new = if external {
