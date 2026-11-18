@@ -662,11 +662,11 @@ fn inspection_release(observation: &str, waiting_for: &str) {
     let mut waiting_stream = releaser
         .checkpoint(&waiting, waiting_for, support::PROCESS_TIMEOUT)
         .unwrap();
-    waiting_stream.write_all(b"continue\n").unwrap();
-    drop(waiting_stream);
     stream.write_all(b"continue\n").unwrap();
     drop(stream);
     assert_success_inspection(&inspector.wait_with_output().unwrap());
+    waiting_stream.write_all(b"continue\n").unwrap();
+    drop(waiting_stream);
     ok(&releaser.wait_with_output().unwrap());
     assert!(ok(&cli(&repo, &["list"]))["reservations"]
         .as_array()
