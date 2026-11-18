@@ -34,7 +34,7 @@ jobs:
           ref: ${{ inputs.release_ref || github.ref }}
           persist-credentials: false
       - name: Install test scanner
-        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
           version: 2026.10.13
           sha256: 94c45523c7b6760b7da704f16051171ca32e8447a849a02266a439a4455e9a12
@@ -63,7 +63,7 @@ jobs:
           ref: ${{ inputs.release_ref || github.ref }}
           persist-credentials: false
       - name: Install test scanner
-        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
           version: 2026.10.13
           sha256: 94c45523c7b6760b7da704f16051171ca32e8447a849a02266a439a4455e9a12
@@ -151,7 +151,7 @@ jobs:
           persist-credentials: false
           set-safe-directory: false
       - name: Install test scanner
-        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+        uses: jdx/mise-action@d5574b52816a478f9d4e6529a3f6ff17a8a36785 # v5.2.8
         with:
           version: 2026.10.13
           sha256: ${{ runner.arch == 'ARM64' && '92fd6898dc213808d1c81f0bead9668dbea036e5946c94c0e82554603205a3aa' || '4e4a996f4747eb59d55497fdd4b0d60d3add9a06c0dc5d65a70402015ee445d0' }}
